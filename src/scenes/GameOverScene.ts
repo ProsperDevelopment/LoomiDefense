@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
+import { MAP_DEFINITIONS } from '../data/maps';
 
 interface GameOverData {
   victory: boolean;
   score: number;
   wave: number;
+  levelId?: number;
 }
 
 /**
@@ -23,6 +25,7 @@ export class GameOverScene extends Phaser.Scene {
     const isVictory = data.victory;
     const titleColor = isVictory ? '#4CAF50' : '#e74c3c';
     const titleText = isVictory ? 'VICTORY!' : 'DEFEAT';
+    const levelId = data.levelId || 1;
 
     // Title
     const title = this.add.text(width / 2, height / 3, titleText, {
@@ -41,13 +44,29 @@ export class GameOverScene extends Phaser.Scene {
     });
     stats.setOrigin(0.5);
 
+    // Next Level button (only on victory)
+    if (isVictory) {
+      const nextLevelId = levelId + 1;
+      const hasNextLevel = MAP_DEFINITIONS.some(m => m.id === nextLevelId);
+      if (hasNextLevel) {
+        this.createButton(width / 2, height / 2 + 60, 'NEXT LEVEL', () => {
+          this.scene.start('GameScene', { levelId: nextLevelId });
+        });
+      }
+    }
+
     // Play Again button
-    this.createButton(width / 2, height / 2 + 80, 'PLAY AGAIN', () => {
-      this.scene.start('GameScene');
+    this.createButton(width / 2, height / 2 + 120, 'PLAY AGAIN', () => {
+      this.scene.start('GameScene', { levelId });
+    });
+
+    // Level Select button
+    this.createButton(width / 2, height / 2 + 180, 'SELECT LEVEL', () => {
+      this.scene.start('LevelSelectScene');
     });
 
     // Menu button
-    this.createButton(width / 2, height / 2 + 140, 'MAIN MENU', () => {
+    this.createButton(width / 2, height / 2 + 240, 'MAIN MENU', () => {
       this.scene.start('MenuScene');
     });
   }

@@ -32,7 +32,12 @@ export class MenuScene extends Phaser.Scene {
 
     // Play button
     this.createButton(width / 2, height / 2 + 40, 'PLAY', () => {
-      this.scene.start('GameScene');
+      this.scene.start('GameScene', { levelId: 1 });
+    });
+
+    // Level Select button
+    this.createButton(width / 2, height / 2 + 100, 'SELECT LEVEL', () => {
+      this.scene.start('LevelSelectScene');
     });
 
     // Instructions

@@ -4,7 +4,9 @@ import { Grid } from '../../src/utils/Grid';
 import type { MapData } from '../../src/types';
 
 const testMap: MapData = {
+  id: 1,
   name: 'PathTest',
+  description: 'Pathfinding test map',
   width: 5,
   height: 3,
   cellSize: 48,

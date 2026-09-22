@@ -12,7 +12,7 @@ interface SpawnEntry {
 
 /**
  * Manages wave spawning logic.
- * Tracks current wave, spawning timers, and wave completion.
+ * Supports auto-start with countdown and early start bonus.
  */
 export class WaveManager {
   private waves: WaveData[];
@@ -24,6 +24,15 @@ export class WaveManager {
   private waveActive: boolean = false;
   private totalEnemiesInWave: number = 0;
   private enemiesSpawnedThisWave: number = 0;
+
+  // Auto-start settings
+  private autoStartDelay: number = 15000; // 15 seconds
+  private autoStartTimer: number = 0;
+  private autoStartEnabled: boolean = true;
+  private waitingForNextWave: boolean = false;
+
+  // Early start bonus
+  private earlyStartBonus: number = 25;
 
   // Callbacks
   onSpawnEnemy: ((enemyType: EnemyType) => void) | null = null;
@@ -57,6 +66,18 @@ export class WaveManager {
     return this.waveActive;
   }
 
+  isWaitingForNextWave(): boolean {
+    return this.waitingForNextWave;
+  }
+
+  getAutoStartTimer(): number {
+    return Math.ceil((this.autoStartDelay - this.autoStartTimer) / 1000);
+  }
+
+  getEarlyStartBonus(): number {
+    return this.earlyStartBonus;
+  }
+
   getEnemiesSpawnedInWave(): number {
     return this.enemiesSpawnedThisWave;
   }
@@ -65,12 +86,26 @@ export class WaveManager {
     return this.totalEnemiesInWave;
   }
 
+  /**
+   * Start the first wave manually or trigger auto-start countdown
+   */
+  startFirstWave(): void {
+    if (this.currentWaveIndex === 0 && !this.waveActive && !this.waitingForNextWave) {
+      this.startWave();
+    }
+  }
+
+  /**
+   * Start the current wave
+   */
   startWave(): boolean {
     if (this.waveActive || this.isComplete()) return false;
 
     const wave = this.waves[this.currentWaveIndex];
     this.waveActive = true;
+    this.waitingForNextWave = false;
     this.waveTimer = 0;
+    this.autoStartTimer = 0;
     this.entries = [];
     this.entryTimers = [];
     this.activeEntryIndex = 0;
@@ -93,14 +128,50 @@ export class WaveManager {
   }
 
   /**
-   * Returns the number of enemies currently alive in the wave.
-   * Called externally by GameScene to track wave completion.
+   * Start wave early for bonus gold
    */
-  onEnemyDied(): void {
-    // Wave completion is tracked externally
+  startWaveEarly(): number {
+    if (!this.waitingForNextWave || this.waveActive) return 0;
+
+    const bonus = this.earlyStartBonus;
+    this.startWave();
+    return bonus;
+  }
+
+  /**
+   * Called when wave is cleared, starts auto-start countdown
+   */
+  completeWave(): void {
+    if (!this.waveActive) return;
+
+    const waveNumber = this.getWaveNumber();
+    this.waveActive = false;
+    this.currentWaveIndex++;
+
+    eventBus.emit('wave-cleared', { waveNumber });
+
+    if (this.isComplete()) {
+      eventBus.emit('all-waves-cleared', {});
+      this.onAllWavesCleared?.();
+    } else {
+      // Start auto-start countdown
+      this.waitingForNextWave = true;
+      this.autoStartTimer = 0;
+    }
+
+    this.onWaveCleared?.(waveNumber);
   }
 
   update(deltaMs: number): void {
+    // Handle auto-start countdown
+    if (this.waitingForNextWave && !this.waveActive) {
+      this.autoStartTimer += deltaMs;
+      if (this.autoStartTimer >= this.autoStartDelay) {
+        this.startWave();
+      }
+      return;
+    }
+
     if (!this.waveActive) return;
 
     this.waveTimer += deltaMs;
@@ -129,31 +200,6 @@ export class WaveManager {
         this.entryTimers[i] = entry.spawnDelay;
       }
     }
-
-    // Check if all entries are done spawning
-    if (allDone && this.waveActive) {
-      // Wave spawning is complete; GameScene tracks when all enemies are dead
-    }
-  }
-
-  /**
-   * Call when all enemies in a wave are dead or have reached base.
-   */
-  completeWave(): void {
-    if (!this.waveActive) return;
-
-    const waveNumber = this.getWaveNumber();
-    this.waveActive = false;
-    this.currentWaveIndex++;
-
-    eventBus.emit('wave-cleared', { waveNumber });
-
-    if (this.isComplete()) {
-      eventBus.emit('all-waves-cleared', {});
-      this.onAllWavesCleared?.();
-    }
-
-    this.onWaveCleared?.(waveNumber);
   }
 
   reset(): void {
@@ -162,6 +208,8 @@ export class WaveManager {
     this.entryTimers = [];
     this.waveTimer = 0;
     this.waveActive = false;
+    this.waitingForNextWave = false;
+    this.autoStartTimer = 0;
     this.enemiesSpawnedThisWave = 0;
     this.totalEnemiesInWave = 0;
   }

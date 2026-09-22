@@ -11,6 +11,11 @@ const ENEMY_SPRITES: Record<EnemyType, { key: string; anim: string }> = {
   basic: { key: 'enemy_ant', anim: 'ant_walk' },
   fast: { key: 'enemy_bat', anim: 'bat_fly' },
   armored: { key: 'enemy_monster', anim: 'monster_walk' },
+  healer: { key: 'enemy_ant', anim: 'ant_walk' },
+  swarm: { key: 'enemy_ant', anim: 'ant_walk' },
+  tank: { key: 'enemy_monster', anim: 'monster_walk' },
+  elite: { key: 'enemy_monster', anim: 'monster_walk' },
+  boss: { key: 'enemy_monster', anim: 'monster_walk' },
 };
 
 /**

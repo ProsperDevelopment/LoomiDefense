@@ -18,7 +18,7 @@ describe('Enemy', () => {
 
   it('initializes with correct type data', () => {
     expect(enemy.type).toBe('basic');
-    expect(enemy.data.hp).toBe(100);
+    expect(enemy.data.hp).toBe(80);
     expect(enemy.data.speed).toBe(60);
     expect(enemy.alive).toBe(true);
     expect(enemy.reachedBase).toBe(false);
@@ -56,11 +56,11 @@ describe('Enemy', () => {
   it('different types have different stats', () => {
     const fast = new Enemy('fast', simplePath);
     expect(fast.data.speed).toBe(120);
-    expect(fast.data.hp).toBe(60);
+    expect(fast.data.hp).toBe(50);
 
     const armored = new Enemy('armored', simplePath);
     expect(armored.data.armor).toBe(5);
-    expect(armored.data.hp).toBe(300);
+    expect(armored.data.hp).toBe(250);
   });
 
   it('accepts custom ID', () => {

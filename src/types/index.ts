@@ -4,9 +4,12 @@
 
 // --- Grid & Map ---
 export type CellType = 'empty' | 'path' | 'tower' | 'blocked' | 'spawn' | 'base';
+export type RoadDirection = 'horizontal' | 'vertical' | 'curve_tl' | 'curve_tr' | 'curve_bl' | 'curve_br' | 'cross' | 't_up' | 't_down' | 't_left' | 't_right';
 
 export interface MapData {
+  id: number;
   name: string;
+  description: string;
   width: number;
   height: number;
   cellSize: number;
@@ -42,17 +45,18 @@ export interface TowerUpgradeData {
 }
 
 // --- Enemies ---
-export type EnemyType = 'basic' | 'fast' | 'armored';
+export type EnemyType = 'basic' | 'fast' | 'armored' | 'healer' | 'swarm' | 'tank' | 'elite' | 'boss';
 
 export interface EnemyData {
   type: EnemyType;
   name: string;
   hp: number;
-  speed: number;          // pixels per second
-  armor: number;          // flat damage reduction
-  reward: number;         // gold earned on kill
+  speed: number;
+  armor: number;
+  reward: number;
   color: string;
-  size: number;           // radius in pixels
+  size: number;
+  immuneTo?: TowerType[];
 }
 
 // --- Waves ---

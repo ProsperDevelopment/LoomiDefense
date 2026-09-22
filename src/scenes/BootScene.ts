@@ -116,7 +116,13 @@ export class BootScene extends Phaser.Scene {
       repeat: -1,
     });
 
-    this.scene.start('MenuScene');
+    // Check for URL level parameter
+    const startLevel = (window as any).__START_LEVEL;
+    if (startLevel !== null && !isNaN(startLevel)) {
+      this.scene.start('GameScene', { levelId: startLevel });
+    } else {
+      this.scene.start('MenuScene');
+    }
   }
 
   private generateTerrainTiles(): void {

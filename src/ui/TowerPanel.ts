@@ -1,192 +1,227 @@
 import Phaser from 'phaser';
 import type { TowerType } from '../types';
 import { TOWER_LIST, TOWER_UPGRADES, TOWER_DEFINITIONS } from '../data/towers';
-import { CELL_SIZE } from '../config/constants';
 
 export interface TowerPanelCallbacks {
   onTowerSelect: (type: TowerType | null) => void;
   onSellTower: () => void;
   onUpgradeTower: () => void;
+  canAfford: (cost: number) => boolean;
+  onCancel: () => void;
 }
 
 /**
- * Tower selection panel at the bottom of the screen.
- * Shows available towers and their costs.
+ * Compact popup tower panel that appears at cursor position.
  */
 export class TowerPanel {
   private scene: Phaser.Scene;
-  private selectedTower: TowerType | null = null;
-  private buttons: Phaser.GameObjects.Container[] = [];
-  private selectedIndicator: Phaser.GameObjects.Rectangle | null = null;
-  private bg: Phaser.GameObjects.Rectangle;
   private callbacks: TowerPanelCallbacks;
-
-  // Info display
-  private infoText: Phaser.GameObjects.Text;
-  private sellButton: Phaser.GameObjects.Container | null = null;
-  private upgradeButton: Phaser.GameObjects.Container | null = null;
+  private container: Phaser.GameObjects.Container;
+  private visible: boolean = false;
 
   constructor(scene: Phaser.Scene, callbacks: TowerPanelCallbacks) {
     this.scene = scene;
     this.callbacks = callbacks;
 
-    const panelY = 580;
+    this.container = scene.add.container(0, 0);
+    this.container.setDepth(200);
+    this.container.setVisible(false);
+  }
 
+  showAtCursor(pointerX: number, pointerY: number, mode: 'build' | 'tower', towerData?: { type: TowerType; level: number; sellValue: number }): void {
+    this.container.removeAll(true);
+
+    const width = this.scene.cameras.main.width;
+    const height = this.scene.cameras.main.height;
+
+    // Keep popup within screen bounds
+    let x = pointerX + 20;
+    let y = pointerY - 50;
+    if (x + 180 > width) x = pointerX - 200;
+    if (y < 10) y = 10;
+    if (y + 200 > height) y = height - 200;
+
+    if (mode === 'build') {
+      this.createBuildMenu(x, y);
+    } else if (mode === 'tower' && towerData) {
+      this.createTowerInfoMenu(x, y, towerData);
+    }
+
+    this.container.setVisible(true);
+    this.visible = true;
+  }
+
+  hide(): void {
+    this.container.setVisible(false);
+    this.visible = false;
+  }
+
+  isVisible(): boolean {
+    return this.visible;
+  }
+
+  private createBuildMenu(x: number, y: number): void {
     // Background
-    this.bg = scene.add.rectangle(512, panelY + 60, 1024, 140, 0x222244, 0.95);
-    this.bg.setDepth(100);
+    const bg = this.scene.add.rectangle(0, 0, 180, 180, 0x1a1a3a, 0.95);
+    bg.setStrokeStyle(2, 0x4a4a6a);
+    this.container.add(bg);
+
+    // Title
+    const title = this.scene.add.text(0, -75, 'BUILD TOWER', {
+      fontSize: '11px', color: '#aaaaaa', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.container.add(title);
 
     // Tower buttons
-    const startX = 100;
-    const spacing = 180;
+    TOWER_LIST.forEach((tower, i) => {
+      const btnY = -45 + i * 38;
+      const canAfford = this.callbacks.canAfford(tower.cost);
 
-    TOWER_LIST.forEach((towerData, i) => {
-      const x = startX + i * spacing;
-      const container = this.createTowerButton(x, panelY + 40, towerData);
-      this.buttons.push(container);
-    });
+      const btnBg = this.scene.add.rectangle(0, btnY, 160, 32, canAfford ? 0x2a2a4a : 0x1a1a2a);
+      btnBg.setStrokeStyle(1, canAfford ? 0x4a4a6a : 0x333344);
 
-    // Info text
-    this.infoText = scene.add.text(100, panelY + 90, 'Select a tower to place', {
-      fontSize: '14px',
-      color: '#cccccc',
-      wordWrap: { width: 400 },
-    });
-    this.infoText.setDepth(101);
+      const icon = this.scene.add.rectangle(-60, btnY, 16, 16,
+        Phaser.Display.Color.HexStringToColor(tower.color).color);
 
-    // Sell button (hidden by default)
-    this.sellButton = this.createActionButton(700, panelY + 30, 'SELL', 0xe74c3c, () => {
-      this.callbacks.onSellTower();
-    });
-    this.sellButton?.setVisible(false);
+      const name = this.scene.add.text(-45, btnY - 6, tower.name, {
+        fontSize: '10px', color: canAfford ? '#ffffff' : '#666666',
+      });
 
-    // Upgrade button (hidden by default)
-    this.upgradeButton = this.createActionButton(700, panelY + 70, 'UPGRADE', 0x4CAF50, () => {
-      this.callbacks.onUpgradeTower();
-    });
-    this.upgradeButton?.setVisible(false);
-  }
+      const cost = this.scene.add.text(-45, btnY + 6, `${tower.cost}g`, {
+        fontSize: '9px', color: canAfford ? '#FFD700' : '#666644',
+      });
 
-  private createTowerButton(
-    x: number,
-    y: number,
-    data: { type: TowerType; name: string; cost: number; color: string; description: string },
-  ): Phaser.GameObjects.Container {
-    const container = this.scene.add.container(x, y);
-    container.setDepth(101);
+      this.container.add([btnBg, icon, name, cost]);
 
-    // Button background
-    const bg = this.scene.add.rectangle(0, 0, 140, 60, 0x333355);
-    bg.setStrokeStyle(2, 0x555577);
-
-    // Color indicator
-    const colorRect = this.scene.add.rectangle(-50, 0, 20, 20,
-      Phaser.Display.Color.HexStringToColor(data.color).color);
-
-    // Name
-    const nameText = this.scene.add.text(-30, -12, data.name, {
-      fontSize: '12px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    });
-
-    // Cost
-    const costText = this.scene.add.text(-30, 6, `${data.cost}g`, {
-      fontSize: '11px',
-      color: '#FFD700',
-    });
-
-    container.add([bg, colorRect, nameText, costText]);
-
-    // Interactive
-    bg.setInteractive({ useHandCursor: true });
-    bg.on('pointerdown', () => {
-      this.selectTower(data.type);
-    });
-    bg.on('pointerover', () => {
-      bg.setFillStyle(0x444466);
-      this.infoText.setText(`${data.name}: ${data.description}\nCost: ${data.cost}g`);
-    });
-    bg.on('pointerout', () => {
-      bg.setFillStyle(0x333355);
-    });
-
-    return container;
-  }
-
-  private createActionButton(
-    x: number,
-    y: number,
-    label: string,
-    color: number,
-    onClick: () => void,
-  ): Phaser.GameObjects.Container {
-    const container = this.scene.add.container(x, y);
-    container.setDepth(101);
-
-    const bg = this.scene.add.rectangle(0, 0, 100, 30, color);
-    bg.setStrokeStyle(1, 0xffffff);
-
-    const text = this.scene.add.text(0, 0, label, {
-      fontSize: '12px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-
-    container.add([bg, text]);
-
-    bg.setInteractive({ useHandCursor: true });
-    bg.on('pointerdown', onClick);
-    bg.on('pointerover', () => bg.setFillStyle(color + 0x222222));
-    bg.on('pointerout', () => bg.setFillStyle(color));
-
-    return container;
-  }
-
-  selectTower(type: TowerType | null): void {
-    this.selectedTower = type;
-    this.callbacks.onTowerSelect(type);
-
-    // Update visual selection
-    this.buttons.forEach((btn, i) => {
-      const bg = btn.getAt(0) as Phaser.GameObjects.Rectangle;
-      if (TOWER_LIST[i].type === type) {
-        bg.setStrokeStyle(3, 0xFFD700);
-      } else {
-        bg.setStrokeStyle(2, 0x555577);
+      if (canAfford) {
+        btnBg.setInteractive({ useHandCursor: true });
+        btnBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+          pointer.event.stopPropagation();
+          (this.scene as any).popupClickHandled = true;
+          this.callbacks.onTowerSelect(tower.type);
+          this.hide();
+        });
+        btnBg.on('pointerover', () => btnBg.setFillStyle(0x3a3a5a));
+        btnBg.on('pointerout', () => btnBg.setFillStyle(0x2a2a4a));
       }
     });
+
+    // Cancel button
+    const cancelBg = this.scene.add.rectangle(0, 70, 160, 28, 0x8B0000);
+    cancelBg.setStrokeStyle(1, 0xffffff);
+    const cancelText = this.scene.add.text(0, 70, 'CANCEL', {
+      fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.container.add([cancelBg, cancelText]);
+
+    cancelBg.setInteractive({ useHandCursor: true });
+    cancelBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      pointer.event.stopPropagation();
+      (this.scene as any).popupClickHandled = true;
+      this.callbacks.onCancel();
+      this.hide();
+    });
+    cancelBg.on('pointerover', () => cancelBg.setFillStyle(0xAA0000));
+    cancelBg.on('pointerout', () => cancelBg.setFillStyle(0x8B0000));
+
+    // Position container
+    this.container.setPosition(x + 90, y + 90);
   }
 
-  getSelectedTower(): TowerType | null {
-    return this.selectedTower;
-  }
+  private createTowerInfoMenu(x: number, y: number, data: { type: TowerType; level: number; sellValue: number }): void {
+    const towerDef = TOWER_DEFINITIONS[data.type];
+    const upgradeData = TOWER_UPGRADES[data.level];
+    const canUpgrade = data.level < 3;
+    const upgradeCost = canUpgrade ? Math.floor(towerDef.cost * upgradeData.costMultiplier) : 0;
 
-  showTowerInfo(towerType: TowerType, level: number, sellValue: number): void {
-    const upgradeData = TOWER_UPGRADES[level];
-    let info = `Selected: ${towerType.toUpperCase()} (Lv.${level}) | Sell: ${sellValue}g`;
-    if (upgradeData && level < 3) {
-      const upgradeCost = Math.floor(TOWER_DEFINITIONS[towerType].cost * upgradeData.costMultiplier);
-      info += `\nUpgrade: ${upgradeCost}g | +${Math.round((upgradeData.damageMultiplier - 1) * 100)}% dmg | +${Math.round((upgradeData.rangeMultiplier - 1) * 100)}% range`;
-    } else if (level >= 3) {
-      info += '\nMAX LEVEL';
+    // Background
+    const bg = this.scene.add.rectangle(0, 0, 180, 160, 0x1a1a3a, 0.95);
+    bg.setStrokeStyle(2, 0x4a4a6a);
+    this.container.add(bg);
+
+    // Tower name and level
+    const title = this.scene.add.text(0, -65, `${towerDef.name} Lv.${data.level}`, {
+      fontSize: '12px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.container.add(title);
+
+    // Stats
+    const stats = this.scene.add.text(0, -42, `DMG: ${towerDef.damage} | RNG: ${towerDef.range}`, {
+      fontSize: '9px', color: '#aaaaaa',
+    }).setOrigin(0.5);
+    this.container.add(stats);
+
+    // Sell button
+    const sellBg = this.scene.add.rectangle(0, -15, 140, 28, 0x8B0000);
+    sellBg.setStrokeStyle(1, 0xffffff);
+    const sellText = this.scene.add.text(0, -15, `SELL (+${data.sellValue}g)`, {
+      fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.container.add([sellBg, sellText]);
+
+    sellBg.setInteractive({ useHandCursor: true });
+    sellBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      pointer.event.stopPropagation();
+      (this.scene as any).popupClickHandled = true;
+      this.callbacks.onSellTower();
+      this.hide();
+    });
+    sellBg.on('pointerover', () => sellBg.setFillStyle(0xAA0000));
+    sellBg.on('pointerout', () => sellBg.setFillStyle(0x8B0000));
+
+    // Upgrade button
+    if (canUpgrade) {
+      const upgradeBg = this.scene.add.rectangle(0, 20, 140, 28, 0x2E7D32);
+      upgradeBg.setStrokeStyle(1, 0xffffff);
+      const upgradeText = this.scene.add.text(0, 20, `UPGRADE (${upgradeCost}g)`, {
+        fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      this.container.add([upgradeBg, upgradeText]);
+
+      upgradeBg.setInteractive({ useHandCursor: true });
+      upgradeBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        pointer.event.stopPropagation();
+        (this.scene as any).popupClickHandled = true;
+        this.callbacks.onUpgradeTower();
+        this.hide();
+      });
+      upgradeBg.on('pointerover', () => upgradeBg.setFillStyle(0x43A047));
+      upgradeBg.on('pointerout', () => upgradeBg.setFillStyle(0x2E7D32));
+    } else {
+      const maxText = this.scene.add.text(0, 20, 'MAX LEVEL', {
+        fontSize: '10px', color: '#FFD700', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      this.container.add(maxText);
     }
-    this.infoText.setText(info);
-    this.sellButton?.setVisible(true);
-    this.upgradeButton?.setVisible(level < 3);
+
+    // Cancel button
+    const cancelBg = this.scene.add.rectangle(0, 55, 140, 28, 0x555555);
+    cancelBg.setStrokeStyle(1, 0xffffff);
+    const cancelText = this.scene.add.text(0, 55, 'CLOSE', {
+      fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.container.add([cancelBg, cancelText]);
+
+    cancelBg.setInteractive({ useHandCursor: true });
+    cancelBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      pointer.event.stopPropagation();
+      (this.scene as any).popupClickHandled = true;
+      this.hide();
+    });
+    cancelBg.on('pointerover', () => cancelBg.setFillStyle(0x666666));
+    cancelBg.on('pointerout', () => cancelBg.setFillStyle(0x555555));
+
+    // Position container
+    this.container.setPosition(x + 90, y + 80);
   }
 
-  hideTowerInfo(): void {
-    this.infoText.setText('Select a tower to place');
-    this.sellButton?.setVisible(false);
-    this.upgradeButton?.setVisible(false);
-  }
+  // Legacy methods - no-ops for compatibility
+  selectTower(_type: TowerType | null): void {}
+  getSelectedTower(): TowerType | null { return null; }
+  showTowerInfo(_towerType: TowerType, _level: number, _sellValue: number): void {}
+  hideTowerInfo(): void {}
 
   destroy(): void {
-    this.buttons.forEach(btn => btn.destroy());
-    this.sellButton?.destroy();
-    this.upgradeButton?.destroy();
-    this.bg.destroy();
-    this.infoText.destroy();
+    this.container.destroy();
   }
 }

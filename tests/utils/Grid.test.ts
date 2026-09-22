@@ -3,7 +3,9 @@ import { Grid } from '../../src/utils/Grid';
 import type { MapData, CellType } from '../../src/types';
 
 const testMap: MapData = {
+  id: 1,
   name: 'Test',
+  description: 'Test map',
   width: 4,
   height: 3,
   cellSize: 48,

@@ -9,7 +9,7 @@ import { CELL_SIZE } from '../config/constants';
 /**
  * Tower type to sprite mapping
  */
-const TOWER_SPRITES: Record<TowerType, string> = {
+export const TOWER_SPRITES: Record<TowerType, string> = {
   arrow: 'tower_arrow',
   cannon: 'tower_cannon',
   frost: 'tower_frost',
