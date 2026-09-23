@@ -73,11 +73,11 @@ describe('Grid', () => {
   it('converts grid to world coordinates', () => {
     const pos = grid.gridToWorld(1, 2);
     expect(pos.x).toBe(1 * 48 + 24);
-    expect(pos.y).toBe(2 * 48 + 24);
+    expect(pos.y).toBe(2 * 48 + 24 + 48); // +48 for GRID_OFFSET_Y
   });
 
   it('converts world to grid coordinates', () => {
-    const gc = grid.worldToGrid(50, 100);
+    const gc = grid.worldToGrid(50, 148); // 100 + 48 for GRID_OFFSET_Y
     expect(gc.col).toBe(1);
     expect(gc.row).toBe(2);
   });
@@ -86,7 +86,7 @@ describe('Grid', () => {
     const spawns = grid.getSpawnPixels();
     expect(spawns).toHaveLength(1);
     expect(spawns[0].x).toBe(24); // col 0 * 48 + 24
-    expect(spawns[0].y).toBe(1 * 48 + 24);
+    expect(spawns[0].y).toBe(1 * 48 + 24 + 48); // +48 for GRID_OFFSET_Y
   });
 
   it('gets path pixels', () => {

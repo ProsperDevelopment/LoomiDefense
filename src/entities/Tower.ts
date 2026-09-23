@@ -4,7 +4,7 @@ import { TOWER_DEFINITIONS, TOWER_UPGRADES } from '../data/towers';
 import { Position } from '../components/Position';
 import { Health } from '../components/Health';
 import { Damage } from '../components/Damage';
-import { CELL_SIZE } from '../config/constants';
+import { CELL_SIZE, GRID_OFFSET_Y } from '../config/constants';
 
 /**
  * Tower type to sprite mapping
@@ -132,7 +132,7 @@ export class Tower {
   getWorldPosition(): { x: number; y: number } {
     return {
       x: this.gridCol * CELL_SIZE + CELL_SIZE / 2,
-      y: this.gridRow * CELL_SIZE + CELL_SIZE / 2,
+      y: this.gridRow * CELL_SIZE + CELL_SIZE / 2 + GRID_OFFSET_Y,
     };
   }
 

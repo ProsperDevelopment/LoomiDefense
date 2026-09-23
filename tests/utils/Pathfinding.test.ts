@@ -66,7 +66,7 @@ describe('Pathfinding', () => {
   it('returns pre-computed path from map data', () => {
     const path = pf.getPrecomputedPath();
     expect(path).toHaveLength(4);
-    expect(path[0]).toEqual({ x: 24, y: 72 }); // gridToWorld(0,1)
+    expect(path[0]).toEqual({ x: 24, y: 72 + 48 }); // gridToWorld(0,1) with GRID_OFFSET_Y
   });
 
   it('finds path when start equals end', () => {

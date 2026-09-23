@@ -12,6 +12,7 @@ export const DEV_MODE = true;
 export const GRID_COLS = 16;
 export const GRID_ROWS = 12;
 export const CELL_SIZE = 48;
+export const GRID_OFFSET_Y = 48; // Height of top HUD bar
 
 // --- Economy ---
 export const STARTING_GOLD = 200;

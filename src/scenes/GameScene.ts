@@ -14,7 +14,7 @@ import { TowerPanel } from '../ui/TowerPanel';
 import { WaveIndicator } from '../ui/WaveIndicator';
 import { MAP_DEFINITIONS } from '../data/maps';
 import { TOWER_DEFINITIONS } from '../data/towers';
-import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, LEVEL_STARTING_GOLD, STARTING_GOLD } from '../config/constants';
+import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, LEVEL_STARTING_GOLD, STARTING_GOLD, GRID_OFFSET_Y } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
 import type { WaveData } from '../types';
 
@@ -317,7 +317,7 @@ export class GameScene extends Phaser.Scene {
     for (let row = 0; row < this.grid.rows; row++) {
       for (let col = 0; col < this.grid.cols; col++) {
         const x = col * CELL_SIZE;
-        const y = row * CELL_SIZE;
+        const y = row * CELL_SIZE + GRID_OFFSET_Y;
         this.add.image(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 'tile_grass')
           .setDisplaySize(CELL_SIZE, CELL_SIZE);
       }
@@ -327,15 +327,15 @@ export class GameScene extends Phaser.Scene {
     this.drawSmoothRoad();
 
     for (const spawn of this.grid.getSpawnPixels()) {
-      this.add.rectangle(spawn.x, spawn.y, 20, 20, 0xe74c3c, 0.7);
-      this.add.text(spawn.x, spawn.y, 'S', { fontSize: '14px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+      this.add.rectangle(spawn.x, spawn.y + GRID_OFFSET_Y, 20, 20, 0xe74c3c, 0.7);
+      this.add.text(spawn.x, spawn.y + GRID_OFFSET_Y, 'S', { fontSize: '14px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
     }
 
     const basePixels = this.grid.getPathPixels();
     const basePos = basePixels[basePixels.length - 1];
     if (basePos) {
-      this.add.rectangle(basePos.x, basePos.y, 24, 24, 0x4CAF50, 0.7);
-      this.add.text(basePos.x, basePos.y, 'B', { fontSize: '14px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+      this.add.rectangle(basePos.x, basePos.y + GRID_OFFSET_Y, 24, 24, 0x4CAF50, 0.7);
+      this.add.text(basePos.x, basePos.y + GRID_OFFSET_Y, 'B', { fontSize: '14px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
     }
   }
 

@@ -1,811 +1,409 @@
 import type { MapData, CellType } from '../types';
+import { straight, curve90, curve45, diagonal, combinePaths, type CurvePoint } from '../utils/CurveBuilder';
 
 const _ = 'empty' as CellType;
 const P = 'path' as CellType;
 const S = 'spawn' as CellType;
 const B = 'base' as CellType;
 
+/**
+ * Generate grid from path points.
+ */
+function generateGrid(
+  width: number,
+  height: number,
+  pathPoints: CurvePoint[],
+  spawnPoints: { x: number; y: number }[],
+  basePath: CurvePoint[],
+): CellType[][] {
+  const grid: CellType[][] = [];
+  for (let y = 0; y < height; y++) {
+    grid.push(new Array(width).fill(_));
+  }
+
+  for (const sp of spawnPoints) {
+    if (sp.y >= 0 && sp.y < height && sp.x >= 0 && sp.x < width) {
+      grid[sp.y][sp.x] = S;
+    }
+  }
+
+  for (const p of pathPoints) {
+    if (p.y >= 0 && p.y < height && p.x >= 0 && p.x < width) {
+      if (grid[p.y][p.x] !== S) {
+        grid[p.y][p.x] = P;
+      }
+    }
+  }
+
+  const lastPoint = basePath[basePath.length - 1];
+  if (lastPoint && lastPoint.y >= 0 && lastPoint.y < height && lastPoint.x >= 0 && lastPoint.x < width) {
+    grid[lastPoint.y][lastPoint.x] = B;
+  }
+
+  return grid;
+}
+
+function generateMap(
+  id: number,
+  name: string,
+  description: string,
+  width: number,
+  height: number,
+  spawnX: number,
+  spawnY: number,
+  pathPoints: CurvePoint[],
+): MapData {
+  const spawnPoints = [{ x: spawnX, y: spawnY }];
+  const basePath = pathPoints.map(p => ({ x: p.x, y: p.y }));
+  const grid = generateGrid(width, height, pathPoints, spawnPoints, basePath);
+
+  return { id, name, description, width, height, cellSize: 48, grid, spawnPoints, basePath };
+}
+
+// ============================================================
+// Level Definitions
+// ============================================================
+
 export const MAP_DEFINITIONS: MapData[] = [
-  // Map 1: Simple S-curve
-  {
-    id: 1,
-    name: 'Winding Path',
-    description: 'A simple S-shaped path through green fields',
-    width: 16,
-    height: 12,
-    cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, P, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, P, P, P, P, P, P, P, P, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _, _, _],
-      [_, _, _, _, _, P, P, P, P, P, P, P, _, _, _, _],
-      [_, _, _, _, _, P, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, P, P, P, P, P, P, P, P, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 },
-      { x: 3, y: 2 }, { x: 3, y: 3 },
-      { x: 4, y: 3 }, { x: 5, y: 3 }, { x: 6, y: 3 },
-      { x: 7, y: 3 }, { x: 8, y: 3 }, { x: 9, y: 3 },
-      { x: 10, y: 3 }, { x: 11, y: 3 },
-      { x: 11, y: 4 }, { x: 11, y: 5 },
-      { x: 11, y: 6 }, { x: 10, y: 6 }, { x: 9, y: 6 },
-      { x: 8, y: 6 }, { x: 7, y: 6 }, { x: 6, y: 6 },
-      { x: 5, y: 6 },
-      { x: 5, y: 7 },
-      { x: 5, y: 8 }, { x: 6, y: 8 }, { x: 7, y: 8 },
-      { x: 8, y: 8 }, { x: 9, y: 8 }, { x: 10, y: 8 },
-      { x: 11, y: 8 },
-      { x: 11, y: 9 },
-      { x: 12, y: 9 }, { x: 12, y: 10 },
-      { x: 13, y: 10 }, { x: 14, y: 10 }, { x: 15, y: 10 },
-    ],
-  },
+  // Level 1: Gentle curves (beginner)
+  generateMap(1, 'Winding Path', 'A gentle S-curve through green fields', 16, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 4),
+      curve45(5, 1, 'right', 'down', 2),
+      straight(6, 3, 'down', 2),
+      curve45(6, 5, 'down', 'right', 2),
+      straight(8, 5, 'right', 3),
+      curve45(11, 5, 'right', 'down', 2),
+      straight(12, 7, 'down', 2),
+      curve45(12, 9, 'down', 'right', 1),
+      straight(13, 9, 'right', 2),
+    )
+  ),
 
-  // Map 2: Zigzag
-  {
-    id: 2,
-    name: 'Zigzag Canyon',
-    description: 'A zigzagging path through a rocky canyon',
-    width: 14,
-    height: 12,
-    cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, P, P, P, P, P, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, P, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, P, P, P, P, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 4, y: 2 }, { x: 4, y: 3 },
-      { x: 5, y: 3 }, { x: 6, y: 3 }, { x: 7, y: 3 }, { x: 8, y: 3 },
-      { x: 8, y: 4 }, { x: 8, y: 5 },
-      { x: 9, y: 5 }, { x: 10, y: 5 }, { x: 11, y: 5 },
-      { x: 11, y: 6 }, { x: 11, y: 7 },
-      { x: 12, y: 7 },
-      { x: 12, y: 8 }, { x: 12, y: 9 }, { x: 12, y: 10 },
-    ],
-  },
+  // Level 2: Diagonal zigzag (beginner)
+  generateMap(2, 'Diagonal Canyon', 'A diagonal zigzag through a canyon', 14, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      diagonal(4, 1, 1, 1, 3),
+      straight(7, 4, 'right', 3),
+      diagonal(10, 4, 1, 1, 3),
+      straight(12, 7, 'down', 3),
+    )
+  ),
 
-  // Map 3: Crossroads
-  {
-    id: 3,
-    name: 'Crossroads',
-    description: 'Two roads crossing at a central intersection',
-    width: 16,
-    height: 14,
-    cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, S, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 7 }, { x: 7, y: 0 }],
-    basePath: [
-      // Horizontal path (left to right)
-      { x: 1, y: 7 }, { x: 2, y: 7 }, { x: 3, y: 7 }, { x: 4, y: 7 },
-      { x: 5, y: 7 }, { x: 6, y: 7 }, { x: 7, y: 7 },
-      { x: 8, y: 7 }, { x: 9, y: 7 }, { x: 10, y: 7 }, { x: 11, y: 7 },
-      { x: 12, y: 7 }, { x: 13, y: 7 }, { x: 14, y: 7 }, { x: 15, y: 7 },
-      // Vertical path (top to intersection)
-      { x: 7, y: 1 }, { x: 7, y: 2 }, { x: 7, y: 3 }, { x: 7, y: 4 },
-      { x: 7, y: 5 }, { x: 7, y: 6 },
-      // Vertical path (intersection to bottom)
-      { x: 7, y: 8 }, { x: 7, y: 9 }, { x: 7, y: 10 }, { x: 7, y: 11 },
-      { x: 7, y: 12 },
-    ],
-  },
+  // Level 3: Crossroads (intermediate)
+  generateMap(3, 'Crossroads', 'Two roads crossing at a central intersection', 16, 14, 0, 3,
+    combinePaths(
+      straight(1, 3, 'right', 6),
+      curve90(7, 3, 'right', 'down', 1),
+      straight(7, 4, 'down', 6),
+      curve90(7, 10, 'down', 'right', 1),
+      straight(8, 10, 'right', 7),
+    )
+  ),
 
-  // Map 4: Spiral
-  {
-    id: 4,
-    name: 'Spiral Fortress',
-    description: 'A spiral path leading to the fortress center',
-    width: 14,
-    height: 14,
-    cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, P, P, P, P, P, P, P, P, P, P, _, P, _],
-      [_, P, _, _, _, _, _, _, _, _, P, _, P, _],
-      [_, P, _, P, P, P, P, P, P, _, P, _, P, _],
-      [_, P, _, P, _, _, _, _, P, _, P, _, P, _],
-      [_, P, _, P, _, _, _, _, P, _, P, _, P, _],
-      [_, P, _, P, _, _, _, _, P, _, P, _, P, _],
-      [_, P, _, P, P, P, P, P, P, _, P, _, P, _],
-      [_, P, _, _, _, _, _, _, _, _, P, _, P, _],
-      [_, P, P, P, P, P, P, P, P, P, P, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 12, y: 2 }, { x: 12, y: 3 },
-      { x: 11, y: 3 }, { x: 10, y: 3 }, { x: 9, y: 3 }, { x: 8, y: 3 },
-      { x: 7, y: 3 }, { x: 6, y: 3 }, { x: 5, y: 3 }, { x: 4, y: 3 },
-      { x: 3, y: 3 }, { x: 2, y: 3 },
-      { x: 2, y: 4 }, { x: 2, y: 5 },
-      { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 5, y: 5 }, { x: 6, y: 5 },
-      { x: 7, y: 5 }, { x: 8, y: 5 }, { x: 9, y: 5 }, { x: 10, y: 5 },
-      { x: 10, y: 6 }, { x: 10, y: 7 }, { x: 10, y: 8 },
-      { x: 10, y: 9 },
-      { x: 9, y: 9 }, { x: 8, y: 9 }, { x: 7, y: 9 }, { x: 6, y: 9 },
-      { x: 5, y: 9 }, { x: 4, y: 9 }, { x: 3, y: 9 },
-      { x: 3, y: 10 },
-      { x: 4, y: 10 }, { x: 5, y: 10 }, { x: 6, y: 10 }, { x: 7, y: 10 },
-      { x: 8, y: 10 }, { x: 9, y: 10 }, { x: 10, y: 10 }, { x: 11, y: 10 },
-      { x: 11, y: 11 }, { x: 11, y: 12 },
-      { x: 12, y: 12 },
-    ],
-  },
+  // Level 4: Spiral with 45-degree turns (intermediate)
+  generateMap(4, 'Spiral Fortress', 'A spiral path through the fortress', 14, 14, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 4),
+      curve45(5, 1, 'right', 'down', 2),
+      straight(6, 3, 'down', 3),
+      curve45(6, 6, 'down', 'left', 2),
+      straight(4, 6, 'left', 2),
+      curve45(2, 6, 'left', 'down', 2),
+      straight(2, 8, 'down', 3),
+      curve45(2, 11, 'down', 'right', 2),
+      straight(4, 11, 'right', 4),
+      curve45(8, 11, 'right', 'up', 2),
+      straight(8, 9, 'up', 3),
+      curve45(8, 6, 'up', 'right', 2),
+      straight(10, 6, 'right', 3),
+    )
+  ),
 
-  // Map 5: Two Paths
-  {
-    id: 5,
-    name: 'Twin Peaks',
-    description: 'Two paths converge at the base',
-    width: 16,
-    height: 12,
-    cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, _, _, _, _, _, _, _, _, _, S, P, B],
-      [_, _, _, P, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, P, P, P, P, _, _, P, P, P, P, _, P, _],
-      [_, _, _, _, _, _, P, _, _, P, _, _, P, _, P, _],
-      [_, _, _, _, _, _, P, _, _, P, _, _, P, _, P, _],
-      [_, _, _, _, _, _, P, P, P, P, _, _, P, _, P, _],
-      [_, _, _, _, _, _, _, _, P, _, _, _, P, _, P, _],
-      [_, _, _, _, _, _, _, _, P, _, _, _, P, _, P, _],
-      [_, _, _, _, _, _, _, _, P, P, P, P, P, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }, { x: 13, y: 1 }],
-    basePath: [
-      // Left path
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 },
-      { x: 3, y: 2 }, { x: 3, y: 3 },
-      { x: 4, y: 3 }, { x: 5, y: 3 }, { x: 6, y: 3 },
-      { x: 6, y: 4 }, { x: 6, y: 5 }, { x: 6, y: 6 },
-      { x: 7, y: 6 }, { x: 8, y: 6 },
-      { x: 8, y: 7 }, { x: 8, y: 8 }, { x: 8, y: 9 },
-      { x: 9, y: 9 }, { x: 10, y: 9 }, { x: 11, y: 9 }, { x: 12, y: 9 },
-      { x: 12, y: 8 }, { x: 12, y: 7 }, { x: 12, y: 6 },
-      { x: 12, y: 5 }, { x: 12, y: 4 }, { x: 12, y: 3 },
-      { x: 13, y: 3 },
-      // Right path
-      { x: 14, y: 1 }, { x: 15, y: 1 },
-      { x: 15, y: 2 }, { x: 15, y: 3 }, { x: 15, y: 4 },
-      { x: 15, y: 5 }, { x: 15, y: 6 }, { x: 15, y: 7 },
-      { x: 15, y: 8 }, { x: 15, y: 9 }, { x: 15, y: 10 },
-    ],
-  },
+  // Level 5: Diagonal S-curve (intermediate)
+  generateMap(5, 'Diagonal S', 'An S-curve with diagonal sections', 16, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      diagonal(4, 1, 1, 1, 4),
+      straight(8, 5, 'right', 3),
+      diagonal(11, 5, 1, 1, 4),
+      straight(13, 9, 'right', 2),
+    )
+  ),
 
-  // Map 6: Maze
-  {
-    id: 6, name: 'The Maze', description: 'Navigate through a twisting maze',
-    width: 16, height: 14, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, P, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, P, P, P, P, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, P, P, P, P, P, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, P, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 },
-      { x: 2, y: 2 }, { x: 2, y: 3 },
-      { x: 3, y: 3 }, { x: 4, y: 3 }, { x: 5, y: 3 }, { x: 6, y: 3 },
-      { x: 6, y: 4 }, { x: 6, y: 5 },
-      { x: 7, y: 5 }, { x: 8, y: 5 }, { x: 9, y: 5 }, { x: 10, y: 5 },
-      { x: 10, y: 6 }, { x: 10, y: 7 },
-      { x: 11, y: 7 }, { x: 12, y: 7 }, { x: 13, y: 7 }, { x: 14, y: 7 }, { x: 15, y: 7 },
-    ],
-  },
+  // Level 6: Maze with 45-degree turns (advanced)
+  generateMap(6, 'The Maze', 'Navigate through a twisting maze', 16, 14, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      curve45(4, 1, 'right', 'down', 1),
+      straight(4, 2, 'down', 3),
+      curve45(4, 5, 'down', 'left', 1),
+      straight(3, 5, 'left', 2),
+      curve45(1, 5, 'left', 'down', 1),
+      straight(1, 6, 'down', 3),
+      curve45(1, 9, 'down', 'right', 1),
+      straight(2, 9, 'right', 3),
+      curve45(5, 9, 'right', 'up', 1),
+      straight(5, 8, 'up', 2),
+      curve45(5, 6, 'up', 'right', 1),
+      straight(6, 6, 'right', 5),
+      curve45(11, 6, 'right', 'down', 1),
+      straight(11, 7, 'down', 3),
+    )
+  ),
 
-  // Map 7: Spiral
-  {
-    id: 7, name: 'Spiral', description: 'A long spiral path',
-    width: 14, height: 14, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 12, y: 2 }, { x: 12, y: 3 }, { x: 12, y: 4 }, { x: 12, y: 5 },
-      { x: 12, y: 6 }, { x: 12, y: 7 }, { x: 12, y: 8 }, { x: 12, y: 9 },
-      { x: 12, y: 10 }, { x: 12, y: 11 },
-    ],
-  },
+  // Level 7: Diagonal helix (advanced)
+  generateMap(7, 'Diagonal Helix', 'A spiraling helix with diagonals', 16, 14, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 4),
+      diagonal(5, 1, 1, 1, 3),
+      straight(8, 4, 'right', 2),
+      diagonal(10, 4, -1, 1, 3),
+      straight(8, 7, 'left', 3),
+      diagonal(5, 7, -1, 1, 3),
+      straight(3, 10, 'right', 5),
+      curve45(8, 10, 'right', 'down', 1),
+      straight(8, 11, 'down', 2),
+    )
+  ),
 
-  // Map 8: Fork
-  {
-    id: 8, name: 'Fork', description: 'Choose your path wisely',
-    width: 16, height: 12, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, P, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, P, P, P, _, _, P, P, P, _, _, _, _],
-      [_, _, _, _, _, _, P, _, _, P, _, _, _, _, _, _],
-      [_, _, _, _, _, _, P, P, P, P, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, P, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, P, P, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 4, y: 2 }, { x: 4, y: 3 },
-      { x: 5, y: 3 }, { x: 6, y: 3 },
-      { x: 6, y: 4 }, { x: 6, y: 5 }, { x: 6, y: 6 },
-      { x: 7, y: 6 }, { x: 8, y: 6 },
-      { x: 8, y: 7 },
-      { x: 9, y: 7 }, { x: 10, y: 7 }, { x: 11, y: 7 }, { x: 12, y: 7 },
-      { x: 13, y: 7 }, { x: 14, y: 7 }, { x: 15, y: 7 },
-    ],
-  },
+  // Level 8: Fork with diagonals (advanced)
+  generateMap(8, 'Fork', 'Choose your path wisely', 16, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      curve45(4, 1, 'right', 'down', 1),
+      straight(4, 2, 'down', 2),
+      curve45(4, 4, 'down', 'right', 1),
+      straight(5, 4, 'right', 2),
+      diagonal(7, 4, 1, 1, 3),
+      straight(10, 7, 'right', 3),
+      curve45(13, 7, 'right', 'down', 1),
+      straight(13, 8, 'down', 2),
+    )
+  ),
 
-  // Map 9: Castle
-  {
-    id: 9, name: 'Castle', description: 'Storm the castle defenses',
-    width: 14, height: 12, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, _, _, _, _, _, _, P, P, P, _],
-      [_, _, _, P, _, _, _, _, _, _, P, _, _, _],
-      [_, _, _, P, P, P, P, P, P, P, P, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 2 }, { x: 13, y: 2 }],
-    basePath: [
-      { x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 },
-      { x: 3, y: 3 }, { x: 3, y: 4 },
-      { x: 4, y: 4 }, { x: 5, y: 4 }, { x: 6, y: 4 }, { x: 7, y: 4 },
-      { x: 8, y: 4 }, { x: 9, y: 4 }, { x: 10, y: 4 },
-      { x: 10, y: 3 }, { x: 10, y: 2 },
-      { x: 11, y: 2 }, { x: 12, y: 2 },
-    ],
-  },
+  // Level 9: Castle with curves (intermediate)
+  generateMap(9, 'Castle', 'Storm the castle defenses', 14, 12, 0, 2,
+    combinePaths(
+      straight(1, 2, 'right', 3),
+      curve45(4, 2, 'right', 'down', 1),
+      straight(4, 3, 'down', 2),
+      curve45(4, 5, 'down', 'right', 1),
+      straight(5, 5, 'right', 4),
+      curve45(9, 5, 'right', 'up', 1),
+      straight(9, 4, 'up', 2),
+      curve45(9, 2, 'up', 'right', 1),
+      straight(10, 2, 'right', 3),
+    )
+  ),
 
-  // Map 10: Bridge
-  {
-    id: 10, name: 'Bridge', description: 'Cross the dangerous bridge',
-    width: 16, height: 10, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 13, y: 1 }, { x: 14, y: 1 }, { x: 15, y: 1 },
-    ],
-  },
+  // Level 10: Diagonal bridge (beginner)
+  generateMap(10, 'Diagonal Bridge', 'Cross the bridge at an angle', 16, 10, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 2),
+      diagonal(3, 1, 1, 1, 5),
+      straight(8, 6, 'right', 2),
+      diagonal(10, 6, 1, 1, 3),
+      straight(13, 9, 'right', 2),
+    )
+  ),
 
-  // Map 11: Serpentine
-  {
-    id: 11, name: 'Serpentine', description: 'A snake-like winding path',
-    width: 14, height: 12, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 12, y: 2 }, { x: 12, y: 3 }, { x: 12, y: 4 }, { x: 12, y: 5 },
-      { x: 12, y: 6 }, { x: 12, y: 7 }, { x: 12, y: 8 }, { x: 12, y: 9 },
-      { x: 12, y: 10 },
-    ],
-  },
+  // Level 11: Serpentine with 45-degree turns (intermediate)
+  generateMap(11, 'Serpentine', 'A snake-like winding path', 14, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 4),
+      curve45(5, 1, 'right', 'down', 2),
+      straight(6, 3, 'down', 2),
+      curve45(6, 5, 'down', 'left', 2),
+      straight(4, 5, 'left', 2),
+      curve45(2, 5, 'left', 'down', 2),
+      straight(2, 7, 'down', 2),
+      curve45(2, 9, 'down', 'right', 2),
+      straight(4, 9, 'right', 8),
+    )
+  ),
 
-  // Map 12: Labyrinth
-  {
-    id: 12, name: 'Labyrinth', description: 'Find your way through',
-    width: 16, height: 14, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, P, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, P, P, P, P, P, P, P, P, P, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 },
-      { x: 2, y: 2 }, { x: 2, y: 3 },
-      { x: 3, y: 3 }, { x: 4, y: 3 }, { x: 5, y: 3 }, { x: 6, y: 3 },
-      { x: 7, y: 3 }, { x: 8, y: 3 }, { x: 9, y: 3 }, { x: 10, y: 3 },
-      { x: 11, y: 3 },
-      { x: 11, y: 4 }, { x: 11, y: 5 }, { x: 11, y: 6 }, { x: 11, y: 7 },
-      { x: 11, y: 8 }, { x: 11, y: 9 }, { x: 11, y: 10 }, { x: 11, y: 11 },
-      { x: 12, y: 11 }, { x: 13, y: 11 }, { x: 14, y: 11 }, { x: 15, y: 11 },
-    ],
-  },
+  // Level 12: Labyrinth with diagonals (advanced)
+  generateMap(12, 'Labyrinth', 'Find your way through', 16, 14, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      diagonal(4, 1, 1, 1, 3),
+      straight(7, 4, 'down', 3),
+      diagonal(7, 7, -1, 1, 2),
+      straight(5, 9, 'down', 2),
+      curve45(5, 11, 'down', 'right', 1),
+      straight(6, 11, 'right', 8),
+    )
+  ),
 
-  // Map 13: Dual
-  {
-    id: 13, name: 'Dual', description: 'Two paths converge',
-    width: 16, height: 12, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, P, P, P, P, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }, { x: 0, y: 10 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 },
-      { x: 6, y: 2 }, { x: 6, y: 3 }, { x: 6, y: 4 },
-      { x: 7, y: 4 }, { x: 8, y: 4 }, { x: 9, y: 4 }, { x: 10, y: 4 },
-      { x: 11, y: 4 }, { x: 12, y: 4 }, { x: 13, y: 4 }, { x: 14, y: 4 },
-      { x: 15, y: 4 },
-      { x: 1, y: 10 }, { x: 2, y: 10 }, { x: 3, y: 10 }, { x: 4, y: 10 },
-      { x: 5, y: 10 }, { x: 6, y: 10 },
-    ],
-  },
+  // Level 13: Dual with curves (intermediate)
+  generateMap(13, 'Dual', 'Two paths converge', 16, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      curve45(4, 1, 'right', 'down', 2),
+      straight(5, 3, 'down', 3),
+      curve45(5, 6, 'down', 'right', 2),
+      straight(7, 6, 'right', 3),
+      curve45(10, 6, 'right', 'down', 2),
+      straight(11, 8, 'down', 2),
+      curve45(11, 10, 'down', 'right', 1),
+      straight(12, 10, 'right', 3),
+    )
+  ),
 
-  // Map 14: Zigzag II
-  {
-    id: 14, name: 'Zigzag II', description: 'More zigzags, more danger',
-    width: 14, height: 12, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, P, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, P, P, P, P, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, P, P, P, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, P, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 4, y: 2 }, { x: 4, y: 3 },
-      { x: 5, y: 3 }, { x: 6, y: 3 }, { x: 7, y: 3 },
-      { x: 7, y: 4 }, { x: 7, y: 5 },
-      { x: 8, y: 5 }, { x: 9, y: 5 }, { x: 10, y: 5 },
-      { x: 10, y: 6 }, { x: 10, y: 7 },
-      { x: 11, y: 7 }, { x: 12, y: 7 }, { x: 13, y: 7 },
-    ],
-  },
+  // Level 14: Zigzag with 45-degree turns (advanced)
+  generateMap(14, 'Zigzag II', 'More zigzags, more danger', 14, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 2),
+      curve45(3, 1, 'right', 'down', 1),
+      straight(3, 2, 'down', 2),
+      curve45(3, 4, 'down', 'right', 1),
+      straight(4, 4, 'right', 3),
+      curve45(7, 4, 'right', 'down', 1),
+      straight(7, 5, 'down', 2),
+      curve45(7, 7, 'down', 'right', 1),
+      straight(8, 7, 'right', 3),
+      curve45(11, 7, 'right', 'down', 1),
+      straight(11, 8, 'down', 3),
+    )
+  ),
 
-  // Map 15: Fortress
-  {
-    id: 15, name: 'Fortress', description: 'Break through the fortress',
-    width: 16, height: 14, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 13, y: 1 }, { x: 14, y: 1 }, { x: 15, y: 1 },
-    ],
-  },
+  // Level 15: Fortress diagonal (intermediate)
+  generateMap(15, 'Fortress', 'Break through the fortress', 16, 14, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      diagonal(4, 1, 1, 1, 4),
+      straight(8, 5, 'right', 3),
+      diagonal(11, 5, 1, 1, 4),
+      straight(13, 9, 'down', 3),
+    )
+  ),
 
-  // Map 16: Gauntlet
-  {
-    id: 16, name: 'Gauntlet', description: 'Run the gauntlet',
-    width: 16, height: 10, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, P, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, P, P, P, P, P, P, P, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 },
-      { x: 3, y: 2 }, { x: 3, y: 3 },
-      { x: 4, y: 3 }, { x: 5, y: 3 }, { x: 6, y: 3 }, { x: 7, y: 3 },
-      { x: 8, y: 3 }, { x: 9, y: 3 }, { x: 10, y: 3 }, { x: 11, y: 3 },
-      { x: 12, y: 3 }, { x: 13, y: 3 }, { x: 14, y: 3 }, { x: 15, y: 3 },
-    ],
-  },
+  // Level 16: Gauntlet with curves (beginner)
+  generateMap(16, 'Gauntlet', 'Run the gauntlet', 16, 10, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      curve45(4, 1, 'right', 'down', 1),
+      straight(4, 2, 'down', 2),
+      curve45(4, 4, 'down', 'right', 1),
+      straight(5, 4, 'right', 4),
+      curve45(9, 4, 'right', 'down', 1),
+      straight(9, 5, 'down', 2),
+      curve45(9, 7, 'down', 'right', 1),
+      straight(10, 7, 'right', 5),
+    )
+  ),
 
-  // Map 17: Fortress II
-  {
-    id: 17, name: 'Fortress II', description: 'The second fortress',
-    width: 14, height: 12, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 12, y: 2 }, { x: 12, y: 3 }, { x: 12, y: 4 }, { x: 12, y: 5 },
-      { x: 12, y: 6 }, { x: 12, y: 7 }, { x: 12, y: 8 }, { x: 12, y: 9 },
-      { x: 12, y: 10 },
-    ],
-  },
+  // Level 17: Fortress II diagonal (intermediate)
+  generateMap(17, 'Fortress II', 'The second fortress', 14, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      diagonal(4, 1, 1, 1, 4),
+      straight(8, 5, 'right', 2),
+      curve45(10, 5, 'right', 'down', 1),
+      straight(10, 6, 'down', 4),
+    )
+  ),
 
-  // Map 18: Gauntlet II
-  {
-    id: 18, name: 'Gauntlet II', description: 'The second gauntlet',
-    width: 14, height: 10, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-    ],
-  },
+  // Level 18: Gauntlet II with 45-degree turns (beginner)
+  generateMap(18, 'Gauntlet II', 'The second gauntlet', 14, 10, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 2),
+      curve45(3, 1, 'right', 'down', 2),
+      straight(4, 3, 'down', 2),
+      curve45(4, 5, 'down', 'right', 2),
+      straight(6, 5, 'right', 6),
+    )
+  ),
 
-  // Map 19: Fortress III
-  {
-    id: 19, name: 'Fortress III', description: 'The final fortress',
-    width: 14, height: 12, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 12, y: 2 }, { x: 12, y: 3 }, { x: 12, y: 4 }, { x: 12, y: 5 },
-      { x: 12, y: 6 }, { x: 12, y: 7 }, { x: 12, y: 8 }, { x: 12, y: 9 },
-      { x: 12, y: 10 },
-    ],
-  },
+  // Level 19: Fortress III diagonal (intermediate)
+  generateMap(19, 'Fortress III', 'The final fortress', 14, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 2),
+      diagonal(3, 1, 1, 1, 5),
+      straight(8, 6, 'right', 2),
+      curve45(10, 6, 'right', 'down', 1),
+      straight(10, 7, 'down', 3),
+    )
+  ),
 
-  // Map 20: Gauntlet III
-  {
-    id: 20, name: 'Gauntlet III', description: 'The final gauntlet',
-    width: 14, height: 10, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-    ],
-  },
+  // Level 20: Gauntlet III with curves (beginner)
+  generateMap(20, 'Gauntlet III', 'The final gauntlet', 14, 10, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 2),
+      curve45(3, 1, 'right', 'down', 1),
+      straight(3, 2, 'down', 2),
+      curve45(3, 4, 'down', 'right', 1),
+      straight(4, 4, 'right', 8),
+    )
+  ),
 
-  // Map 21: Crossroads II
-  {
-    id: 21, name: 'Crossroads II', description: 'A more complex intersection',
-    width: 16, height: 14, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, P, P, P, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 3 }],
-    basePath: [
-      { x: 1, y: 3 }, { x: 2, y: 3 }, { x: 3, y: 3 }, { x: 4, y: 3 },
-      { x: 5, y: 3 }, { x: 6, y: 3 }, { x: 7, y: 3 },
-      { x: 7, y: 4 }, { x: 7, y: 5 }, { x: 7, y: 6 }, { x: 7, y: 7 },
-      { x: 7, y: 8 }, { x: 7, y: 9 }, { x: 7, y: 10 }, { x: 7, y: 11 },
-      { x: 8, y: 11 }, { x: 9, y: 11 }, { x: 10, y: 11 }, { x: 11, y: 11 },
-      { x: 12, y: 11 }, { x: 13, y: 11 }, { x: 14, y: 11 }, { x: 15, y: 11 },
-    ],
-  },
+  // Level 21: Crossroads II with diagonals (intermediate)
+  generateMap(21, 'Crossroads II', 'A more complex intersection', 16, 14, 0, 3,
+    combinePaths(
+      straight(1, 3, 'right', 3),
+      diagonal(4, 3, 1, -1, 3),
+      straight(7, 0, 'down', 11),
+      diagonal(7, 11, 1, 1, 3),
+      straight(10, 14, 'right', 5),
+    )
+  ),
 
-  // Map 22: Gauntlet IV
-  {
-    id: 22, name: 'Gauntlet IV', description: 'The fourth gauntlet',
-    width: 14, height: 10, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-    ],
-  },
+  // Level 22: Gauntlet IV diagonal (beginner)
+  generateMap(22, 'Gauntlet IV', 'The fourth gauntlet', 14, 10, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 2),
+      diagonal(3, 1, 1, 1, 4),
+      straight(7, 5, 'right', 2),
+      curve45(9, 5, 'right', 'down', 1),
+      straight(9, 6, 'down', 3),
+    )
+  ),
 
-  // Map 23: Fortress IV
-  {
-    id: 23, name: 'Fortress IV', description: 'The fourth fortress',
-    width: 14, height: 12, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 12, y: 2 }, { x: 12, y: 3 }, { x: 12, y: 4 }, { x: 12, y: 5 },
-      { x: 12, y: 6 }, { x: 12, y: 7 }, { x: 12, y: 8 }, { x: 12, y: 9 },
-      { x: 12, y: 10 },
-    ],
-  },
+  // Level 23: Fortress IV with curves (intermediate)
+  generateMap(23, 'Fortress IV', 'The fourth fortress', 14, 12, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      curve45(4, 1, 'right', 'down', 1),
+      straight(4, 2, 'down', 3),
+      curve45(4, 5, 'down', 'right', 1),
+      straight(5, 5, 'right', 4),
+      curve45(9, 5, 'right', 'down', 1),
+      straight(9, 6, 'down', 4),
+    )
+  ),
 
-  // Map 24: Gauntlet V
-  {
-    id: 24, name: 'Gauntlet V', description: 'The fifth gauntlet',
-    width: 14, height: 10, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-    ],
-  },
+  // Level 24: Gauntlet V diagonal (beginner)
+  generateMap(24, 'Gauntlet V', 'The fifth gauntlet', 14, 10, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 2),
+      diagonal(3, 1, 1, 1, 3),
+      straight(6, 4, 'right', 3),
+      curve45(9, 4, 'right', 'down', 1),
+      straight(9, 5, 'down', 4),
+    )
+  ),
 
-  // Map 25: Final Boss
-  {
-    id: 25, name: 'Final Boss', description: 'Defeat the final boss',
-    width: 16, height: 14, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 13, y: 1 }, { x: 14, y: 1 }, { x: 15, y: 1 },
-    ],
-  },
+  // Level 25: Final Boss diagonal (intermediate)
+  generateMap(25, 'Final Boss', 'Defeat the final boss', 16, 14, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      diagonal(4, 1, 1, 1, 4),
+      straight(8, 5, 'right', 3),
+      diagonal(11, 5, 1, 1, 4),
+      straight(13, 9, 'down', 3),
+    )
+  ),
 
-  // Map 0: Dev Demo
-  {
-    id: 0, name: 'Dev Demo', description: 'Test all enemy types',
-    width: 16, height: 10, cellSize: 48,
-    grid: [
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [S, P, P, P, P, P, P, P, P, P, P, P, P, P, P, B],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-      [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _],
-    ],
-    spawnPoints: [{ x: 0, y: 1 }],
-    basePath: [
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      { x: 5, y: 1 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 8, y: 1 },
-      { x: 9, y: 1 }, { x: 10, y: 1 }, { x: 11, y: 1 }, { x: 12, y: 1 },
-      { x: 13, y: 1 }, { x: 14, y: 1 }, { x: 15, y: 1 },
-    ],
-  },
+  // Dev Demo
+  generateMap(0, 'Dev Demo', 'Test all enemy types', 16, 10, 0, 1,
+    combinePaths(
+      straight(1, 1, 'right', 3),
+      curve45(4, 1, 'right', 'down', 2),
+      straight(5, 3, 'down', 2),
+      curve45(5, 5, 'down', 'right', 2),
+      straight(7, 5, 'right', 8),
+    )
+  ),
 ];

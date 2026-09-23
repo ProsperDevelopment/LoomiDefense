@@ -1,5 +1,5 @@
 import type { CellType, MapData } from '../types';
-import { CELL_SIZE } from '../config/constants';
+import { CELL_SIZE, GRID_OFFSET_Y } from '../config/constants';
 
 /**
  * Grid-based map system.
@@ -54,14 +54,14 @@ export class Grid {
   gridToWorld(col: number, row: number): { x: number; y: number } {
     return {
       x: col * this.cellSize + this.cellSize / 2,
-      y: row * this.cellSize + this.cellSize / 2,
+      y: row * this.cellSize + this.cellSize / 2 + GRID_OFFSET_Y,
     };
   }
 
   worldToGrid(x: number, y: number): { col: number; row: number } {
     return {
       col: Math.floor(x / this.cellSize),
-      row: Math.floor(y / this.cellSize),
+      row: Math.floor((y - GRID_OFFSET_Y) / this.cellSize),
     };
   }
 
