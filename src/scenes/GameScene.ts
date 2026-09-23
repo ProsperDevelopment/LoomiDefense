@@ -254,8 +254,9 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-X', () => this.onSellTower());
     this.input.keyboard?.on('keydown-ESC', () => {
       this.selectedTowerType = null;
-      this.towerPanel.selectTower(null);
+      this.towerPanel.hide();
       this.deselectTower();
+      this.deselectEnemy();
     });
   }
 
@@ -286,6 +287,9 @@ export class GameScene extends Phaser.Scene {
     this.updateTowerCombat(scaledDelta);
     this.updateProjectiles(scaledDelta);
 
+    // Update target sight position
+    this.updateTargetSight();
+
     // Update wave indicator countdown
     if (this.waveManager.isWaitingForNextWave()) {
       this.waveIndicator.showCountdown(true);
@@ -295,6 +299,16 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.waveIndicator.showCountdown(false);
       this.waveIndicator.setBonusText('');
+    }
+  }
+
+  private updateTargetSight(): void {
+    if (this.selectedEnemy) {
+      if (!this.selectedEnemy.alive || this.selectedEnemy.isDead()) {
+        this.deselectEnemy();
+      } else {
+        this.drawTargetSight(this.selectedEnemy.position.x, this.selectedEnemy.position.y);
+      }
     }
   }
 
@@ -488,6 +502,14 @@ export class GameScene extends Phaser.Scene {
     if (pointer.rightButtonDown() || pointer.middleButtonDown()) {
       this.cancelPendingBuild();
       this.deselectTower();
+      this.deselectEnemy();
+      return;
+    }
+
+    // Check if clicking on an enemy
+    const clickedEnemy = this.findEnemyAt(pointer.x, pointer.y);
+    if (clickedEnemy) {
+      this.selectEnemy(clickedEnemy);
       return;
     }
 
@@ -537,6 +559,65 @@ export class GameScene extends Phaser.Scene {
     if (this.selectedTower) {
       this.selectedTower.showRange(false);
       this.selectedTower = null;
+    }
+  }
+
+  private findEnemyAt(x: number, y: number): Enemy | null {
+    const clickRadius = 20;
+    for (const enemy of this.enemies) {
+      if (!enemy.alive || enemy.isDead()) continue;
+      const dist = Math.sqrt(
+        (x - enemy.position.x) ** 2 + (y - enemy.position.y) ** 2
+      );
+      if (dist < clickRadius) {
+        return enemy;
+      }
+    }
+    return null;
+  }
+
+  private selectEnemy(enemy: Enemy): void {
+    this.selectedEnemy = enemy;
+    this.showTargetSight(enemy);
+  }
+
+  private deselectEnemy(): void {
+    this.selectedEnemy = null;
+    this.hideTargetSight();
+  }
+
+  private showTargetSight(enemy: Enemy): void {
+    if (!this.targetSight) {
+      this.targetSight = this.add.graphics();
+      this.targetSight.setDepth(60);
+    }
+    this.targetSight.setVisible(true);
+    this.drawTargetSight(enemy.position.x, enemy.position.y);
+  }
+
+  private drawTargetSight(x: number, y: number): void {
+    if (!this.targetSight) return;
+    this.targetSight.clear();
+    const size = 14;
+    const gap = 4;
+    this.targetSight.lineStyle(2, 0xff0000, 0.9);
+    // Top-left
+    this.targetSight.lineBetween(x - size, y - size, x - gap, y - size);
+    this.targetSight.lineBetween(x - size, y - size, x - size, y - gap);
+    // Top-right
+    this.targetSight.lineBetween(x + size, y - size, x + gap, y - size);
+    this.targetSight.lineBetween(x + size, y - size, x + size, y - gap);
+    // Bottom-left
+    this.targetSight.lineBetween(x - size, y + size, x - gap, y + size);
+    this.targetSight.lineBetween(x - size, y + size, x - size, y + gap);
+    // Bottom-right
+    this.targetSight.lineBetween(x + size, y + size, x + gap, y + size);
+    this.targetSight.lineBetween(x + size, y + size, x + size, y + gap);
+  }
+
+  private hideTargetSight(): void {
+    if (this.targetSight) {
+      this.targetSight.setVisible(false);
     }
   }
 
@@ -645,6 +726,10 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.alive) continue;
       const reachedBase = enemy.update(deltaMs);
       if (reachedBase) {
+        // Clear selection if this enemy was selected
+        if (this.selectedEnemy === enemy) {
+          this.deselectEnemy();
+        }
         eventBus.emit('enemy-reached-base', { damage: 1 });
         this.removeEnemy(enemy, i);
       }
@@ -673,6 +758,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private findTarget(tower: Tower): TargetableEntity | null {
+    // Prioritize selected enemy if in range and alive
+    if (this.selectedEnemy && this.selectedEnemy.alive && !this.selectedEnemy.isDead()) {
+      const dist = tower.position.distanceTo(this.selectedEnemy.position);
+      if (dist <= tower.range) {
+        return { id: this.selectedEnemy.id, position: this.selectedEnemy.position, health: this.selectedEnemy.health };
+      }
+    }
+
     const enemies = this.enemies
       .filter(e => e.alive && !e.isDead())
       .map(e => ({ id: e.id, position: e.position, health: e.health }));
@@ -749,6 +842,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onEnemyKilled(enemy: Enemy): void {
+    // Clear selection if this enemy was selected
+    if (this.selectedEnemy === enemy) {
+      this.deselectEnemy();
+    }
     const reward = enemy.data.reward;
     eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x: enemy.position.x, y: enemy.position.y });
     this.createDeathEffect(enemy.position.x, enemy.position.y, enemy.data.color);
