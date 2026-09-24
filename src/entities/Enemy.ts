@@ -72,7 +72,7 @@ export class Enemy {
     // Create animated sprite
     const sprite = scene.add.sprite(this.position.x, this.position.y, spriteInfo.key, 0);
     sprite.play(spriteInfo.anim);
-    sprite.setDepth(10);
+    // sprite.setDepth(10);
     this.sprite = sprite;
 
     // Health bar background

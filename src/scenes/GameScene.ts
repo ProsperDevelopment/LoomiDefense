@@ -326,7 +326,13 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+
+    // Draw smooth road
+    this.drawSmoothRoad();
+
     const mapData = this.grid.getMapData();
+
+
 
     // Draw background tiles on top of grass (if available)
     if (mapData.bgTiles && mapData.bgTiles.length > 0) {
@@ -343,15 +349,13 @@ export class GameScene extends Phaser.Scene {
 
             if (this.textures.exists(tileKey)) {
               this.add.image(x + bgCellSize / 2, y + bgCellSize / 2, tileKey)
-                .setDisplaySize(bgCellSize, bgCellSize);
+                .setDisplaySize(bgCellSize, bgCellSize).setDepth(20);
             }
           }
         }
       }
     }
 
-    // Draw smooth road
-    this.drawSmoothRoad();
 
     for (const spawn of this.grid.getSpawnPixels()) {
       this.add.rectangle(spawn.x, spawn.y + GRID_OFFSET_Y, 20, 20, 0xe74c3c, 0.7);
@@ -371,7 +375,7 @@ export class GameScene extends Phaser.Scene {
     if (pathPixels.length < 2) return;
 
     const graphics = this.add.graphics();
-    graphics.setDepth(1);
+    // graphics.setDepth(1);
 
     // Convert grid points to smooth curve points
     const smoothPoints: { x: number; y: number }[] = [];
