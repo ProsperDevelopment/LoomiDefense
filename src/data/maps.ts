@@ -52,12 +52,16 @@ function generateMap(
   spawnX: number,
   spawnY: number,
   pathPoints: CurvePoint[],
+  bgTiles?: number[][],
 ): MapData {
   const spawnPoints = [{ x: spawnX, y: spawnY }];
   const basePath = pathPoints.map(p => ({ x: p.x, y: p.y }));
   const grid = generateGrid(width, height, pathPoints, spawnPoints, basePath);
 
-  return { id, name, description, width, height, cellSize: 48, grid, spawnPoints, basePath };
+  return { 
+    id, name, description, width, height, cellSize: 48, grid, spawnPoints, basePath,
+    ...(bgTiles && { bgTiles, tileset: 'TilesetNature' })
+  };
 }
 
 // ============================================================
@@ -91,14 +95,31 @@ export const MAP_DEFINITIONS: MapData[] = [
     )
   ),
 
-  // Level 3: Crossroads (intermediate)
-  generateMap(3, 'Crossroads', 'Two roads crossing at a central intersection', 16, 14, 0, 3,
+  // Level 3: Forest Maze (intermediate)
+  generateMap(3, 'Forest Maze', 'A winding path through the forest with trees and rocks', 16, 12, 0, 0,
     combinePaths(
-      straight(1, 3, 'right', 6),
-      curve90(7, 3, 'right', 'down', 1),
-      straight(7, 4, 'down', 6),
-      curve90(7, 10, 'down', 'right', 1),
-      straight(8, 10, 'right', 7),
+      straight(1, 0, 'right', 1),
+      curve45(2, 0, 'right', 'down', 2),
+      straight(2, 2, 'down', 2),
+      curve45(2, 4, 'down', 'right', 2),
+      straight(4, 4, 'right', 2),
+      curve45(6, 4, 'right', 'down', 2),
+      straight(5, 6, 'down', 2),
+      curve45(5, 8, 'down', 'left', 2),
+      straight(3, 8, 'left', 2),
+      curve45(1, 8, 'left', 'down', 2),
+      straight(2, 10, 'down', 1),
+      curve45(2, 11, 'down', 'right', 2),
+      straight(4, 11, 'right', 2),
+      curve45(6, 11, 'right', 'up', 2),
+      straight(6, 9, 'up', 2),
+      curve45(6, 7, 'up', 'right', 2),
+      straight(8, 7, 'right', 3),
+      curve45(11, 7, 'right', 'down', 2),
+      straight(13, 9, 'down', 1),
+      curve45(13, 10, 'down', 'left', 2),
+      straight(14, 7, 'up', 3),
+      curve45(14, 4, 'up', 'left', 2),
     )
   ),
 

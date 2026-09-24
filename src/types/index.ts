@@ -16,6 +16,8 @@ export interface MapData {
   grid: CellType[][];
   spawnPoints: { x: number; y: number }[];
   basePath: { x: number; y: number }[];
+  bgTiles?: number[][];  // Background tiles (2x resolution, tile indices)
+  tileset?: string;      // Tileset name to use
 }
 
 // --- Towers ---
