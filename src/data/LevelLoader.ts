@@ -56,4 +56,9 @@ export const LEVEL_3 = loadLevelFromJSON(level3Data, 3);
 
 import level4Data from './levels/level4.json';
 
+import level5Data from './levels/level5.json';
+
 export const LEVEL_4 = loadLevelFromJSON(level4Data, 4);
+
+
+export const LEVEL_5 = loadLevelFromJSON(level5Data, 5);

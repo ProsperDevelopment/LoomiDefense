@@ -46,6 +46,13 @@ export class BootScene extends Phaser.Scene {
       this.load.image(`nature_tile_${tileNum}`, `assets/tilesets/TilesetNature/tile_${tileNum}.png`);
     }
 
+    // Load Ninja Adventure nature tileset tiles (16x16 each)
+    // Load all 504 tiles for complete tileset coverage
+    for (let i = 0; i < 239; i++) {
+      const tileNum = i.toString().padStart(3, '0');
+      this.load.image(`desert_tile_${tileNum}`, `assets/tilesets/TilesetDesert/tile_${tileNum}.png`);
+    }
+
     // Load Ninja Adventure tower tileset (768x192 after 200% resize, 12 columns x 3 rows, 64x64 tiles)
     // Each tower has 3 consecutive frames: normal, damaged1, damaged2
     this.load.spritesheet('towers_tileset', 'assets/images/towers/towers_tileset.png', {

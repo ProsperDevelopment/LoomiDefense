@@ -339,7 +339,7 @@ export class GameScene extends Phaser.Scene {
             const y = row * bgCellSize + GRID_OFFSET_Y;
 
             const tileNum = tileIdx.toString().padStart(3, '0');
-            const tileKey = `nature_tile_${tileNum}`;
+            const tileKey = `${mapData.tileset}_${tileNum}`;
 
             if (this.textures.exists(tileKey)) {
               this.add.image(x + bgCellSize / 2, y + bgCellSize / 2, tileKey)

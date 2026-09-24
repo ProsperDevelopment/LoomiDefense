@@ -1,6 +1,6 @@
 import type { MapData, CellType } from '../types';
 import { straight, curve90, curve45, diagonal, combinePaths, type CurvePoint } from '../utils/CurveBuilder';
-import { LEVEL_3 } from './LevelLoader';
+import { LEVEL_3, LEVEL_5 } from './LevelLoader';
 import { LEVEL_4 } from './LevelLoader';
 
 const _ = 'empty' as CellType;
@@ -104,15 +104,7 @@ export const MAP_DEFINITIONS: MapData[] = [
   LEVEL_4,
 
   // Level 5: Diagonal S-curve (intermediate)
-  generateMap(5, 'Diagonal S', 'An S-curve with diagonal sections', 16, 12, 0, 1,
-    combinePaths(
-      straight(1, 1, 'right', 3),
-      diagonal(4, 1, 1, 1, 4),
-      straight(8, 5, 'right', 3),
-      diagonal(11, 5, 1, 1, 4),
-      straight(13, 9, 'right', 2),
-    )
-  ),
+  LEVEL_5,
 
   // Level 6: Maze with 45-degree turns (advanced)
   generateMap(6, 'The Maze', 'Navigate through a twisting maze', 16, 14, 0, 1,
