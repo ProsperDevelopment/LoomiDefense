@@ -1,5 +1,7 @@
 import type { MapData, CellType } from '../types';
 import { straight, curve90, curve45, diagonal, combinePaths, type CurvePoint } from '../utils/CurveBuilder';
+import { LEVEL_3 } from './LevelLoader';
+import { LEVEL_4 } from './LevelLoader';
 
 const _ = 'empty' as CellType;
 const P = 'path' as CellType;
@@ -95,52 +97,11 @@ export const MAP_DEFINITIONS: MapData[] = [
     )
   ),
 
-  // Level 3: Forest Maze (intermediate)
-  generateMap(3, 'Forest Maze', 'A winding path through the forest with trees and rocks', 16, 12, 0, 0,
-    combinePaths(
-      straight(1, 0, 'right', 1),
-      curve45(2, 0, 'right', 'down', 2),
-      straight(2, 2, 'down', 2),
-      curve45(2, 4, 'down', 'right', 2),
-      straight(4, 4, 'right', 2),
-      curve45(6, 4, 'right', 'down', 2),
-      straight(5, 6, 'down', 2),
-      curve45(5, 8, 'down', 'left', 2),
-      straight(3, 8, 'left', 2),
-      curve45(1, 8, 'left', 'down', 2),
-      straight(2, 10, 'down', 1),
-      curve45(2, 11, 'down', 'right', 2),
-      straight(4, 11, 'right', 2),
-      curve45(6, 11, 'right', 'up', 2),
-      straight(6, 9, 'up', 2),
-      curve45(6, 7, 'up', 'right', 2),
-      straight(8, 7, 'right', 3),
-      curve45(11, 7, 'right', 'down', 2),
-      straight(13, 9, 'down', 1),
-      curve45(13, 10, 'down', 'left', 2),
-      straight(14, 7, 'up', 3),
-      curve45(14, 4, 'up', 'left', 2),
-    )
-  ),
+  // Level 3: Loaded from editor JSON
+  LEVEL_3,
 
   // Level 4: Spiral with 45-degree turns (intermediate)
-  generateMap(4, 'Spiral Fortress', 'A spiral path through the fortress', 14, 14, 0, 1,
-    combinePaths(
-      straight(1, 1, 'right', 4),
-      curve45(5, 1, 'right', 'down', 2),
-      straight(6, 3, 'down', 3),
-      curve45(6, 6, 'down', 'left', 2),
-      straight(4, 6, 'left', 2),
-      curve45(2, 6, 'left', 'down', 2),
-      straight(2, 8, 'down', 3),
-      curve45(2, 11, 'down', 'right', 2),
-      straight(4, 11, 'right', 4),
-      curve45(8, 11, 'right', 'up', 2),
-      straight(8, 9, 'up', 3),
-      curve45(8, 6, 'up', 'right', 2),
-      straight(10, 6, 'right', 3),
-    )
-  ),
+  LEVEL_4,
 
   // Level 5: Diagonal S-curve (intermediate)
   generateMap(5, 'Diagonal S', 'An S-curve with diagonal sections', 16, 12, 0, 1,
@@ -242,7 +203,7 @@ export const MAP_DEFINITIONS: MapData[] = [
       straight(2, 7, 'down', 2),
       curve45(2, 9, 'down', 'right', 2),
       straight(4, 9, 'right', 8),
-    )
+    ),
   ),
 
   // Level 12: Labyrinth with diagonals (advanced)

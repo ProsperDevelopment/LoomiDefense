@@ -40,8 +40,8 @@ export class BootScene extends Phaser.Scene {
     this.generateTerrainTiles();
 
     // Load Ninja Adventure nature tileset tiles (16x16 each)
-    // Load first 100 tiles (most commonly used)
-    for (let i = 0; i < 100; i++) {
+    // Load all 504 tiles for complete tileset coverage
+    for (let i = 0; i < 504; i++) {
       const tileNum = i.toString().padStart(3, '0');
       this.load.image(`nature_tile_${tileNum}`, `assets/tilesets/TilesetNature/tile_${tileNum}.png`);
     }
@@ -174,13 +174,13 @@ export class BootScene extends Phaser.Scene {
 
     // Helper to draw grass texture
     const drawGrass = (ctx: CanvasRenderingContext2D) => {
-      ctx.fillStyle = '#3a7c2e';
+      ctx.fillStyle = '#AaCc2e';
       ctx.fillRect(0, 0, s, s);
-      ctx.fillStyle = '#4a8c3e';
+      ctx.fillStyle = '#A5C63e';
       for (let i = 0; i < 15; i++) {
         ctx.fillRect(Math.random() * s, Math.random() * s, 2, 4);
       }
-      ctx.fillStyle = '#2a6c1e';
+      ctx.fillStyle = '#8aBc1e';
       for (let i = 0; i < 8; i++) {
         ctx.fillRect(Math.random() * s, Math.random() * s, 3, 2);
       }

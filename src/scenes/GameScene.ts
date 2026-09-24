@@ -313,9 +313,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawGrid(): void {
+    // Always draw chessboard grass background first (underneath everything)
+    for (let row = 0; row < this.grid.rows; row++) {
+      for (let col = 0; col < this.grid.cols; col++) {
+        const x = col * CELL_SIZE;
+        const y = row * CELL_SIZE + GRID_OFFSET_Y;
+        const isDark = (row + col) % 2 === 0;
+        this.add.image(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 'tile_grass')
+          .setDisplaySize(CELL_SIZE, CELL_SIZE)
+          .setTint(isDark ? 0x9a9c5e : 0x8a8c4e);
+      }
+    }
+
     const mapData = this.grid.getMapData();
 
-    // Draw background tiles if available
+    // Draw background tiles on top of grass (if available)
     if (mapData.bgTiles && mapData.bgTiles.length > 0) {
       const bgCellSize = CELL_SIZE / 2;
       for (let row = 0; row < mapData.bgTiles.length; row++) {
@@ -324,42 +336,15 @@ export class GameScene extends Phaser.Scene {
           if (tileIdx >= 0) {
             const x = col * bgCellSize;
             const y = row * bgCellSize + GRID_OFFSET_Y;
-            
-            // Try to use loaded tile image
+
             const tileNum = tileIdx.toString().padStart(3, '0');
             const tileKey = `nature_tile_${tileNum}`;
-            
+
             if (this.textures.exists(tileKey)) {
               this.add.image(x + bgCellSize / 2, y + bgCellSize / 2, tileKey)
                 .setDisplaySize(bgCellSize, bgCellSize);
-            } else {
-              // Fallback: create colored placeholder
-              const placeholderKey = `bg_placeholder_${tileIdx}`;
-              if (!this.textures.exists(placeholderKey)) {
-                const canvas = document.createElement('canvas');
-                canvas.width = 16;
-                canvas.height = 16;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  ctx.fillStyle = `hsl(${tileIdx * 30}, 50%, 40%)`;
-                  ctx.fillRect(0, 0, 16, 16);
-                  this.textures.addCanvas(placeholderKey, canvas);
-                }
-              }
-              this.add.image(x + bgCellSize / 2, y + bgCellSize / 2, placeholderKey)
-                .setDisplaySize(bgCellSize, bgCellSize);
             }
           }
-        }
-      }
-    } else {
-      // Default grass background
-      for (let row = 0; row < this.grid.rows; row++) {
-        for (let col = 0; col < this.grid.cols; col++) {
-          const x = col * CELL_SIZE;
-          const y = row * CELL_SIZE + GRID_OFFSET_Y;
-          this.add.image(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 'tile_grass')
-            .setDisplaySize(CELL_SIZE, CELL_SIZE);
         }
       }
     }
