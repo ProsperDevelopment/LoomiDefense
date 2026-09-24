@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type { TowerType } from '../types';
 import { TOWER_LIST, TOWER_UPGRADES, TOWER_DEFINITIONS } from '../data/towers';
+import { TOWER_SPRITE_FRAMES } from '../entities/Tower';
 
 export interface TowerPanelCallbacks {
   onTowerSelect: (type: TowerType | null) => void;
@@ -61,37 +62,46 @@ export class TowerPanel {
   }
 
   private createBuildMenu(x: number, y: number): void {
+    const btnSize = 56;
+    const padding = 8;
+    const totalWidth = TOWER_LIST.length * (btnSize + padding) + padding;
+    const totalHeight = btnSize + padding * 2 + 40; // tower buttons + cancel button
+
     // Background
-    const bg = this.scene.add.rectangle(0, 0, 180, 180, 0x1a1a3a, 0.95);
+    const bg = this.scene.add.rectangle(0, 0, totalWidth + padding * 2, totalHeight, 0x1a1a3a, 0.95);
     bg.setStrokeStyle(2, 0x4a4a6a);
     this.container.add(bg);
 
     // Title
-    const title = this.scene.add.text(0, -75, 'BUILD TOWER', {
-      fontSize: '11px', color: '#aaaaaa', fontStyle: 'bold',
+    const title = this.scene.add.text(0, -totalHeight / 2 + 12, 'BUILD', {
+      fontSize: '10px', color: '#aaaaaa', fontStyle: 'bold',
     }).setOrigin(0.5);
     this.container.add(title);
 
-    // Tower buttons
+    // Tower icon buttons
+    const startX = -(totalWidth / 2) + padding + btnSize / 2;
+
     TOWER_LIST.forEach((tower, i) => {
-      const btnY = -45 + i * 38;
+      const btnX = startX + i * (btnSize + padding);
+      const btnY = -10;
       const canAfford = this.callbacks.canAfford(tower.cost);
 
-      const btnBg = this.scene.add.rectangle(0, btnY, 160, 32, canAfford ? 0x2a2a4a : 0x1a1a2a);
-      btnBg.setStrokeStyle(1, canAfford ? 0x4a4a6a : 0x333344);
+      // Button background
+      const btnBg = this.scene.add.rectangle(btnX, btnY, btnSize, btnSize, canAfford ? 0x2a2a4a : 0x1a1a2a);
+      btnBg.setStrokeStyle(2, canAfford ? 0x4a4a6a : 0x333344);
 
-      const icon = this.scene.add.rectangle(-60, btnY, 16, 16,
-        Phaser.Display.Color.HexStringToColor(tower.color).color);
+      // Tower icon from tileset
+      const frame = TOWER_SPRITE_FRAMES[tower.type];
+      const icon = this.scene.add.image(btnX, btnY - 2, 'towers_tileset', frame);
+      icon.setDisplaySize(btnSize - 12, btnSize - 12);
 
-      const name = this.scene.add.text(-45, btnY - 6, tower.name, {
-        fontSize: '10px', color: canAfford ? '#ffffff' : '#666666',
-      });
+      // Cost text below icon
+      const cost = this.scene.add.text(btnX, btnY + btnSize / 2 - 6, `${tower.cost}g`, {
+        fontSize: '8px', color: canAfford ? '#FFD700' : '#666644',
+        fontStyle: 'bold',
+      }).setOrigin(0.5);
 
-      const cost = this.scene.add.text(-45, btnY + 6, `${tower.cost}g`, {
-        fontSize: '9px', color: canAfford ? '#FFD700' : '#666644',
-      });
-
-      this.container.add([btnBg, icon, name, cost]);
+      this.container.add([btnBg, icon, cost]);
 
       if (canAfford) {
         btnBg.setInteractive({ useHandCursor: true });
@@ -101,15 +111,22 @@ export class TowerPanel {
           this.callbacks.onTowerSelect(tower.type);
           this.hide();
         });
-        btnBg.on('pointerover', () => btnBg.setFillStyle(0x3a3a5a));
-        btnBg.on('pointerout', () => btnBg.setFillStyle(0x2a2a4a));
+        btnBg.on('pointerover', () => {
+          btnBg.setFillStyle(0x3a3a5a);
+          btnBg.setStrokeStyle(2, 0xFFD700);
+        });
+        btnBg.on('pointerout', () => {
+          btnBg.setFillStyle(0x2a2a4a);
+          btnBg.setStrokeStyle(2, 0x4a4a6a);
+        });
       }
     });
 
-    // Cancel button
-    const cancelBg = this.scene.add.rectangle(0, 70, 160, 28, 0x8B0000);
+    // Cancel button below tower icons
+    const cancelY = totalHeight / 2 - 18;
+    const cancelBg = this.scene.add.rectangle(0, cancelY, totalWidth, 24, 0x8B0000);
     cancelBg.setStrokeStyle(1, 0xffffff);
-    const cancelText = this.scene.add.text(0, 70, 'CANCEL', {
+    const cancelText = this.scene.add.text(0, cancelY, 'CANCEL', {
       fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5);
     this.container.add([cancelBg, cancelText]);
@@ -125,7 +142,7 @@ export class TowerPanel {
     cancelBg.on('pointerout', () => cancelBg.setFillStyle(0x8B0000));
 
     // Position container
-    this.container.setPosition(x + 90, y + 90);
+    this.container.setPosition(x + totalWidth / 2 + padding, y + totalHeight / 2);
   }
 
   private createTowerInfoMenu(x: number, y: number, data: { type: TowerType; level: number; sellValue: number }): void {
@@ -135,26 +152,32 @@ export class TowerPanel {
     const upgradeCost = canUpgrade ? Math.floor(towerDef.cost * upgradeData.costMultiplier) : 0;
 
     // Background
-    const bg = this.scene.add.rectangle(0, 0, 180, 160, 0x1a1a3a, 0.95);
+    const bg = this.scene.add.rectangle(0, 0, 180, 180, 0x1a1a3a, 0.95);
     bg.setStrokeStyle(2, 0x4a4a6a);
     this.container.add(bg);
 
+    // Tower icon
+    const frame = TOWER_SPRITE_FRAMES[data.type];
+    const icon = this.scene.add.image(0, -60, 'towers_tileset', frame);
+    icon.setDisplaySize(48, 48);
+    this.container.add(icon);
+
     // Tower name and level
-    const title = this.scene.add.text(0, -65, `${towerDef.name} Lv.${data.level}`, {
+    const title = this.scene.add.text(0, -30, `${towerDef.name} Lv.${data.level}`, {
       fontSize: '12px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5);
     this.container.add(title);
 
     // Stats
-    const stats = this.scene.add.text(0, -42, `DMG: ${towerDef.damage} | RNG: ${towerDef.range}`, {
+    const stats = this.scene.add.text(0, -12, `DMG: ${towerDef.damage} | RNG: ${towerDef.range}`, {
       fontSize: '9px', color: '#aaaaaa',
     }).setOrigin(0.5);
     this.container.add(stats);
 
     // Sell button
-    const sellBg = this.scene.add.rectangle(0, -15, 140, 28, 0x8B0000);
+    const sellBg = this.scene.add.rectangle(0, 15, 140, 28, 0x8B0000);
     sellBg.setStrokeStyle(1, 0xffffff);
-    const sellText = this.scene.add.text(0, -15, `SELL (+${data.sellValue}g)`, {
+    const sellText = this.scene.add.text(0, 15, `SELL (+${data.sellValue}g)`, {
       fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5);
     this.container.add([sellBg, sellText]);
@@ -171,9 +194,9 @@ export class TowerPanel {
 
     // Upgrade button
     if (canUpgrade) {
-      const upgradeBg = this.scene.add.rectangle(0, 20, 140, 28, 0x2E7D32);
+      const upgradeBg = this.scene.add.rectangle(0, 48, 140, 28, 0x2E7D32);
       upgradeBg.setStrokeStyle(1, 0xffffff);
-      const upgradeText = this.scene.add.text(0, 20, `UPGRADE (${upgradeCost}g)`, {
+      const upgradeText = this.scene.add.text(0, 48, `UPGRADE (${upgradeCost}g)`, {
         fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
       }).setOrigin(0.5);
       this.container.add([upgradeBg, upgradeText]);
@@ -188,16 +211,16 @@ export class TowerPanel {
       upgradeBg.on('pointerover', () => upgradeBg.setFillStyle(0x43A047));
       upgradeBg.on('pointerout', () => upgradeBg.setFillStyle(0x2E7D32));
     } else {
-      const maxText = this.scene.add.text(0, 20, 'MAX LEVEL', {
+      const maxText = this.scene.add.text(0, 48, 'MAX LEVEL', {
         fontSize: '10px', color: '#FFD700', fontStyle: 'bold',
       }).setOrigin(0.5);
       this.container.add(maxText);
     }
 
     // Cancel button
-    const cancelBg = this.scene.add.rectangle(0, 55, 140, 28, 0x555555);
+    const cancelBg = this.scene.add.rectangle(0, 78, 140, 28, 0x555555);
     cancelBg.setStrokeStyle(1, 0xffffff);
-    const cancelText = this.scene.add.text(0, 55, 'CLOSE', {
+    const cancelText = this.scene.add.text(0, 78, 'CLOSE', {
       fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5);
     this.container.add([cancelBg, cancelText]);
@@ -212,7 +235,7 @@ export class TowerPanel {
     cancelBg.on('pointerout', () => cancelBg.setFillStyle(0x555555));
 
     // Position container
-    this.container.setPosition(x + 90, y + 80);
+    this.container.setPosition(x + 90, y + 90);
   }
 
   // Legacy methods - no-ops for compatibility

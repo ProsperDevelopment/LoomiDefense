@@ -6,7 +6,7 @@ import { WaveManager } from '../systems/WaveManager';
 import { EconomySystem } from '../systems/EconomySystem';
 import { HealthSystem } from '../systems/HealthSystem';
 import { TargetingSystem, type TargetableEntity } from '../systems/TargetingSystem';
-import { Tower, TOWER_SPRITES } from '../entities/Tower';
+import { Tower } from '../entities/Tower';
 import { Enemy } from '../entities/Enemy';
 import { Projectile } from '../entities/Projectile';
 import { HUD } from '../ui/HUD';

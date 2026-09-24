@@ -7,12 +7,15 @@ import { Damage } from '../components/Damage';
 import { CELL_SIZE, GRID_OFFSET_Y } from '../config/constants';
 
 /**
- * Tower type to sprite mapping
+ * Centralized tower sprite frame mapping.
+ * Tileset: 768x192 (12 cols x 3 rows, 64x64 tiles after 200% resize)
+ * Each tower has 3 consecutive frames: normal, damaged1, damaged2
+ * Frame 0-2: Tower 1 | Frame 3-5: Tower 2 | Frame 6-8: Tower 3
  */
-export const TOWER_SPRITES: Record<TowerType, string> = {
-  arrow: 'tower_arrow',
-  cannon: 'tower_cannon',
-  frost: 'tower_frost',
+export const TOWER_SPRITE_FRAMES: Record<TowerType, number> = {
+  arrow: 0,   // 1st tower, normal
+  cannon: 3,  // 2nd tower, normal
+  frost: 6,   // 3rd tower, normal
 };
 
 /**
@@ -68,9 +71,9 @@ export class Tower {
     this.scene = scene;
     const worldPos = this.getWorldPosition();
 
-    // Use sprite image
-    const spriteKey = TOWER_SPRITES[this.type];
-    this.sprite = scene.add.image(worldPos.x, worldPos.y, spriteKey);
+    // Use sprite from tower tileset
+    const frame = TOWER_SPRITE_FRAMES[this.type];
+    this.sprite = scene.add.image(worldPos.x, worldPos.y, 'towers_tileset', frame);
     this.sprite.setDisplaySize(CELL_SIZE, CELL_SIZE);
     this.sprite.setDepth(5);
 

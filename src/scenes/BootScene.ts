@@ -39,6 +39,13 @@ export class BootScene extends Phaser.Scene {
     // Generate terrain tiles programmatically
     this.generateTerrainTiles();
 
+    // Load Ninja Adventure tower tileset (768x192 after 200% resize, 12 columns x 3 rows, 64x64 tiles)
+    // Each tower has 3 consecutive frames: normal, damaged1, damaged2
+    this.load.spritesheet('towers_tileset', 'assets/images/towers/towers_tileset.png', {
+      frameWidth: 64,
+      frameHeight: 64,
+    });
+
     // Load Ninja Adventure monster sprites (128x128 after 200% resize, 4 columns x 4 rows)
     this.load.spritesheet('enemy_slime', 'assets/images/enemies/slime.png', {
       frameWidth: 32,
