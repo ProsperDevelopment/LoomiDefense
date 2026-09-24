@@ -39,31 +39,38 @@ export class BootScene extends Phaser.Scene {
     // Generate terrain tiles programmatically
     this.generateTerrainTiles();
 
-    // Load animated enemy sprites (4 frames each, 128x128 per frame)
-    this.load.spritesheet('enemy_monster', 'assets/images/enemies/monster_idle.png', {
-      frameWidth: 128,
-      frameHeight: 128,
-    });
-
-    this.load.spritesheet('enemy_skeleton', 'assets/images/enemies/skeleton_idle.png', {
-      frameWidth: 128,
-      frameHeight: 128,
-    });
-
-    // Load ant spritesheet (2 frames, 16x16 each)
-    this.load.spritesheet('enemy_ant', 'assets/images/enemies/ant_red.png', {
-      frameWidth: 16,
-      frameHeight: 16,
-    });
-
-    // Load bat spritesheet (4 frames, 32x32 each)
-    this.load.spritesheet('enemy_bat', 'assets/images/enemies/bat_walk.png', {
+    // Load Ninja Adventure monster sprites (128x128 after 200% resize, 4 columns x 4 rows)
+    this.load.spritesheet('enemy_slime', 'assets/images/enemies/slime.png', {
       frameWidth: 32,
       frameHeight: 32,
     });
 
-    // Load monster spritesheet (4 frames, 32x32 each)
-    this.load.spritesheet('enemy_monster', 'assets/images/enemies/monster_walk.png', {
+    this.load.spritesheet('enemy_bear', 'assets/images/enemies/bear.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+
+    this.load.spritesheet('enemy_dragon', 'assets/images/enemies/dragon.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+
+    this.load.spritesheet('enemy_spider', 'assets/images/enemies/spider.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+
+    this.load.spritesheet('enemy_beast', 'assets/images/enemies/beast.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+
+    this.load.spritesheet('enemy_cyclops', 'assets/images/enemies/cyclops.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+
+    this.load.spritesheet('enemy_snake', 'assets/images/enemies/snake.png', {
       frameWidth: 32,
       frameHeight: 32,
     });
@@ -76,45 +83,68 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Create monster animation
-    this.anims.create({
-      key: 'monster_idle',
-      frames: this.anims.generateFrameNumbers('enemy_monster', { start: 0, end: 3 }),
-      frameRate: 6,
-      repeat: -1,
-    });
+    // Sprite sheets are 128x128 with 4 columns x 4 rows (32x32 frames)
+    // Columns = directions, Rows = animation frames
+    // Column 0 (frames 0, 4, 8, 12) = Down
+    // Column 1 (frames 1, 5, 9, 13) = Up
+    // Column 2 (frames 2, 6, 10, 14) = Left
+    // Column 3 (frames 3, 7, 11, 15) = Right
 
-    // Create skeleton animation
-    this.anims.create({
-      key: 'skeleton_idle',
-      frames: this.anims.generateFrameNumbers('enemy_skeleton', { start: 0, end: 3 }),
-      frameRate: 6,
-      repeat: -1,
-    });
+    const monsters = ['slime', 'bear', 'dragon', 'spider', 'beast', 'cyclops', 'snake'];
 
-    // Create ant animation
-    this.anims.create({
-      key: 'ant_walk',
-      frames: this.anims.generateFrameNumbers('enemy_ant', { start: 0, end: 1 }),
-      frameRate: 6,
-      repeat: -1,
-    });
+    for (const name of monsters) {
+      // Down (column 0): frames 0, 4, 8, 12
+      this.anims.create({
+        key: `${name}_walk`,
+        frames: [
+          { key: `enemy_${name}`, frame: 0 },
+          { key: `enemy_${name}`, frame: 4 },
+          { key: `enemy_${name}`, frame: 8 },
+          { key: `enemy_${name}`, frame: 12 },
+        ],
+        frameRate: 8,
+        repeat: -1,
+      });
 
-    // Create bat animation
-    this.anims.create({
-      key: 'bat_fly',
-      frames: this.anims.generateFrameNumbers('enemy_bat', { start: 0, end: 3 }),
-      frameRate: 10,
-      repeat: -1,
-    });
+      // Up (column 1): frames 1, 5, 9, 13
+      this.anims.create({
+        key: `${name}_up`,
+        frames: [
+          { key: `enemy_${name}`, frame: 1 },
+          { key: `enemy_${name}`, frame: 5 },
+          { key: `enemy_${name}`, frame: 9 },
+          { key: `enemy_${name}`, frame: 13 },
+        ],
+        frameRate: 8,
+        repeat: -1,
+      });
 
-    // Create monster animation
-    this.anims.create({
-      key: 'monster_walk',
-      frames: this.anims.generateFrameNumbers('enemy_monster', { start: 0, end: 3 }),
-      frameRate: 6,
-      repeat: -1,
-    });
+      // Left (column 2): frames 2, 6, 10, 14
+      this.anims.create({
+        key: `${name}_left`,
+        frames: [
+          { key: `enemy_${name}`, frame: 2 },
+          { key: `enemy_${name}`, frame: 6 },
+          { key: `enemy_${name}`, frame: 10 },
+          { key: `enemy_${name}`, frame: 14 },
+        ],
+        frameRate: 8,
+        repeat: -1,
+      });
+
+      // Right (column 3): frames 3, 7, 11, 15
+      this.anims.create({
+        key: `${name}_right`,
+        frames: [
+          { key: `enemy_${name}`, frame: 3 },
+          { key: `enemy_${name}`, frame: 7 },
+          { key: `enemy_${name}`, frame: 11 },
+          { key: `enemy_${name}`, frame: 15 },
+        ],
+        frameRate: 8,
+        repeat: -1,
+      });
+    }
 
     // Check for URL level parameter
     const startLevel = (window as any).__START_LEVEL;

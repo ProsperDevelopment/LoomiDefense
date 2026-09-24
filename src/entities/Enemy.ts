@@ -6,16 +6,17 @@ import { Health } from '../components/Health';
 
 /**
  * Enemy type to sprite and animation mapping
+ * Using Ninja Adventure Asset Pack monsters
  */
 const ENEMY_SPRITES: Record<EnemyType, { key: string; anim: string }> = {
-  basic: { key: 'enemy_ant', anim: 'ant_walk' },
-  fast: { key: 'enemy_bat', anim: 'bat_fly' },
-  armored: { key: 'enemy_monster', anim: 'monster_walk' },
-  healer: { key: 'enemy_ant', anim: 'ant_walk' },
-  swarm: { key: 'enemy_ant', anim: 'ant_walk' },
-  tank: { key: 'enemy_monster', anim: 'monster_walk' },
-  elite: { key: 'enemy_monster', anim: 'monster_walk' },
-  boss: { key: 'enemy_monster', anim: 'monster_walk' },
+  basic: { key: 'enemy_slime', anim: 'slime_walk' },
+  fast: { key: 'enemy_spider', anim: 'spider_walk' },
+  armored: { key: 'enemy_bear', anim: 'bear_walk' },
+  healer: { key: 'enemy_snake', anim: 'snake_walk' },
+  swarm: { key: 'enemy_slime', anim: 'slime_walk' },
+  tank: { key: 'enemy_beast', anim: 'beast_walk' },
+  elite: { key: 'enemy_cyclops', anim: 'cyclops_walk' },
+  boss: { key: 'enemy_dragon', anim: 'dragon_walk' },
 };
 
 /**
@@ -70,7 +71,6 @@ export class Enemy {
 
     // Create animated sprite
     const sprite = scene.add.sprite(this.position.x, this.position.y, spriteInfo.key, 0);
-    sprite.setDisplaySize(this.data.size * 2, this.data.size * 2);
     sprite.play(spriteInfo.anim);
     sprite.setDepth(10);
     this.sprite = sprite;
@@ -139,14 +139,25 @@ export class Enemy {
     if (this.sprite) {
       this.sprite.setPosition(this.position.x, this.position.y);
 
-      // Flip sprite based on horizontal direction
+      // Play correct animation based on movement direction
       if (this.pathIndex < this.path.length) {
         const target = this.path[this.pathIndex];
         const dx = target.x - this.position.x;
-        if (dx < 0) {
-          this.sprite.setFlipX(true);
-        } else if (dx > 0) {
-          this.sprite.setFlipX(false);
+        const dy = target.y - this.position.y;
+
+        const spriteInfo = ENEMY_SPRITES[this.type];
+        let animKey = `${spriteInfo.key.replace('enemy_', '')}_walk`;
+
+        if (Math.abs(dx) > Math.abs(dy)) {
+          // Moving horizontally
+          animKey = dx > 0 ? `${spriteInfo.key.replace('enemy_', '')}_right` : `${spriteInfo.key.replace('enemy_', '')}_left`;
+        } else if (dy < 0) {
+          // Moving up
+          animKey = `${spriteInfo.key.replace('enemy_', '')}_up`;
+        }
+
+        if (this.sprite.anims.currentAnim?.key !== animKey) {
+          this.sprite.play(animKey);
         }
       }
     }
