@@ -8,6 +8,7 @@ import { HealthSystem } from '../systems/HealthSystem';
 import { TargetingSystem, type TargetableEntity } from '../systems/TargetingSystem';
 import { Tower } from '../entities/Tower';
 import { Enemy } from '../entities/Enemy';
+import { Position } from '../components/Position';
 import { Projectile } from '../entities/Projectile';
 import { HUD } from '../ui/HUD';
 import { TowerPanel } from '../ui/TowerPanel';
@@ -830,13 +831,19 @@ export class GameScene extends Phaser.Scene {
       this.createImmuneIndicator(primaryTarget.position.x, primaryTarget.position.y);
       return;
     }
+   
+    // Create blood splatter from projectile direction
+    this.createBloodSplatter(proj.position, primaryTarget.position, primaryTarget.data.size, 0);
 
     const dmg = proj.damage;
     const killed = this.healthSystem.applyDamage(
       { id: primaryTarget.id, position: primaryTarget.position, health: primaryTarget.health },
       dmg.baseDamage,
     );
-    if (killed) this.onEnemyKilled(primaryTarget);
+    if (killed) {this.onEnemyKilled(primaryTarget);
+      this.createBloodSplatter(proj.position, primaryTarget.position, primaryTarget.data.size, 3);
+
+    }
     if (dmg.slowFactor < 1.0) {
       primaryTarget.health.applySlow(dmg.slowFactor, dmg.slowDuration);
     }
@@ -848,6 +855,101 @@ export class GameScene extends Phaser.Scene {
         primaryTarget.position.x, primaryTarget.position.y, dmg.splashRadius, dmg.baseDamage * 0.5, nearbyEnemies,
       );
       for (const k of splashKilled) this.onEnemyKilledById(k.id);
+    }
+  }
+
+  private createBloodSplatter(fromPos: Position, toPos: Position, enemySize: number, bloodSize: number): void {
+    const dx = toPos.x - fromPos.x;
+    const dy = toPos.y - fromPos.y;
+    let dist = Math.sqrt(dx * dx + dy * dy);
+    console.log(dist);
+    if (dist === 0) dist = 0.5;
+
+    // Normalize direction (hit direction)
+    const ndx = dx / dist;
+    const ndy = dy / dist;
+
+    // Number of particles
+    const particleCount = 6 + (bloodSize * 4);
+   
+
+    for (let i = 0; i < particleCount; i++) {
+      const size = (2 + bloodSize) + Math.random() * 3;
+      const particle = this.add.circle(
+        toPos.x,
+        toPos.y,
+        size,
+        0xcc0000,
+        1,
+      );
+      particle.setDepth(30);
+
+      // Random spread around hit direction
+      const angle = Math.atan2(ndy, ndx) + (Math.random() - 0.5) * 1.5;
+      const speed = 40 + Math.random() * 80;
+      const targetX = toPos.x + Math.cos(angle) * speed;
+      const targetY = toPos.y + Math.sin(angle) * speed;
+
+      // Main blood particles - fly outward then dry
+      this.tweens.add({
+        targets: particle,
+        x: targetX,
+        y: targetY,
+        alpha: 0.6,
+        duration: 300 + Math.random() * 200,
+        ease: 'Power2',
+        onComplete: () => {
+          // Dry blood - turn dark red/brown
+          if (particle && particle.active) {
+            particle.setFillStyle(0x4a0000, 0.8);
+            this.tweens.add({
+              targets: particle,
+              alpha: 0,
+              scale: 0.5,
+              duration: 3000,
+              onComplete: () => {
+                if (particle && particle.active) particle.destroy();
+              },
+            });  
+          } 
+        },
+      });
+
+      // Also spawn exit blood (opposite direction, fewer particles)
+      if (i < 4) {
+        const exitAngle = angle + Math.PI + (Math.random() - 0.5) * 0.6;
+        const exitSpeed = 20 + Math.random() * 40;
+        const exitParticle = this.add.circle(
+          toPos.x,
+          toPos.y,
+          (1 + bloodSize) + Math.random() * (2 + bloodSize),
+          0xcc0000,
+          1,
+        );
+        exitParticle.setDepth(30);
+
+        this.tweens.add({
+          targets: exitParticle,
+          x: toPos.x + Math.cos(exitAngle) * exitSpeed,
+          y: toPos.y + Math.sin(exitAngle) * exitSpeed,
+          alpha: 0.4,
+          duration: 250,
+          ease: 'Power2',
+          onComplete: () => {
+            if (exitParticle && exitParticle.active) {
+              exitParticle.setFillStyle(0x4a0000, 0.6);
+              this.tweens.add({
+                targets: exitParticle,
+                alpha: 0,
+                duration: 2000,
+                onComplete: () => {
+                  if (exitParticle && exitParticle.active) exitParticle.destroy();
+                },
+              });
+            }
+          },
+        });
+      }
     }
   }
 
