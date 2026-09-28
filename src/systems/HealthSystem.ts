@@ -1,6 +1,6 @@
 import type { Health } from '../components/Health';
 import type { Position } from '../components/Position';
-import { eventBus } from '../utils/EventBus';
+
 
 export interface DamageableEntity {
   id: string;
@@ -43,23 +43,16 @@ export class HealthSystem {
 
   /**
    * Apply damage directly and check for death.
+   * The caller is responsible for emitting 'enemy-killed' exactly once
+   * (GameScene.onEnemyKilled) — emitting here as well would double-count
+   * kills in listeners.
    */
   applyDamage(entity: DamageableEntity, amount: number): boolean {
     if (entity.health.isDead()) return false;
 
     entity.health.takeDamage(amount);
 
-    if (entity.health.isDead()) {
-      eventBus.emit('enemy-killed', {
-        enemyType: 'basic', // Will be overridden by caller
-        reward: 0,
-        x: entity.position.x,
-        y: entity.position.y,
-      });
-      return true;
-    }
-
-    return false;
+    return entity.health.isDead();
   }
 
   /**

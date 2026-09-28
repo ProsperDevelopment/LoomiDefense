@@ -48,6 +48,8 @@ export class Enemy {
 
   // Animation
   private pulseTimer: number = 0;
+  /** Last movement delta (set by refresh() during multiplayer sync). */
+  private netFacing: { dx: number; dy: number } | null = null;
 
   constructor(type: EnemyType, path: { x: number; y: number }[], id?: string) {
     this.type = type;
@@ -139,12 +141,21 @@ export class Enemy {
     if (this.sprite) {
       this.sprite.setPosition(this.position.x, this.position.y);
 
-      // Play correct animation based on movement direction
-      if (this.pathIndex < this.path.length) {
+      // Play correct animation based on movement direction.
+      // Multiplayer guests face the direction of network movement;
+      // hosts/solo face the next path waypoint.
+      let dx: number | null = null;
+      let dy: number | null = null;
+      if (this.netFacing) {
+        dx = this.netFacing.dx;
+        dy = this.netFacing.dy;
+      } else if (this.pathIndex < this.path.length) {
         const target = this.path[this.pathIndex];
-        const dx = target.x - this.position.x;
-        const dy = target.y - this.position.y;
+        dx = target.x - this.position.x;
+        dy = target.y - this.position.y;
+      }
 
+      if (dx !== null && dy !== null && (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)) {
         const spriteInfo = ENEMY_SPRITES[this.type];
         let animKey = `${spriteInfo.key.replace('enemy_', '')}_walk`;
 
@@ -192,6 +203,19 @@ export class Enemy {
     return this.health.isDead();
   }
 
+  /** Re-render sprites from the current position (used by multiplayer sync). */
+  refresh(): void {
+    // Derive facing from the movement delta since the last render
+    if (this.sprite) {
+      const dx = this.position.x - this.sprite.x;
+      const dy = this.position.y - this.sprite.y;
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+        this.netFacing = { dx, dy };
+      }
+    }
+    this.updateVisuals();
+  }
+
   hasReachedBase(): boolean {
     return this.reachedBase;
   }
@@ -225,5 +249,6 @@ export class Enemy {
     this.alive = true;
     this.reachedBase = false;
     this.pulseTimer = 0;
+    this.netFacing = null;
   }
 }

@@ -15,8 +15,12 @@ import { TowerPanel } from '../ui/TowerPanel';
 import { WaveIndicator } from '../ui/WaveIndicator';
 import { MAP_DEFINITIONS } from '../data/maps';
 import { TOWER_DEFINITIONS } from '../data/towers';
-import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, LEVEL_STARTING_GOLD, STARTING_GOLD, GRID_OFFSET_Y } from '../config/constants';
+import { userProfile } from '../state/UserProfile';
+import { lobby } from '../ui/overlay/lobbyScreen';
+import type { NetSnapshot, NetCommand, NetStatus } from '../../shared/protocol';
+import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, LEVEL_STARTING_GOLD, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
+import { isWaveResolved } from '../utils/waveCompletion';
 import type { WaveData } from '../types';
 
 // Special waves for dev demo level
@@ -109,7 +113,6 @@ export class GameScene extends Phaser.Scene {
   private hoverRangeCircle: Phaser.GameObjects.Arc | null = null;
   private hoverCol: number = -1;
   private hoverRow: number = -1;
-  private enemiesAlive: number = 0;
   private enemiesSpawnedInWave: number = 0;
   private currentLevelId: number = 1;
   private selectedEnemy: Enemy | null = null;
@@ -118,13 +121,38 @@ export class GameScene extends Phaser.Scene {
   private pendingRangeCircle: Phaser.GameObjects.Arc | null = null;
   private popupClickHandled: boolean = false;
 
+  // Multiplayer state
+  private netRole: 'host' | 'guest' | null = null;
+  private netLoadout: string[] | null = null;
+  private loadoutTypes: TowerType[] = [];
+  private lobbyUnsubs: Array<() => void> = [];
+  private pendingSnaps: NetSnapshot[] = [];
+  private snapshotTimer: number = 0;
+  private guestWaveNumber: number = 0;
+  private guestEnemyTargets = new Map<string, { x: number; y: number }>();
+  private guestProjectiles = new Map<string, { img: Phaser.GameObjects.Image; tx: number; ty: number }>();
+
   constructor() {
     super({ key: 'GameScene' });
   }
 
-  create(data: { levelId?: number }): void {
+  create(data: { levelId?: number; netRole?: 'host' | 'guest'; netLoadout?: string[] }): void {
     this.cameras.main.setBackgroundColor(COLORS.BACKGROUND);
     this.resetState();
+
+    this.netRole = data.netRole ?? null;
+    this.netLoadout = data.netLoadout ?? null;
+    this.pendingSnaps = [];
+    this.snapshotTimer = 0;
+    this.guestEnemyTargets.clear();
+    this.guestProjectiles.clear();
+
+    // Loadout: multiplayer uses the host's loadout; solo uses the profile loadout
+    const rawLoadout = this.netLoadout ?? userProfile.loadout;
+    this.loadoutTypes = rawLoadout.filter((t): t is TowerType => t in TOWER_DEFINITIONS);
+    if (this.loadoutTypes.length === 0) {
+      this.loadoutTypes = ['arrow', 'cannon', 'frost'];
+    }
 
     const levelId = data.levelId !== undefined ? data.levelId : 1;
     this.currentLevelId = levelId;
@@ -155,10 +183,53 @@ export class GameScene extends Phaser.Scene {
 
     this.waveManager.onSpawnEnemy = (type) => this.spawnEnemy(type);
 
-    // Start first wave after a short delay
-    this.time.delayedCall(2000, () => {
-      this.startNextWave();
+    // Multiplayer: wire lobby net handlers
+    this.setupNetHandlers();
+
+    // Start first wave after a short delay (host/solo only; guests wait for snapshots)
+    if (this.netRole !== 'guest') {
+      this.time.delayedCall(2000, () => {
+        this.startNextWave();
+      });
+    }
+
+    // Clean up lobby listeners when leaving the scene
+    this.events.once('shutdown', () => {
+      this.lobbyUnsubs.forEach((u) => u());
+      this.lobbyUnsubs = [];
+      if (this.netRole) {
+        lobby.leave();
+        this.netRole = null;
+      }
+      this.hideGuestOverlays();
     });
+  }
+
+  private setupNetHandlers(): void {
+    if (!this.netRole) return;
+
+    this.lobbyUnsubs.push(
+      lobby.onNet((from, data) => {
+        if (this.isGameOver) return;
+        if (this.netRole === 'host' && data.kind === 'cmd') {
+          this.applyNetCommand(from, data.cmd);
+        } else if (this.netRole === 'guest' && data.kind === 'snap') {
+          this.pendingSnaps.push(data);
+        }
+      }),
+      lobby.onClose(() => {
+        // Connection lost mid-game: return to menu
+        if (!this.isGameOver && this.netRole === 'guest') {
+          this.scene.start('MenuScene');
+        }
+      }),
+    );
+  }
+
+  private hideGuestOverlays(): void {
+    for (const { img } of this.guestProjectiles.values()) img.destroy();
+    this.guestProjectiles.clear();
+    this.guestEnemyTargets.clear();
   }
 
   private resetState(): void {
@@ -170,7 +241,6 @@ export class GameScene extends Phaser.Scene {
     this.selectedTowerType = null;
     this.selectedTower = null;
     this.isGameOver = false;
-    this.enemiesAlive = 0;
     this.enemiesSpawnedInWave = 0;
   }
 
@@ -195,6 +265,7 @@ export class GameScene extends Phaser.Scene {
       canAfford: (cost) => this.economy.canAfford(cost),
       onCancel: () => this.cancelPendingBuild(),
     });
+    this.towerPanel.setAvailableTypes(this.loadoutTypes);
 
     this.waveIndicator = new WaveIndicator(this, () => this.startNextWave(), () => this.startWaveEarly());
     this.waveIndicator.setWave(0, this.waveManager.getTotalWaves());
@@ -267,14 +338,12 @@ export class GameScene extends Phaser.Scene {
       this.score += p.reward;
       this.hud.setGold(this.economy.getGold());
       this.hud.setScore(this.score);
-      this.enemiesAlive--;
       this.checkWaveComplete();
     });
 
     eventBus.on('enemy-reached-base', (p) => {
       this.lives -= p.damage;
       this.hud.setLives(this.lives);
-      this.enemiesAlive--;
       this.checkWaveComplete();
       if (this.lives <= 0) this.gameOver(false);
     });
@@ -282,11 +351,27 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (this.isGameOver) return;
+
+    // Guest: mirror the host's state instead of simulating locally
+    if (this.netRole === 'guest') {
+      this.updateGuest(delta);
+      return;
+    }
+
     const scaledDelta = delta * this.gameSpeed;
     this.waveManager.update(scaledDelta);
     this.updateEnemies(scaledDelta);
     this.updateTowerCombat(scaledDelta);
     this.updateProjectiles(scaledDelta);
+
+    // Host: broadcast snapshots ~10x per second
+    if (this.netRole === 'host') {
+      this.snapshotTimer += delta;
+      if (this.snapshotTimer >= 100) {
+        this.snapshotTimer = 0;
+        this.sendSnapshot('playing');
+      }
+    }
 
     // Update target sight position
     this.updateTargetSight();
@@ -300,6 +385,211 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.waveIndicator.showCountdown(false);
       this.waveIndicator.setBonusText('');
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Multiplayer: guest rendering from host snapshots
+  // ------------------------------------------------------------
+
+  private updateGuest(delta: number): void {
+    // Apply the newest snapshot (drop stale queued ones)
+    while (this.pendingSnaps.length > 1) this.pendingSnaps.shift();
+    const snap = this.pendingSnaps.shift();
+    if (snap) this.applySnapshot(snap);
+
+    // Interpolate enemies toward their network targets
+    for (const enemy of this.enemies) {
+      const t = this.guestEnemyTargets.get(enemy.id);
+      if (!t) continue;
+      const k = Math.min(1, delta / 90);
+      enemy.position.x += (t.x - enemy.position.x) * k;
+      enemy.position.y += (t.y - enemy.position.y) * k;
+      enemy.refresh();
+    }
+
+    // Interpolate projectile visuals
+    for (const { img, tx, ty } of this.guestProjectiles.values()) {
+      const k = Math.min(1, delta / 90);
+      img.x += (tx - img.x) * k;
+      img.y += (ty - img.y) * k;
+    }
+
+    this.updateTargetSight();
+
+    // Guests can always ask the host to start the next wave
+    this.waveIndicator.showCountdown(false);
+    this.waveIndicator.setBonusText('');
+    this.waveIndicator.showStartButton(true);
+  }
+
+  private applySnapshot(snap: NetSnapshot): void {
+    // Economy/HUD mirrors (only touch when changed to avoid text spam)
+    if (this.economy.getGold() !== snap.gold) {
+      this.economy.reset(snap.gold);
+      this.hud.setGold(snap.gold);
+    }
+    if (this.lives !== snap.lives) {
+      this.lives = snap.lives;
+      this.hud.setLives(snap.lives);
+    }
+    if (this.score !== snap.score) {
+      this.score = snap.score;
+      this.hud.setScore(snap.score);
+    }
+    this.hud.setWave(snap.wave, snap.waveTotal);
+    this.waveIndicator.setWave(snap.wave, snap.waveTotal);
+    this.guestWaveNumber = snap.wave;
+
+    this.syncGuestTowers(snap.towers);
+    this.syncGuestEnemies(snap.enemies);
+    this.syncGuestProjectiles(snap.projectiles ?? []);
+
+    if (snap.status === 'won') this.gameOver(true);
+    else if (snap.status === 'lost') this.gameOver(false);
+  }
+
+  private syncGuestTowers(snaps: Array<{ id: string; type: string; col: number; row: number; level: number; color: string }>): void {
+    const seen = new Set<string>();
+    for (const s of snaps) {
+      seen.add(s.id);
+      let tower = this.towers.find((t) => t.id === s.id);
+      if (!tower) {
+        if (!(s.type in TOWER_DEFINITIONS)) continue;
+        tower = new Tower(s.type as TowerType, s.col, s.row, s.id);
+        if (s.color) tower.setPlayerColor(s.color);
+        tower.createSprite(this);
+        tower.showRange(false);
+        this.towers.push(tower);
+        if (this.grid.canPlace(s.col, s.row)) this.grid.placeTower(s.col, s.row);
+        while (tower.level < s.level) tower.upgrade();
+      }
+    }
+    for (let i = this.towers.length - 1; i >= 0; i--) {
+      const tower = this.towers[i];
+      if (!seen.has(tower.id)) {
+        if (this.selectedTower === tower) this.deselectTower();
+        this.grid.removeTower(tower.getGridCol(), tower.getGridRow());
+        tower.destroy();
+        this.towers.splice(i, 1);
+      }
+    }
+  }
+
+  private syncGuestEnemies(snaps: Array<{ id: string; type: string; x: number; y: number; hp: number; hpMax: number }>): void {
+    const seen = new Set<string>();
+    for (const s of snaps) {
+      seen.add(s.id);
+      let enemy = this.enemies.find((e) => e.id === s.id);
+      if (!enemy) {
+        const path = this.grid.getPathPixels();
+        enemy = new Enemy(s.type as EnemyType, path, s.id);
+        enemy.createSprite(this);
+        this.enemies.push(enemy);
+        enemy.position.set(s.x, s.y);
+      }
+      enemy.health.current = Math.max(1, Math.min(s.hp, enemy.health.max));
+      this.guestEnemyTargets.set(s.id, { x: s.x, y: s.y });
+    }
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const enemy = this.enemies[i];
+      if (!seen.has(enemy.id)) {
+        if (this.selectedEnemy === enemy) this.deselectEnemy();
+        this.guestEnemyTargets.delete(enemy.id);
+        enemy.destroy();
+        this.enemies.splice(i, 1);
+      }
+    }
+  }
+
+  private syncGuestProjectiles(snaps: Array<{ id: string; type: string; x: number; y: number }>): void {
+    const seen = new Set<string>();
+    for (const s of snaps) {
+      seen.add(s.id);
+      let entry = this.guestProjectiles.get(s.id);
+      if (!entry) {
+        const key = `projectile_${s.type}`;
+        if (!this.textures.exists(key)) continue;
+        const img = this.add.image(s.x, s.y, key);
+        img.setDisplaySize(12, 12);
+        img.setDepth(15);
+        entry = { img, tx: s.x, ty: s.y };
+        this.guestProjectiles.set(s.id, entry);
+      }
+      entry.tx = s.x;
+      entry.ty = s.y;
+    }
+    for (const [id, entry] of this.guestProjectiles) {
+      if (!seen.has(id)) {
+        entry.img.destroy();
+        this.guestProjectiles.delete(id);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Multiplayer: host snapshot + command application
+  // ------------------------------------------------------------
+
+  private sendSnapshot(status: NetStatus): void {
+    if (this.netRole !== 'host') return;
+    lobby.sendSnapshot({
+      kind: 'snap',
+      status,
+      gold: this.economy.getGold(),
+      lives: this.lives,
+      wave: this.waveManager.getWaveNumber(),
+      waveTotal: this.waveManager.getTotalWaves(),
+      score: this.score,
+      enemies: this.enemies
+        .filter((e) => e.alive && !e.isDead())
+        .map((e) => ({
+          id: e.id,
+          type: e.type,
+          x: Math.round(e.position.x),
+          y: Math.round(e.position.y),
+          hp: e.health.current,
+          hpMax: e.health.max,
+        })),
+      towers: this.towers.map((t) => ({
+        id: t.id,
+        type: t.type,
+        col: t.getGridCol(),
+        row: t.getGridRow(),
+        level: t.level,
+        color: t.tintColorHex ?? userProfile.towerColor,
+      })),
+      projectiles: this.projectiles
+        .filter((p) => p.alive)
+        .map((p) => ({ id: p.id, type: p.getTowerType(), x: Math.round(p.position.x), y: Math.round(p.position.y) })),
+    });
+  }
+
+  private applyNetCommand(from: string, cmd: NetCommand): void {
+    // Color of the player who issued the command
+    const senderColor =
+      lobby.room?.players.find((p) => p.id === from)?.color ?? userProfile.towerColor;
+
+    switch (cmd.k) {
+      case 'place':
+        this.placeTower(cmd.col, cmd.row, cmd.type as TowerType, senderColor);
+        break;
+      case 'upgrade': {
+        const tower = this.towers.find((t) => t.id === cmd.id);
+        if (tower) this.upgradeTower(tower);
+        break;
+      }
+      case 'sell': {
+        const tower = this.towers.find((t) => t.id === cmd.id);
+        if (tower) this.sellTower(tower);
+        break;
+      }
+      case 'wave':
+        this.startNextWave();
+        break;
+      case 'early':
+        this.startWaveEarly();
+        break;
     }
   }
 
@@ -673,13 +963,25 @@ export class GameScene extends Phaser.Scene {
     this.cancelPendingBuild();
   }
 
-  private placeTower(col: number, row: number, type: TowerType): void {
+  private placeTower(col: number, row: number, type: TowerType, colorHex?: string): void {
     const data = TOWER_DEFINITIONS[type];
+    if (!data) return;
+    if (!this.loadoutTypes.includes(type)) return;
     if (!this.grid.canPlace(col, row)) return;
+
+    // Guest: relay the action to the host (authoritative)
+    if (this.netRole === 'guest') {
+      if (!this.economy.canAfford(data.cost)) return;
+      lobby.sendCommand({ k: 'place', col, row, type });
+      this.hoverRangeCircle?.setVisible(false);
+      return;
+    }
+
     if (!this.economy.canAfford(data.cost)) return;
     this.economy.spend(data.cost);
     this.grid.placeTower(col, row);
     const tower = new Tower(type, col, row);
+    tower.setPlayerColor(colorHex ?? userProfile.towerColor);
     tower.createSprite(this);
     tower.showRange(false);
     this.towers.push(tower);
@@ -708,31 +1010,56 @@ export class GameScene extends Phaser.Scene {
 
   private onSellTower(): void {
     if (!this.selectedTower) return;
-    const refund = this.economy.getSellValue(this.selectedTower.type, this.selectedTower.level);
+    const tower = this.selectedTower;
+
+    // Guest: relay to the host
+    if (this.netRole === 'guest') {
+      lobby.sendCommand({ k: 'sell', id: tower.id });
+      this.towerPanel.hide();
+      return;
+    }
+    this.sellTower(tower);
+  }
+
+  private sellTower(tower: Tower): void {
+    const refund = this.economy.getSellValue(tower.type, tower.level);
     this.economy.earn(refund);
-    this.grid.removeTower(this.selectedTower.getGridCol(), this.selectedTower.getGridRow());
-    this.selectedTower.destroy();
-    this.towers = this.towers.filter(t => t !== this.selectedTower);
-    eventBus.emit('tower-sold', { towerType: this.selectedTower.type, refund });
+    this.grid.removeTower(tower.getGridCol(), tower.getGridRow());
+    tower.destroy();
+    this.towers = this.towers.filter((t) => t !== tower);
+    eventBus.emit('tower-sold', { towerType: tower.type, refund });
     this.deselectTower();
     this.hud.setGold(this.economy.getGold());
   }
 
   private onUpgradeTower(): void {
     if (!this.selectedTower || this.selectedTower.level >= 3) return;
-    const cost = this.economy.getUpgradeCost(this.selectedTower.type, this.selectedTower.level);
+    const tower = this.selectedTower;
+
+    // Guest: relay to the host
+    if (this.netRole === 'guest') {
+      lobby.sendCommand({ k: 'upgrade', id: tower.id });
+      this.towerPanel.hide();
+      return;
+    }
+    this.upgradeTower(tower);
+  }
+
+  private upgradeTower(tower: Tower): void {
+    if (tower.level >= 3) return;
+    const cost = this.economy.getUpgradeCost(tower.type, tower.level);
     if (!this.economy.canAfford(cost)) return;
     this.economy.spend(cost);
 
-    const oldRange = this.selectedTower.range;
-    const worldPos = this.selectedTower.getWorldPosition();
-    this.selectedTower.upgrade();
-    const newRange = this.selectedTower.range;
+    const oldRange = tower.range;
+    const worldPos = tower.getWorldPosition();
+    tower.upgrade();
+    const newRange = tower.range;
 
     // Hide tower's own range circle immediately
-    this.selectedTower.showRange(false);
+    tower.showRange(false);
 
-    eventBus.emit('tower-upgraded', { towerType: this.selectedTower.type, newLevel: this.selectedTower.level });
+    eventBus.emit('tower-upgraded', { towerType: tower.type, newLevel: tower.level });
     this.towerPanel.hide();
     this.hud.setGold(this.economy.getGold());
 
@@ -775,8 +1102,9 @@ export class GameScene extends Phaser.Scene {
         if (this.selectedEnemy === enemy) {
           this.deselectEnemy();
         }
-        eventBus.emit('enemy-reached-base', { damage: 1 });
+        // Remove BEFORE notifying: wave completion checks the live enemy list
         this.removeEnemy(enemy, i);
+        eventBus.emit('enemy-reached-base', { damage: 1 });
       }
     }
   }
@@ -982,15 +1310,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onEnemyKilled(enemy: Enemy): void {
+    // Guard: a kill must only be processed once (damage systems can
+    // report the same enemy through multiple paths in one frame).
+    if (!enemy.alive) return;
+    enemy.alive = false;
+
     // Clear selection if this enemy was selected
     if (this.selectedEnemy === enemy) {
       this.deselectEnemy();
     }
     const reward = enemy.data.reward;
-    eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x: enemy.position.x, y: enemy.position.y });
-    this.createDeathEffect(enemy.position.x, enemy.position.y, enemy.data.color);
-    const idx = this.enemies.indexOf(enemy);
-    if (idx !== -1) this.removeEnemy(enemy, idx);
+    const { x, y } = enemy.position;
+    this.createDeathEffect(x, y, enemy.data.color);
+    // Remove BEFORE notifying: wave completion checks the live enemy list
+    this.removeEnemy(enemy);
+    eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x, y });
   }
 
   private onEnemyKilledById(id: string): void {
@@ -1011,12 +1345,16 @@ export class GameScene extends Phaser.Scene {
     const enemy = new Enemy(type, path);
     enemy.createSprite(this);
     this.enemies.push(enemy);
-    this.enemiesAlive++;
     this.enemiesSpawnedInWave++;
   }
 
   private startNextWave(): void {
     if (this.isGameOver) return;
+    // Guest: ask the host to start the wave
+    if (this.netRole === 'guest') {
+      lobby.sendCommand({ k: 'wave' });
+      return;
+    }
     this.enemiesSpawnedInWave = 0;
     this.waveManager.startWave();
     this.waveIndicator.showStartButton(false);
@@ -1027,6 +1365,11 @@ export class GameScene extends Phaser.Scene {
 
   private startWaveEarly(): void {
     if (this.isGameOver) return;
+    // Guest: ask the host to start early
+    if (this.netRole === 'guest') {
+      lobby.sendCommand({ k: 'early' });
+      return;
+    }
     const bonus = this.waveManager.startWaveEarly();
     if (bonus > 0) {
       this.economy.earn(bonus);
@@ -1036,29 +1379,55 @@ export class GameScene extends Phaser.Scene {
   }
 
   private checkWaveComplete(): void {
-    if (!this.waveManager.isWaveActive()) return;
-    if (this.enemiesAlive <= 0 && this.enemiesSpawnedInWave >= this.waveManager.getTotalEnemiesInWave()) {
-      this.economy.earn(25);
-      this.hud.setGold(this.economy.getGold());
-      this.waveManager.completeWave();
-      if (this.waveManager.isComplete()) {
-        this.gameOver(true);
-      } else {
-        this.waveIndicator.showStartButton(true);
-        this.waveIndicator.setWave(this.waveManager.getWaveNumber(), this.waveManager.getTotalWaves());
-      }
+    if (!this.waveManager.isWaveActive() || this.isGameOver) return;
+    // Finish only when every enemy of the wave has spawned AND every enemy
+    // has been resolved (killed or entered the base) — i.e. the live enemy
+    // list is empty. Never trust a running counter for this.
+    const resolved = isWaveResolved({
+      spawned: this.enemiesSpawnedInWave,
+      total: this.waveManager.getTotalEnemiesInWave(),
+      remainingEnemies: this.enemies.length,
+    });
+    if (!resolved) return;
+
+    this.economy.earn(25);
+    this.hud.setGold(this.economy.getGold());
+    this.waveManager.completeWave();
+    if (this.waveManager.isComplete()) {
+      this.gameOver(true);
+    } else {
+      this.waveIndicator.showStartButton(true);
+      this.waveIndicator.setWave(this.waveManager.getWaveNumber(), this.waveManager.getTotalWaves());
     }
   }
 
   private gameOver(victory: boolean): void {
+    if (this.isGameOver) return;
     this.isGameOver = true;
-    
-    // Save progress on victory
-    if (victory) {
-      this.saveLevelProgress(this.currentLevelId);
+
+    // Multiplayer: tell guests the final status, then leave the room
+    if (this.netRole === 'host') {
+      this.sendSnapshot(victory ? 'won' : 'lost');
     }
-    
-    this.scene.start('GameOverScene', { victory, score: this.score, wave: this.waveManager.getWaveNumber(), levelId: this.currentLevelId });
+
+    // Save progress + award coins on victory (solo, host, and guests alike)
+    if (victory) {
+      const firstCompletion = !userProfile.progress.completed.includes(this.currentLevelId);
+      this.saveLevelProgress(this.currentLevelId);
+      void userProfile.completeLevel(this.currentLevelId, COINS_PER_LEVEL_WIN).catch(() => undefined);
+      this.scene.start('GameOverScene', {
+        victory, score: this.score, wave: this.finalWaveNumber(),
+        levelId: this.currentLevelId, firstCompletion,
+      });
+      return;
+    }
+
+    this.scene.start('GameOverScene', { victory, score: this.score, wave: this.finalWaveNumber(), levelId: this.currentLevelId });
+  }
+
+  /** Guests mirror the host's wave number; hosts/solo use the wave manager. */
+  private finalWaveNumber(): number {
+    return this.netRole === 'guest' ? this.guestWaveNumber : this.waveManager.getWaveNumber();
   }
 
   private saveLevelProgress(levelId: number): void {

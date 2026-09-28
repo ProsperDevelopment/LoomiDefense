@@ -19,6 +19,7 @@ export class TowerPanel {
   private callbacks: TowerPanelCallbacks;
   private container: Phaser.GameObjects.Container;
   private visible: boolean = false;
+  private availableTypes: TowerType[] | null = null;
 
   constructor(scene: Phaser.Scene, callbacks: TowerPanelCallbacks) {
     this.scene = scene;
@@ -27,6 +28,17 @@ export class TowerPanel {
     this.container = scene.add.container(0, 0);
     this.container.setDepth(200);
     this.container.setVisible(false);
+  }
+
+  /** Restrict the build menu to a loadout (null = all towers). */
+  setAvailableTypes(types: TowerType[] | null): void {
+    this.availableTypes = types;
+  }
+
+  private get buildableTowers() {
+    const list = TOWER_LIST;
+    if (!this.availableTypes) return list;
+    return list.filter((t) => this.availableTypes!.includes(t.type));
   }
 
   showAtCursor(pointerX: number, pointerY: number, mode: 'build' | 'tower', towerData?: { type: TowerType; level: number; sellValue: number }): void {
@@ -62,9 +74,10 @@ export class TowerPanel {
   }
 
   private createBuildMenu(x: number, y: number): void {
+    const towers = this.buildableTowers;
     const btnSize = 56;
     const padding = 8;
-    const totalWidth = TOWER_LIST.length * (btnSize + padding) + padding;
+    const totalWidth = towers.length * (btnSize + padding) + padding;
     const totalHeight = btnSize + padding * 2 + 40; // tower buttons + cancel button
 
     // Background
@@ -81,7 +94,7 @@ export class TowerPanel {
     // Tower icon buttons
     const startX = -(totalWidth / 2) + padding + btnSize / 2;
 
-    TOWER_LIST.forEach((tower, i) => {
+    towers.forEach((tower, i) => {
       const btnX = startX + i * (btnSize + padding);
       const btnY = -10;
       const canAfford = this.callbacks.canAfford(tower.cost);

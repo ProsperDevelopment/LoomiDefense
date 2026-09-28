@@ -25,7 +25,7 @@ export interface MapData {
 }
 
 // --- Towers ---
-export type TowerType = 'arrow' | 'cannon' | 'frost';
+export type TowerType = 'arrow' | 'cannon' | 'frost' | 'sniper' | 'mortar' | 'tesla';
 export type TargetMode = 'first' | 'closest' | 'strongest';
 
 export interface TowerData {

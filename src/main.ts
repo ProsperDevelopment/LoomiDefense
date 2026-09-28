@@ -5,6 +5,9 @@ import { LevelSelectScene } from './scenes/LevelSelectScene';
 import { GameScene } from './scenes/GameScene';
 import { GameOverScene } from './scenes/GameOverScene';
 import { GAME_WIDTH, GAME_HEIGHT, BACKGROUND_COLOR } from './config/constants';
+import { userProfile } from './state/UserProfile';
+import { buildTopbar, setTopbarVisible } from './ui/overlay/screens';
+import { onLobbyStart, lobby } from './ui/overlay/lobbyScreen';
 
 // Parse URL parameters
 const urlParams = new URLSearchParams(window.location.search);
@@ -34,3 +37,33 @@ const game = new Phaser.Game(config);
 
 // Store start level for BootScene to access
 (window as any).__START_LEVEL = startLevel;
+
+// --- Profile + overlay UI bootstrapping ---
+void userProfile.init().finally(() => {
+  buildTopbar();
+});
+
+// When the multiplayer lobby starts a game, launch GameScene in net mode
+onLobbyStart((loadout, levelId) => {
+  const isHost = !!userProfile.user && lobby.room?.hostId === userProfile.user.id;
+  game.scene.start('GameScene', {
+    levelId,
+    netRole: isHost ? 'host' : 'guest',
+    netLoadout: loadout,
+  });
+});
+
+// The top bar overlays the HUD; hide it during gameplay
+let wasInGame: boolean | null = null;
+game.events.on('step', () => {
+  const scene = game.scene.getScene('GameScene');
+  const inGame = !!(scene && scene.scene.isActive());
+  if (inGame !== wasInGame) {
+    wasInGame = inGame;
+    setTopbarVisible(!inGame);
+  }
+});
+
+// Expose for debugging
+(window as any).__game = game;
+(window as any).__lobby = lobby;

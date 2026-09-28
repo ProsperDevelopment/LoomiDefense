@@ -19,6 +19,9 @@ export const STARTING_GOLD = 200;
 export const SELL_REFUND_RATIO = 0.6;
 export const WAVE_CLEAR_BONUS = 25;
 
+// --- Meta economy (store coins) ---
+export const COINS_PER_LEVEL_WIN = 50;
+
 // --- Starting Gold per Level ---
 export const LEVEL_STARTING_GOLD: Record<number, number> = {
   0: 9999,   // Dev demo - unlimited

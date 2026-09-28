@@ -407,6 +407,58 @@ export class BootScene extends Phaser.Scene {
       ctx.arc(6, 5, 2, 0, Math.PI * 2);
       ctx.fill();
     });
+
+    // Sniper round - long thin bullet
+    this.createProjectileTexture('projectile_sniper', (ctx) => {
+      ctx.fillStyle = '#8BC34A';
+      ctx.fillRect(0, 5, 9, 2);
+      ctx.fillStyle = '#33691E';
+      ctx.beginPath();
+      ctx.moveTo(9, 4);
+      ctx.lineTo(12, 6);
+      ctx.lineTo(9, 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#558B2F';
+      ctx.fillRect(0, 4, 2, 4);
+    });
+
+    // Mortar shell - round with fins
+    this.createProjectileTexture('projectile_mortar', (ctx) => {
+      ctx.fillStyle = '#37474F';
+      ctx.beginPath();
+      ctx.arc(6, 6, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FF9800';
+      ctx.beginPath();
+      ctx.arc(6, 6, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#263238';
+      ctx.fillRect(1, 2, 3, 2);
+      ctx.fillRect(8, 2, 3, 2);
+      ctx.fillRect(1, 8, 3, 2);
+      ctx.fillRect(8, 8, 3, 2);
+    });
+
+    // Tesla bolt - zigzag spark
+    this.createProjectileTexture('projectile_tesla', (ctx) => {
+      ctx.strokeStyle = '#00BCD4';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(1, 1);
+      ctx.lineTo(6, 4);
+      ctx.lineTo(3, 6);
+      ctx.lineTo(9, 8);
+      ctx.stroke();
+      ctx.fillStyle = '#E0F7FA';
+      ctx.beginPath();
+      ctx.arc(9, 8, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#84FFFF';
+      ctx.beginPath();
+      ctx.arc(2, 3, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
   }
 
   private createTowerTexture(key: string, drawFunc: (ctx: CanvasRenderingContext2D) => void): void {

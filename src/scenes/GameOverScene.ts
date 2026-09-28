@@ -1,11 +1,14 @@
 import Phaser from 'phaser';
 import { MAP_DEFINITIONS } from '../data/maps';
+import { userProfile, onProfile } from '../state/UserProfile';
+import { COINS_PER_LEVEL_WIN } from '../config/constants';
 
 interface GameOverData {
   victory: boolean;
   score: number;
   wave: number;
   levelId?: number;
+  firstCompletion?: boolean;
 }
 
 /**
@@ -43,6 +46,28 @@ export class GameOverScene extends Phaser.Scene {
       align: 'center',
     });
     stats.setOrigin(0.5);
+
+    // Coins earned / balance (updates when the async award lands)
+    if (isVictory && data.firstCompletion !== false) {
+      const coins = this.add.text(width / 2, height / 3 + 130,
+        `+${COINS_PER_LEVEL_WIN} coins  ·  Balance: ${userProfile.coins}`, {
+        fontSize: '16px',
+        color: '#FFD700',
+        fontStyle: 'bold',
+      });
+      coins.setOrigin(0.5);
+      const off = onProfile('coins-changed', () => {
+        coins.setText(`+${COINS_PER_LEVEL_WIN} coins  ·  Balance: ${userProfile.coins}`);
+      });
+      this.events.once('shutdown', off);
+    } else if (isVictory) {
+      const coins = this.add.text(width / 2, height / 3 + 130,
+        `Balance: ${userProfile.coins} coins`, {
+        fontSize: '16px',
+        color: '#FFD700',
+      });
+      coins.setOrigin(0.5);
+    }
 
     // Next Level button (only on victory)
     if (isVictory) {

@@ -11,6 +11,9 @@ const PROJECTILE_SPRITES: Record<TowerType, string> = {
   arrow: 'projectile_arrow',
   cannon: 'projectile_cannon',
   frost: 'projectile_frost',
+  sniper: 'projectile_sniper',
+  mortar: 'projectile_mortar',
+  tesla: 'projectile_tesla',
 };
 
 /**

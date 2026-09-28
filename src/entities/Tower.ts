@@ -16,6 +16,9 @@ export const TOWER_SPRITE_FRAMES: Record<TowerType, number> = {
   arrow: 0,   // 1st tower, normal
   cannon: 3,  // 2nd tower, normal
   frost: 6,   // 3rd tower, normal
+  mortar: 12, // grey-green tower with mortar pot
+  sniper: 18, // watchtower with crystal scope
+  tesla: 30,  // dark teal tower with energy crystals
 };
 
 /**
@@ -44,8 +47,14 @@ export class Tower {
   slowFactor: number;
   slowDuration: number;
 
+  /** Optional per-player tint color (0xRRGGBB). */
+  tintColor: number | null = null;
+  /** Hex string form of the player color (e.g. '#ff8800'). */
+  tintColorHex: string | null = null;
+
   private gridCol: number;
   private gridRow: number;
+  private upgradeRings: Phaser.GameObjects.Arc[] = [];
 
   constructor(type: TowerType, gridCol: number, gridRow: number, id?: string) {
     this.type = type;
@@ -77,6 +86,11 @@ export class Tower {
     this.sprite.setDisplaySize(CELL_SIZE, CELL_SIZE);
     this.sprite.setDepth(5);
 
+    // Per-player color tint
+    if (this.tintColor !== null) {
+      this.sprite.setTint(this.tintColor);
+    }
+
     // Range indicator (hidden by default)
     this.rangeCircle = scene.add.circle(
       worldPos.x,
@@ -96,6 +110,14 @@ export class Tower {
     }
   }
 
+  /** Apply a per-player tint color (hex string like '#ff8800'). */
+  setPlayerColor(hex: string): void {
+    if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+    this.tintColorHex = hex;
+    this.tintColor = Phaser.Display.Color.HexStringToColor(hex).color;
+    this.sprite?.setTint(this.tintColor);
+  }
+
   upgrade(): boolean {
     const nextData = TOWER_UPGRADES[this.level]; // level is 1-indexed, upgrades[1] = level 2
     if (!nextData) return false;
@@ -110,11 +132,23 @@ export class Tower {
       this.rangeCircle.setRadius(this.range);
     }
 
-    // Visual feedback - add golden glow for upgraded towers
-    if (this.sprite) {
-      this.sprite.setTint(0xFFD700); // Gold tint for upgraded
-      // Scale up slightly
-      this.sprite.setDisplaySize(CELL_SIZE, CELL_SIZE);
+    // Visual feedback - gold rings under the tower for each upgrade level.
+    // (The tint itself is reserved for the per-player color.)
+    if (this.scene) {
+      const worldPos = this.getWorldPosition();
+      const ring = this.scene.add.circle(
+        worldPos.x,
+        worldPos.y,
+        CELL_SIZE / 2 + 3 + (this.upgradeRings.length * 2),
+        0xFFD700,
+        0,
+      );
+      ring.setStrokeStyle(2, 0xFFD700, 0.85);
+      ring.setDepth(4);
+      this.upgradeRings.push(ring);
+      if (this.sprite) {
+        this.sprite.setDisplaySize(CELL_SIZE, CELL_SIZE);
+      }
     }
 
     return true;
@@ -150,6 +184,8 @@ export class Tower {
   destroy(): void {
     this.sprite?.destroy();
     this.rangeCircle?.destroy();
+    for (const ring of this.upgradeRings) ring.destroy();
+    this.upgradeRings = [];
     this.sprite = null;
     this.rangeCircle = null;
   }
