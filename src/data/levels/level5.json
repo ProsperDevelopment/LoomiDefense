@@ -1179,5 +1179,9 @@
       "x": 3,
       "y": 11
     }
-  ]
+  ],
+  "grassColor": 14731660,
+  "grassColorDark": 10132574,
+  "roadColor": 11895642,
+  "roadColorDark": 4868682
 }

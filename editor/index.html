@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tower Defense Level Editor</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #fff; overflow: hidden; }
+  
+  #app { display: flex; height: 100vh; }
+  
+  /* Sidebar */
+  #sidebar { width: 280px; background: #16213e; padding: 12px; overflow-y: auto; border-right: 2px solid #0f3460; }
+  #sidebar h2 { font-size: 16px; margin-bottom: 12px; color: #e94560; }
+  #sidebar h3 { font-size: 13px; margin: 10px 0 6px; color: #a0a0a0; }
+  
+  .tool-btn { display: block; width: 100%; padding: 8px; margin: 4px 0; background: #2a2a4e; border: 1px solid #4a4a6a; color: #fff; cursor: pointer; border-radius: 4px; font-size: 12px; text-align: left; }
+  .tool-btn:hover { background: #3a3a5e; }
+  .tool-btn.active { background: #e94560; border-color: #e94560; }
+  
+  select, input { background: #2a2a4e; border: 1px solid #4a4a6a; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; width: 100%; margin: 4px 0; }
+  
+  .btn { padding: 8px 16px; margin: 4px 2px; background: #4CAF50; border: none; color: #fff; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  .btn:hover { background: #45a049; }
+  .btn.danger { background: #e74c3c; }
+  .btn.danger:hover { background: #c0392b; }
+  .btn.secondary { background: #666; }
+  .btn.secondary:hover { background: #555; }
+  
+  /* Tile palette */
+  .tile-palette { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-height: 200px; overflow-y: auto; background: #0a0a1a; padding: 4px; border-radius: 4px; }
+  .tile-palette img { width: 32px; height: 32px; cursor: pointer; border: 2px solid transparent; image-rendering: pixelated; }
+  .tile-palette img:hover { border-color: #e94560; }
+  .tile-palette img.selected { border-color: #FFD700; background: rgba(255,215,0,0.2); }
+  
+  /* Canvas area */
+  #canvas-area { flex: 1; display: flex; flex-direction: column; }
+  #toolbar { background: #16213e; padding: 8px 12px; display: flex; gap: 8px; align-items: center; border-bottom: 2px solid #0f3460; }
+  #toolbar label { font-size: 12px; color: #a0a0a0; }
+  #canvas-container { flex: 1; overflow: auto; background: #0a0a1a; display: flex; justify-content: center; align-items: center; }
+  canvas { image-rendering: pixelated; cursor: crosshair; }
+  
+  /* Status bar */
+  #status { background: #16213e; padding: 4px 12px; font-size: 11px; color: #a0a0a0; border-top: 1px solid #0f3460; }
+  
+  /* Grid size inputs */
+  .grid-inputs { display: flex; gap: 4px; align-items: center; }
+  .grid-inputs input { width: 50px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h2>Level Editor</h2>
+    
+    <!-- Grid Settings -->
+    <h3>Grid Size</h3>
+    <div class="grid-inputs">
+      <label>W:</label>
+      <input type="number" id="gridWidth" value="16" min="4" max="50">
+      <label>H:</label>
+      <input type="number" id="gridHeight" value="12" min="4" max="50">
+      <button class="btn" onclick="resizeGrid()">Resize</button>
+    </div>
+    
+    <h3>Tools</h3>
+    <button class="tool-btn active" data-tool="paint" onclick="setTool('paint')">Paint Tile</button>
+    <button class="tool-btn" data-tool="erase" onclick="setTool('erase')">Erase Tile</button>
+    <button class="tool-btn" data-tool="paintBg" onclick="setTool('paintBg')">Paint Background</button>
+    <button class="tool-btn" data-tool="eraseBg" onclick="setTool('eraseBg')">Erase Background</button>
+    <button class="tool-btn" data-tool="path" onclick="setTool('path')">Draw Path</button>
+    <button class="tool-btn" data-tool="spawn" onclick="setTool('spawn')">Place Spawn</button>
+    <button class="tool-btn" data-tool="base" onclick="setTool('base')">Place Base</button>
+
+    <h3>Colors</h3>
+    <label>Grass:</label>
+    <input type="color" id="grassColor" value="#8a8c4e" onchange="updateGrassColor()">
+    <label>Grass Dark:</label>
+    <input type="color" id="grassColorDark" value="#9a9c5e" onchange="updateGrassColorDark()">
+    <label>Road:</label>
+    <input type="color" id="roadColor" value="#7a7a7a" onchange="updateRoadColor()">
+    <label>Road Dark:</label>
+    <input type="color" id="roadColorDark" value="#4a4a4a" onchange="updateRoadColorDark()">
+    
+    <h3>Tileset</h3>
+    <select id="tilesetSelect" onchange="loadTileset(this.value)">
+      <option value="TilesetNature">Nature</option>
+      <option value="TilesetField">Field</option>
+      <option value="TilesetDesert">Desert</option>
+      <option value="TilesetFloor">Floor</option>
+      <option value="TilesetWater">Water</option>
+    </select>
+    
+    <h3>Tiles</h3>
+    <div class="tile-palette" id="tilePalette"></div>
+    
+    <h3>Actions</h3>
+    <button class="btn" onclick="exportJSON()">Export JSON</button>
+    <button class="btn secondary" onclick="importJSON()">Import JSON</button>
+    <button class="btn secondary" onclick="exportImage()">Export Image</button>
+    <button class="btn danger" onclick="clearGrid()">Clear Grid</button>
+    
+    <h3>Preview</h3>
+    <div id="preview" style="background:#0a0a1a;padding:8px;border-radius:4px;text-align:center;">
+      <canvas id="previewCanvas" width="48" height="48" style="image-rendering:pixelated;"></canvas>
+    </div>
+  </div>
+  
+  <div id="canvas-area">
+    <div id="toolbar">
+      <label>Zoom:</label>
+      <input type="range" id="zoom" min="1" max="6" value="3" step="0.5" onchange="updateZoom()">
+      <span id="zoomLabel">3x</span>
+      <label style="margin-left:16px">Grid:</label>
+      <input type="checkbox" id="showGrid" checked onchange="render()">
+      <label style="margin-left:16px">Path:</label>
+      <input type="checkbox" id="showPath" checked onchange="render()">
+    </div>
+    <div id="canvas-container">
+      <canvas id="editorCanvas"></canvas>
+    </div>
+    <div id="status">Ready | Tile: (0,0) | Tool: Paint</div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleFileImport(event)">
+
+<script>
+// ============================================================
+// State
+// ============================================================
+let gridWidth = 16;
+let gridHeight = 12;
+let grid = [];
+let bgGrid = []; // Background grid (2x resolution)
+let pathPoints = [];
+let spawnPoints = [];
+let basePoints = [];
+let currentTool = 'paint';
+let currentTileset = 'TilesetNature';
+let selectedTileIndex = 0;
+let tileImages = {};
+let zoom = 3;
+let isMouseDown = false;
+let lastCell = null;
+let grassColor = '#8a8c4e';
+let grassColorDark = '#9a9c5e';
+let roadColor = '#7a7a7a';
+let roadColorDark = '#4a4a4a';
+
+// ============================================================
+// Initialize
+// ============================================================
+async function init() {
+  await loadTilesetData();
+  clearGrid();
+  loadTileset('TilesetNature');
+  render();
+}
+
+function clearGrid() {
+  grid = [];
+  for (let y = 0; y < gridHeight; y++) {
+    grid.push(new Array(gridWidth).fill(-1));
+  }
+  // Background grid is 2x resolution
+  bgGrid = [];
+  for (let y = 0; y < gridHeight * 2; y++) {
+    bgGrid.push(new Array(gridWidth * 2).fill(-1));
+  }
+  pathPoints = [];
+  spawnPoints = [];
+  basePoints = [];
+  render();
+}
+
+function resizeGrid() {
+  const newW = parseInt(document.getElementById('gridWidth').value);
+  const newH = parseInt(document.getElementById('gridHeight').value);
+  
+  const newGrid = [];
+  for (let y = 0; y < newH; y++) {
+    const row = [];
+    for (let x = 0; x < newW; x++) {
+      if (y < gridHeight && x < gridWidth) {
+        row.push(grid[y][x]);
+      } else {
+        row.push(-1);
+      }
+    }
+    newGrid.push(row);
+  }
+  
+  const newBgGrid = [];
+  for (let y = 0; y < newH * 2; y++) {
+    const row = [];
+    for (let x = 0; x < newW * 2; x++) {
+      if (y < gridHeight * 2 && x < gridWidth * 2) {
+        row.push(bgGrid[y][x]);
+      } else {
+        row.push(-1);
+      }
+    }
+    newBgGrid.push(row);
+  }
+  
+  gridWidth = newW;
+  gridHeight = newH;
+  grid = newGrid;
+  bgGrid = newBgGrid;
+  render();
+}
+
+// ============================================================
+// Tools
+// ============================================================
+function setTool(tool) {
+  currentTool = tool;
+  document.querySelectorAll('.tool-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tool === tool);
+  });
+  document.getElementById('status').textContent = `Tool: ${tool}`;
+}
+
+// ============================================================
+// Tileset Loading
+// ============================================================
+let tileData = null;
+
+async function loadTilesetData() {
+  try {
+    const response = await fetch('assets/tile-data.json');
+    tileData = await response.json();
+  } catch (err) {
+    console.error('Failed to load tile data:', err);
+  }
+}
+
+async function loadTileset(name) {
+  currentTileset = name;
+  const palette = document.getElementById('tilePalette');
+  palette.innerHTML = '';
+  tileImages = {};
+
+  if (!tileData) {
+    await loadTilesetData();
+  }
+
+  const tileset = tileData?.[name];
+  if (!tileset) {
+    console.error('Tileset not found:', name);
+    return;
+  }
+
+  const tiles = tileset.tiles || [];
+
+  for (let i = 0; i < tiles.length; i++) {
+    const tile = tiles[i];
+    const file = tile.file;
+    const img = new Image();
+    img.src = `assets/${name}/${file}`;
+    await new Promise(resolve => { img.onload = resolve; });
+    
+    tileImages[i] = img;
+    
+    const tileImg = document.createElement('img');
+    tileImg.src = img.src;
+    tileImg.dataset.index = i;
+    tileImg.onclick = () => selectTile(i);
+    if (i === 0) tileImg.classList.add('selected');
+    palette.appendChild(tileImg);
+  }
+  
+  selectedTileIndex = 0;
+  updatePreview();
+  render();
+}
+
+function selectTile(index) {
+  selectedTileIndex = index;
+  document.querySelectorAll('.tile-palette img').forEach((img, i) => {
+    img.classList.toggle('selected', i === index);
+  });
+  updatePreview();
+}
+
+function updatePreview() {
+  const canvas = document.getElementById('previewCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 48, 48);
+  if (tileImages[selectedTileIndex]) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tileImages[selectedTileIndex], 0, 0, 48, 48);
+  }
+}
+
+function updateGrassColor() {
+  grassColor = document.getElementById('grassColor').value;
+  document.getElementById('status').textContent = `Grass color updated to ${grassColor}`;
+  render();
+}
+
+function updateRoadColor() {
+  roadColor = document.getElementById('roadColor').value;
+  document.getElementById('status').textContent = `Road color updated to ${roadColor}`;
+  render();
+}
+
+function updateGrassColorDark() {
+  grassColorDark = document.getElementById('grassColorDark').value;
+  document.getElementById('status').textContent = `Grass dark color updated to ${grassColorDark}`;
+  render();
+}
+
+function updateRoadColorDark() {
+  roadColorDark = document.getElementById('roadColorDark').value;
+  document.getElementById('status').textContent = `Road dark color updated to ${roadColorDark}`;
+  render();
+}
+
+// ============================================================
+// Canvas Rendering
+// ============================================================
+function render() {
+  const canvas = document.getElementById('editorCanvas');
+  const ctx = canvas.getContext('2d');
+  const tileSize = 16 * zoom;
+  const bgTileSize = tileSize / 2; // Background tiles are half size
+  
+  canvas.width = gridWidth * tileSize;
+  canvas.height = gridHeight * tileSize;
+  
+  ctx.imageSmoothingEnabled = false;
+  
+  // Draw background tiles (2x resolution) at native 16x16 size
+  for (let y = 0; y < gridHeight * 2; y++) {
+    for (let x = 0; x < gridWidth * 2; x++) {
+      const tileIdx = bgGrid[y][x];
+      const px = x * bgTileSize;
+      const py = y * bgTileSize;
+      
+      if (tileIdx >= 0 && tileImages[tileIdx]) {
+        // Draw tile at native size (16x16) centered in cell
+        const offsetX = (bgTileSize - 16) / 2;
+        const offsetY = (bgTileSize - 16) / 2;
+        ctx.drawImage(tileImages[tileIdx], px + offsetX, py + offsetY);
+      } else {
+        // Default grass
+        ctx.fillStyle = (x + y) % 2 === 0 ? grassColorDark : grassColor;
+        ctx.fillRect(px, py, bgTileSize, bgTileSize);
+      }
+    }
+  }
+  
+  // Draw foreground tiles at native 16x16 size
+  for (let y = 0; y < gridHeight; y++) {
+    for (let x = 0; x < gridWidth; x++) {
+      const tileIdx = grid[y][x];
+      const px = x * tileSize;
+      const py = y * tileSize;
+      
+      if (tileIdx >= 0 && tileImages[tileIdx]) {
+        // Draw tile at native size (16x16) centered in cell
+        const offsetX = (tileSize - 16) / 2;
+        const offsetY = (tileSize - 16) / 2;
+        ctx.drawImage(tileImages[tileIdx], px + offsetX, py + offsetY);
+      }
+    }
+  }
+  
+  // Draw path
+  if (document.getElementById('showPath').checked && pathPoints.length > 1) {
+    ctx.strokeStyle = roadColor;
+    ctx.lineWidth = tileSize * 0.6;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(pathPoints[0].x * tileSize + tileSize/2, pathPoints[0].y * tileSize + tileSize/2);
+    for (let i = 1; i < pathPoints.length; i++) {
+      ctx.lineTo(pathPoints[i].x * tileSize + tileSize/2, pathPoints[i].y * tileSize + tileSize/2);
+    }
+    ctx.stroke();
+    
+    // Path border
+    ctx.strokeStyle = roadColorDark;
+    ctx.lineWidth = tileSize * 0.7;
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.beginPath();
+    ctx.moveTo(pathPoints[0].x * tileSize + tileSize/2, pathPoints[0].y * tileSize + tileSize/2);
+    for (let i = 1; i < pathPoints.length; i++) {
+      ctx.lineTo(pathPoints[i].x * tileSize + tileSize/2, pathPoints[i].y * tileSize + tileSize/2);
+    }
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  
+  // Draw spawn points
+  spawnPoints.forEach(sp => {
+    ctx.fillStyle = 'rgba(231, 76, 60, 0.7)';
+    ctx.fillRect(sp.x * tileSize + 2, sp.y * tileSize + 2, tileSize - 4, tileSize - 4);
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${tileSize * 0.5}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('S', sp.x * tileSize + tileSize/2, sp.y * tileSize + tileSize/2);
+  });
+  
+  // Draw base points
+  basePoints.forEach(bp => {
+    ctx.fillStyle = 'rgba(76, 175, 80, 0.7)';
+    ctx.fillRect(bp.x * tileSize + 2, bp.y * tileSize + 2, tileSize - 4, tileSize - 4);
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${tileSize * 0.5}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('B', bp.x * tileSize + tileSize/2, bp.y * tileSize + tileSize/2);
+  });
+  
+  // Draw grid
+  if (document.getElementById('showGrid').checked) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= gridWidth; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * tileSize, 0);
+      ctx.lineTo(x * tileSize, gridHeight * tileSize);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= gridHeight; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * tileSize);
+      ctx.lineTo(gridWidth * tileSize, y * tileSize);
+      ctx.stroke();
+    }
+  }
+}
+
+// ============================================================
+// Input Handling
+// ============================================================
+function setupInput() {
+  const canvas = document.getElementById('editorCanvas');
+  
+  canvas.addEventListener('mousedown', (e) => {
+    isMouseDown = true;
+    handleCell(e);
+  });
+  
+  canvas.addEventListener('mousemove', (e) => {
+    if (currentTool === 'paintBg' || currentTool === 'eraseBg') {
+      const bgCell = getBgCell(e);
+      if (bgCell) {
+        document.getElementById('status').textContent = 
+          `BG Tile: (${bgCell.x}, ${bgCell.y}) | Tool: ${currentTool} | Tileset: ${currentTileset}[${selectedTileIndex}]`;
+      }
+      if (isMouseDown) {
+        handleCell(e);
+      }
+    } else {
+      const cell = getCell(e);
+      if (cell) {
+        document.getElementById('status').textContent = 
+          `Tile: (${cell.x}, ${cell.y}) | Tool: ${currentTool} | Tileset: ${currentTileset}[${selectedTileIndex}]`;
+      }
+      if (isMouseDown && (currentTool === 'paint' || currentTool === 'erase')) {
+        handleCell(e);
+      }
+    }
+  });
+  
+  canvas.addEventListener('mouseup', () => { isMouseDown = false; lastCell = null; });
+  canvas.addEventListener('mouseleave', () => { isMouseDown = false; lastCell = null; });
+  
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    switch(e.key) {
+      case '1': setTool('paint'); break;
+      case '2': setTool('erase'); break;
+      case '3': setTool('path'); break;
+      case '4': setTool('spawn'); break;
+      case '5': setTool('base'); break;
+    }
+  });
+}
+
+function getCell(e) {
+  const canvas = document.getElementById('editorCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const tileSize = 16 * zoom;
+  const x = Math.floor((e.clientX - rect.left) / tileSize);
+  const y = Math.floor((e.clientY - rect.top) / tileSize);
+  if (x >= 0 && x < gridWidth && y >= 0 && y < gridHeight) {
+    return { x, y };
+  }
+  return null;
+}
+
+function getBgCell(e) {
+  const canvas = document.getElementById('editorCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const bgTileSize = 8 * zoom; // Half of foreground tile size
+  const x = Math.floor((e.clientX - rect.left) / bgTileSize);
+  const y = Math.floor((e.clientY - rect.top) / bgTileSize);
+  if (x >= 0 && x < gridWidth * 2 && y >= 0 && y < gridHeight * 2) {
+    return { x, y };
+  }
+  return null;
+}
+
+function handleCell(e) {
+  const canvas = document.getElementById('editorCanvas');
+  const rect = canvas.getBoundingClientRect();
+  
+  if (currentTool === 'paintBg' || currentTool === 'eraseBg') {
+    // Use background grid coordinates
+    const bgCell = getBgCell(e);
+    if (!bgCell) return;
+    if (lastCell && lastCell.x === bgCell.x && lastCell.y === bgCell.y) return;
+    lastCell = bgCell;
+    
+    if (currentTool === 'paintBg') {
+      bgGrid[bgCell.y][bgCell.x] = selectedTileIndex;
+    } else {
+      bgGrid[bgCell.y][bgCell.x] = -1;
+    }
+  } else {
+    // Use foreground grid coordinates
+    const cell = getCell(e);
+    if (!cell) return;
+    if (lastCell && lastCell.x === cell.x && lastCell.y === cell.y) return;
+    lastCell = cell;
+    
+    switch(currentTool) {
+      case 'paint':
+        grid[cell.y][cell.x] = selectedTileIndex;
+        break;
+      case 'erase':
+        grid[cell.y][cell.x] = -1;
+        break;
+      case 'path':
+        addPathPoint(cell.x, cell.y);
+        break;
+      case 'spawn':
+        spawnPoints = spawnPoints.filter(s => !(s.x === cell.x && s.y === cell.y));
+        spawnPoints.push({ x: cell.x, y: cell.y });
+        break;
+      case 'base':
+        basePoints = basePoints.filter(b => !(b.x === cell.x && b.y === cell.y));
+        basePoints.push({ x: cell.x, y: cell.y });
+        break;
+    }
+  }
+  render();
+}
+
+function addPathPoint(x, y) {
+  const last = pathPoints[pathPoints.length - 1];
+  if (!last || last.x !== x || last.y !== y) {
+    pathPoints.push({ x, y });
+  }
+}
+
+// ============================================================
+// Zoom
+// ============================================================
+function updateZoom() {
+  zoom = parseFloat(document.getElementById('zoom').value);
+  document.getElementById('zoomLabel').textContent = zoom + 'x';
+  render();
+}
+
+// ============================================================
+// Import/Export
+// ============================================================
+// Convert a #rrggbb color input value to a native number (0xRRGGBB)
+function colorToNum(hex, fallback) {
+  if (typeof hex === 'number' && isFinite(hex)) return hex;
+  if (typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex)) return parseInt(hex.slice(1), 16);
+  return fallback;
+}
+
+function exportJSON() {
+  const data = {
+    version: 1,
+    name: 'Untitled Level',
+    description: '',
+    width: gridWidth,
+    height: gridHeight,
+    tileSize: 16,
+    tileset: currentTileset,
+    tiles: grid,
+    bgTiles: bgGrid,
+    path: pathPoints,
+    spawnPoints: spawnPoints,
+    basePoints: basePoints,
+    grassColor: colorToNum(grassColor, 0x8a8c4e),
+    grassColorDark: colorToNum(grassColorDark, 0x9a9c5e),
+    roadColor: colorToNum(roadColor, 0x7a7a7a),
+    roadColorDark: colorToNum(roadColorDark, 0x4a4a4a),
+  };
+  
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'level.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importJSON() {
+  document.getElementById('fileInput').click();
+}
+
+function handleFileImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    try {
+      const data = JSON.parse(event.target.result);
+      gridWidth = data.width;
+      gridHeight = data.height;
+      grid = data.tiles;
+      bgGrid = data.bgTiles || [];
+      
+      // Initialize bgGrid if not provided
+      if (!bgGrid.length) {
+        bgGrid = [];
+        for (let y = 0; y < gridHeight * 2; y++) {
+          bgGrid.push(new Array(gridWidth * 2).fill(-1));
+        }
+      }
+      
+      pathPoints = data.path || [];
+      spawnPoints = data.spawnPoints || [];
+      basePoints = data.basePoints || [];
+      
+      document.getElementById('gridWidth').value = gridWidth;
+      document.getElementById('gridHeight').value = gridHeight;
+      
+      if (data.tileset) {
+        document.getElementById('tilesetSelect').value = data.tileset;
+        loadTileset(data.tileset);
+      }
+      
+      // Load colors (native numbers or "#rrggbb" strings)
+      const toHex = (v, def) => {
+        if (typeof v === 'number' && isFinite(v)) return '#' + (v >>> 0).toString(16).padStart(6, '0');
+        if (typeof v === 'string' && (/^#[0-9a-fA-F]{6}$/.test(v) || /^[0-9a-fA-F]{6}$/.test(v))) {
+          return v.startsWith('#') ? v : '#' + v;
+        }
+        return def;
+      };
+      grassColor = toHex(data.grassColor, grassColor);
+      grassColorDark = toHex(data.grassColorDark, grassColorDark);
+      roadColor = toHex(data.roadColor, roadColor);
+      roadColorDark = toHex(data.roadColorDark, roadColorDark);
+      document.getElementById('grassColor').value = grassColor;
+      document.getElementById('grassColorDark').value = grassColorDark;
+      document.getElementById('roadColor').value = roadColor;
+      document.getElementById('roadColorDark').value = roadColorDark;
+      
+      render();
+    } catch (err) {
+      alert('Error loading file: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+function exportImage() {
+  const canvas = document.getElementById('editorCanvas');
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = 'level.png';
+  a.click();
+}
+
+// ============================================================
+// Start
+// ============================================================
+init();
+setupInput();
+</script>
+</body>
+</html>

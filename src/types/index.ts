@@ -18,6 +18,10 @@ export interface MapData {
   basePath: { x: number; y: number }[];
   bgTiles?: number[][];  // Background tiles (2x resolution, tile indices)
   tileset?: string;      // Tileset name to use
+  grassColor?: number;   // Tint for light grass chessboard squares (0xRRGGBB)
+  grassColorDark?: number; // Tint for dark grass chessboard squares (0xRRGGBB)
+  roadColor?: number;    // Tint for road fill (0xRRGGBB)
+  roadColorDark?: number; // Tint for road outline (0xRRGGBB)
 }
 
 // --- Towers ---

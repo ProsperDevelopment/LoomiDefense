@@ -1,6 +1,19 @@
 import type { MapData, CellType } from '../types';
 
 /**
+ * Parse a level color value. Accepts a number (0xRRGGBB) or a hex
+ * string like "#a1b2c3". Returns undefined when not set.
+ */
+function parseColor(value: unknown): number | undefined {
+  if (typeof value === 'number' && isFinite(value)) return value >>> 0;
+  if (typeof value === 'string') {
+    const hex = value.startsWith('#') ? value.slice(1) : value;
+    if (/^[0-9a-fA-F]{6}$/.test(hex)) return parseInt(hex, 16);
+  }
+  return undefined;
+}
+
+/**
  * Load a level from JSON file data
  */
 export function loadLevelFromJSON(jsonData: any, id: number): MapData {
@@ -46,6 +59,10 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
     basePath,
     bgTiles: jsonData.bgTiles,
     tileset: jsonData.tileset,
+    grassColor: parseColor(jsonData.grassColor),
+    grassColorDark: parseColor(jsonData.grassColorDark),
+    roadColor: parseColor(jsonData.roadColor),
+    roadColorDark: parseColor(jsonData.roadColorDark),
   };
 }
 

@@ -2,7 +2,13 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Tower Defense Level",
   "type": "object",
-  "required": ["version", "width", "height", "tileSize", "tiles"],
+  "required": [
+    "version",
+    "width",
+    "height",
+    "tileSize",
+    "tiles"
+  ],
   "properties": {
     "version": {
       "type": "number",
@@ -51,10 +57,17 @@
       "items": {
         "type": "object",
         "properties": {
-          "x": { "type": "number" },
-          "y": { "type": "number" }
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
         },
-        "required": ["x", "y"]
+        "required": [
+          "x",
+          "y"
+        ]
       },
       "description": "Path points for enemy movement"
     },
@@ -63,10 +76,17 @@
       "items": {
         "type": "object",
         "properties": {
-          "x": { "type": "number" },
-          "y": { "type": "number" }
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
         },
-        "required": ["x", "y"]
+        "required": [
+          "x",
+          "y"
+        ]
       },
       "description": "Enemy spawn locations"
     },
@@ -75,12 +95,35 @@
       "items": {
         "type": "object",
         "properties": {
-          "x": { "type": "number" },
-          "y": { "type": "number" }
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
         },
-        "required": ["x", "y"]
+        "required": [
+          "x",
+          "y"
+        ]
       },
       "description": "Base/exit locations"
+    },
+    "grassColor": {
+      "type": "number",
+      "description": "Tint for light grass chessboard squares (0xRRGGBB)"
+    },
+    "grassColorDark": {
+      "type": "number",
+      "description": "Tint for dark grass chessboard squares (0xRRGGBB)"
+    },
+    "roadColor": {
+      "type": "number",
+      "description": "Tint for road fill (0xRRGGBB)"
+    },
+    "roadColorDark": {
+      "type": "number",
+      "description": "Tint for road outline (0xRRGGBB)"
     }
   }
 }

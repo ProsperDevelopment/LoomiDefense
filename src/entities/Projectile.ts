@@ -27,6 +27,8 @@ export class Projectile {
   private targetId: string;
   private towerType: TowerType;
   private color: number;
+  private prevX: number;
+  private prevY: number;
 
   // Phaser objects
   sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Arc | null = null;
@@ -48,6 +50,8 @@ export class Projectile {
     this.targetId = targetId;
     this.color = color;
     this.speed = speed;
+    this.prevX = startX;
+    this.prevY = startY;
   }
 
   createSprite(scene: Phaser.Scene): void {
@@ -82,6 +86,11 @@ export class Projectile {
       this.alive = false;
       return true;
     }
+
+    // Remember where we were before moving so the impact direction
+    // can be computed even after the final step snaps onto the target
+    this.prevX = this.position.x;
+    this.prevY = this.position.y;
 
     const reached = this.position.moveToward(
       targetPos.x,
@@ -119,6 +128,18 @@ export class Projectile {
     return this.position.distanceTo(targetPos) <= hitRadius;
   }
 
+  /**
+   * Normalized direction the projectile was travelling on its last step.
+   * Falls back to (1, 0) when no movement has happened yet.
+   */
+  getTravelDirection(): { x: number; y: number } {
+    const dx = this.position.x - this.prevX;
+    const dy = this.position.y - this.prevY;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 1e-6) return { x: 1, y: 0 };
+    return { x: dx / len, y: dy / len };
+  }
+
   getTargetId(): string {
     return this.targetId;
   }
@@ -142,6 +163,8 @@ export class Projectile {
   ): void {
     this.towerType = towerType;
     this.position.set(startX, startY);
+    this.prevX = startX;
+    this.prevY = startY;
     this.damage = damage;
     this.targetId = targetId;
     this.color = color;

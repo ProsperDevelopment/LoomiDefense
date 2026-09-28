@@ -314,7 +314,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawGrid(): void {
-    // Always draw chessboard grass background first (underneath everything)
+    const mapData = this.grid.getMapData();
+
+    // Chessboard grass: light squares use grassColor, dark squares use grassColorDark
+    const grassLight = mapData.grassColor ?? 0x8a8c4e;
+    const grassDark = mapData.grassColorDark ?? 0x9a9c5e;
     for (let row = 0; row < this.grid.rows; row++) {
       for (let col = 0; col < this.grid.cols; col++) {
         const x = col * CELL_SIZE;
@@ -322,15 +326,13 @@ export class GameScene extends Phaser.Scene {
         const isDark = (row + col) % 2 === 0;
         this.add.image(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 'tile_grass')
           .setDisplaySize(CELL_SIZE, CELL_SIZE)
-          .setTint(isDark ? 0x9a9c5e : 0x8a8c4e);
+          .setTint(isDark ? grassDark : grassLight);
       }
     }
 
 
     // Draw smooth road
-    this.drawSmoothRoad();
-
-    const mapData = this.grid.getMapData();
+    this.drawSmoothRoad(mapData.roadColor, mapData.roadColorDark);
 
 
 
@@ -370,7 +372,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private drawSmoothRoad(): void {
+  private drawSmoothRoad(roadColor?: number, roadColorDark?: number): void {
     const pathPixels = this.grid.getPathPixels();
     if (pathPixels.length < 2) return;
 
@@ -383,17 +385,29 @@ export class GameScene extends Phaser.Scene {
       smoothPoints.push({ x: pathPixels[i].x, y: pathPixels[i].y });
     }
 
+    const fill = roadColor ?? 0x7a7a7a;
+    const outline = roadColorDark ?? this.shadeColor(fill, 0.6);
+    const center = this.shadeColor(fill, 1.3);
+
     // Draw road outline (darker)
-    graphics.lineStyle(36, 0x4a4a4a, 1);
+    graphics.lineStyle(36, outline, 1);
     this.drawSmoothPath(graphics, smoothPoints);
 
-    // Draw road fill (grey)
-    graphics.lineStyle(28, 0x7a7a7a, 1);
+    // Draw road fill
+    graphics.lineStyle(28, fill, 1);
     this.drawSmoothPath(graphics, smoothPoints);
 
     // Draw road center line (lighter)
-    graphics.lineStyle(2, 0x9a9a9a, 0.5);
+    graphics.lineStyle(2, center, 0.5);
     this.drawSmoothPath(graphics, smoothPoints);
+  }
+
+  /** Multiply RGB channels of a color by a factor (clamped to 0-255). */
+  private shadeColor(color: number, factor: number): number {
+    const r = Math.min(255, Math.round(((color >> 16) & 0xFF) * factor));
+    const g = Math.min(255, Math.round(((color >> 8) & 0xFF) * factor));
+    const b = Math.min(255, Math.round((color & 0xFF) * factor));
+    return (r << 16) | (g << 8) | b;
   }
 
   private drawSmoothPath(graphics: Phaser.GameObjects.Graphics, points: { x: number; y: number }[]): void {
@@ -836,8 +850,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
    
-    // Create blood splatter from projectile direction
-    this.createBloodSplatter(proj.position, primaryTarget.position, primaryTarget.data.size, 0);
+    // Splatter in the direction the projectile was travelling
+    const dir = proj.getTravelDirection();
+    this.createBloodSplatter(dir.x, dir.y, primaryTarget.position, primaryTarget.data.size, 0);
 
     const dmg = proj.damage;
     const killed = this.healthSystem.applyDamage(
@@ -845,7 +860,7 @@ export class GameScene extends Phaser.Scene {
       dmg.baseDamage,
     );
     if (killed) {this.onEnemyKilled(primaryTarget);
-      this.createBloodSplatter(proj.position, primaryTarget.position, primaryTarget.data.size, 3);
+      this.createBloodSplatter(dir.x, dir.y, primaryTarget.position, primaryTarget.data.size, 3);
 
     }
     if (dmg.slowFactor < 1.0) {
@@ -862,16 +877,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private createBloodSplatter(fromPos: Position, toPos: Position, enemySize: number, bloodSize: number): void {
-    const dx = toPos.x - fromPos.x;
-    const dy = toPos.y - fromPos.y;
-    let dist = Math.sqrt(dx * dx + dy * dy);
-    console.log(dist);
-    if (dist === 0) dist = 0.5;
-
-    // Normalize direction (hit direction)
-    const ndx = dx / dist;
-    const ndy = dy / dist;
+  private createBloodSplatter(dirX: number, dirY: number, hitPos: Position, enemySize: number, bloodSize: number): void {
+    // Base angle of the projectile's travel direction
+    const hitAngle = Math.atan2(dirY, dirX);
 
     // Number of particles
     const particleCount = 6 + (bloodSize * 4);
@@ -880,19 +888,19 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < particleCount; i++) {
       const size = (2 + bloodSize) + Math.random() * 3;
       const particle = this.add.circle(
-        toPos.x,
-        toPos.y,
+        hitPos.x,
+        hitPos.y,
         size,
         0xcc0000,
         1,
       );
       particle.setDepth(30);
 
-      // Random spread around hit direction
-      const angle = Math.atan2(ndy, ndx) + (Math.random() - 0.5) * 1.5;
+      // Random spread around the projectile's travel direction
+      const angle = hitAngle + (Math.random() - 0.5) * 1.5;
       const speed = 40 + Math.random() * 80;
-      const targetX = toPos.x + Math.cos(angle) * speed;
-      const targetY = toPos.y + Math.sin(angle) * speed;
+      const targetX = hitPos.x + Math.cos(angle) * speed;
+      const targetY = hitPos.y + Math.sin(angle) * speed;
 
       // Main blood particles - fly outward then dry
       this.tweens.add({
@@ -924,8 +932,8 @@ export class GameScene extends Phaser.Scene {
         const exitAngle = angle + Math.PI + (Math.random() - 0.5) * 0.6;
         const exitSpeed = 20 + Math.random() * 40;
         const exitParticle = this.add.circle(
-          toPos.x,
-          toPos.y,
+          hitPos.x,
+          hitPos.y,
           (1 + bloodSize) + Math.random() * (2 + bloodSize),
           0xcc0000,
           1,
@@ -934,8 +942,8 @@ export class GameScene extends Phaser.Scene {
 
         this.tweens.add({
           targets: exitParticle,
-          x: toPos.x + Math.cos(exitAngle) * exitSpeed,
-          y: toPos.y + Math.sin(exitAngle) * exitSpeed,
+          x: hitPos.x + Math.cos(exitAngle) * exitSpeed,
+          y: hitPos.y + Math.sin(exitAngle) * exitSpeed,
           alpha: 0.4,
           duration: 250,
           ease: 'Power2',
