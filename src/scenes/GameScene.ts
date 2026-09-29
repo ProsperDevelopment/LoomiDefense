@@ -1360,7 +1360,47 @@ export class GameScene extends Phaser.Scene {
 
     // Number of particles
     const particleCount = 6 + (bloodSize * 4);
-   
+
+    // Blood landing on a wall/tree runs down instead of just fading
+    const dripsHere = (x: number, y: number): boolean => {
+      const { col, row } = this.grid.worldToGrid(x, y);
+      const area = this.grid.getArea(col, row);
+      return area === 'wall' || area === 'tree';
+    };
+
+    /**
+     * Landing sequence: drip down a wall/tree if applicable → turn into
+     * dried dark blood → fade out (slowly, so splatters linger).
+     */
+    const settle = (particle: Phaser.GameObjects.Arc, x: number, y: number, fadeMs: number): void => {
+      const dry = () => {
+        if (!particle.active) return;
+        particle.setFillStyle(0x4a0000, 0.8);
+        this.tweens.add({
+          targets: particle,
+          alpha: 0,
+          duration: fadeMs,
+          onComplete: () => {
+            if (particle.active) particle.destroy();
+          },
+        });
+      };
+
+      if (dripsHere(x, y)) {
+        // Run down the wall/tree, stretching as it goes, then dry in place
+        this.tweens.add({
+          targets: particle,
+          y: y + 10 + Math.random() * 16,
+          scaleX: 0.75,
+          scaleY: 1.6,
+          duration: 500 + Math.random() * 400,
+          ease: 'Power1.in',
+          onComplete: dry,
+        });
+      } else {
+        dry();
+      }
+    };
 
     for (let i = 0; i < particleCount; i++) {
       const size = (2 + bloodSize) + Math.random() * 3;
@@ -1379,7 +1419,7 @@ export class GameScene extends Phaser.Scene {
       const targetX = hitPos.x + Math.cos(angle) * speed;
       const targetY = hitPos.y + Math.sin(angle) * speed;
 
-      // Main blood particles - fly outward then dry
+      // Main blood particles - fly outward, then settle
       this.tweens.add({
         targets: particle,
         x: targetX,
@@ -1388,19 +1428,7 @@ export class GameScene extends Phaser.Scene {
         duration: 300 + Math.random() * 200,
         ease: 'Power2',
         onComplete: () => {
-          // Dry blood - turn dark red/brown
-          if (particle && particle.active) {
-            particle.setFillStyle(0x4a0000, 0.8);
-            this.tweens.add({
-              targets: particle,
-              alpha: 0,
-              scale: 0.5,
-              duration: 3000,
-              onComplete: () => {
-                if (particle && particle.active) particle.destroy();
-              },
-            });  
-          } 
+          if (particle.active) settle(particle, targetX, targetY, 5000);
         },
       });
 
@@ -1408,6 +1436,8 @@ export class GameScene extends Phaser.Scene {
       if (i < 4) {
         const exitAngle = angle + Math.PI + (Math.random() - 0.5) * 0.6;
         const exitSpeed = 20 + Math.random() * 40;
+        const exitTargetX = hitPos.x + Math.cos(exitAngle) * exitSpeed;
+        const exitTargetY = hitPos.y + Math.sin(exitAngle) * exitSpeed;
         const exitParticle = this.add.circle(
           hitPos.x,
           hitPos.y,
@@ -1419,23 +1449,13 @@ export class GameScene extends Phaser.Scene {
 
         this.tweens.add({
           targets: exitParticle,
-          x: hitPos.x + Math.cos(exitAngle) * exitSpeed,
-          y: hitPos.y + Math.sin(exitAngle) * exitSpeed,
+          x: exitTargetX,
+          y: exitTargetY,
           alpha: 0.4,
           duration: 250,
           ease: 'Power2',
           onComplete: () => {
-            if (exitParticle && exitParticle.active) {
-              exitParticle.setFillStyle(0x4a0000, 0.6);
-              this.tweens.add({
-                targets: exitParticle,
-                alpha: 0,
-                duration: 2000,
-                onComplete: () => {
-                  if (exitParticle && exitParticle.active) exitParticle.destroy();
-                },
-              });
-            }
+            if (exitParticle.active) settle(exitParticle, exitTargetX, exitTargetY, 4000);
           },
         });
       }
