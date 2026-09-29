@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
-import type { TowerType, EnemyType, TargetMode } from '../types';
+import type { TowerType, EnemyType, TargetMode, MapData } from '../types';
 import { Grid } from '../utils/Grid';
 import { Pathfinding } from '../utils/Pathfinding';
+import { collectBgTileLoads, resolveTilesetAssets } from '../utils/backgroundTiles';
 import { WaveManager } from '../systems/WaveManager';
 import { EconomySystem } from '../systems/EconomySystem';
 import { PlayerEconomy } from '../systems/PlayerEconomy';
@@ -131,6 +132,10 @@ export class GameScene extends Phaser.Scene {
   private pendingSnaps: NetSnapshot[] = [];
   private snapshotTimer: number = 0;
   private guestWaveNumber: number = 0;
+  /** Per-level background tile loading (see drawBackgroundTiles). */
+  private bgTileEpoch: number = 0;
+  private bgTileLoadActive: boolean = false;
+  private bgTilesAttempted = new Set<string>();
   /** Per-player gold: players never share economics (see PlayerEconomy). */
   private playerEcon: PlayerEconomy | null = null;
   private guestEnemyTargets = new Map<string, { x: number; y: number }>();
@@ -143,6 +148,17 @@ export class GameScene extends Phaser.Scene {
   create(data: { levelId?: number; netRole?: 'host' | 'guest' }): void {
     this.cameras.main.setBackgroundColor(COLORS.BACKGROUND);
     this.resetState();
+
+    // Per-level background tile loading state
+    this.bgTileEpoch++;
+    this.bgTileLoadActive = false;
+    this.bgTilesAttempted.clear();
+
+    // Stop the menu scenes so their (invisible, behind-us) buttons can
+    // never receive clicks meant for the game — a stray PLAY click used
+    // to restart the match at level 1.
+    if (this.scene.isActive('MenuScene')) this.scene.stop('MenuScene');
+    if (this.scene.isActive('LevelSelectScene')) this.scene.stop('LevelSelectScene');
 
     this.netRole = data.netRole ?? null;
     this.pendingSnaps = [];
@@ -700,41 +716,8 @@ export class GameScene extends Phaser.Scene {
     // Draw smooth road
     this.drawSmoothRoad(mapData.roadColor, mapData.roadColorDark);
 
-
-
-    // Draw background tiles on top of grass (if available)
-    if (mapData.bgTiles && mapData.bgTiles.length > 0) {
-      const bgCellSize = CELL_SIZE / 2;
-      // Map tileset names to the texture prefixes loaded in BootScene.
-      // Old levels use prefixes ('nature_tile'), the editor exports folder
-      // names ('TilesetNature') — both must resolve to the same textures.
-      const TILESET_PREFIX: Record<string, string> = {
-        nature_tile: 'nature_tile',
-        desert_tile: 'desert_tile',
-        TilesetNature: 'nature_tile',
-        TilesetDesert: 'desert_tile',
-      };
-      const prefix = TILESET_PREFIX[mapData.tileset ?? ''] ?? 'nature_tile';
-
-      for (let row = 0; row < mapData.bgTiles.length; row++) {
-        for (let col = 0; col < mapData.bgTiles[row].length; col++) {
-          const tileIdx = mapData.bgTiles[row][col];
-          if (tileIdx >= 0) {
-            const x = col * bgCellSize;
-            const y = row * bgCellSize + GRID_OFFSET_Y;
-
-            const tileNum = tileIdx.toString().padStart(3, '0');
-            const tileKey = `${prefix}_${tileNum}`;
-
-            if (this.textures.exists(tileKey)) {
-              this.add.image(x + bgCellSize / 2, y + bgCellSize / 2, tileKey)
-                .setDisplaySize(bgCellSize, bgCellSize).setDepth(20);
-            }
-          }
-        }
-      }
-    }
-
+    // Background tiles on top of grass — loaded on demand for this level
+    this.drawBackgroundTiles(mapData);
 
     for (const spawn of this.grid.getSpawnPixels()) {
       this.add.rectangle(spawn.x, spawn.y + GRID_OFFSET_Y, 20, 20, 0xe74c3c, 0.7);
@@ -746,6 +729,54 @@ export class GameScene extends Phaser.Scene {
     if (basePos) {
       this.add.rectangle(basePos.x, basePos.y + GRID_OFFSET_Y, 24, 24, 0x4CAF50, 0.7);
       this.add.text(basePos.x, basePos.y + GRID_OFFSET_Y, 'B', { fontSize: '14px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+    }
+  }
+
+  /**
+   * Draw the level's background tile layer, loading any missing tile
+   * textures first (tiles are fetched per level — not at game boot).
+   */
+  private drawBackgroundTiles(mapData: MapData): void {
+    if (!mapData.bgTiles || mapData.bgTiles.length === 0) return;
+
+    const loads = collectBgTileLoads(mapData);
+    // Tiles we still need to fetch (skip ones already attempted this visit —
+    // a failed download must not cause an endless retry loop)
+    const pending = loads.filter(
+      (l) => !this.textures.exists(l.key) && !this.bgTilesAttempted.has(l.key),
+    );
+
+    if (pending.length > 0) {
+      if (this.bgTileLoadActive) return; // load in flight — the 'complete' callback redraws
+      this.bgTileLoadActive = true;
+      const epoch = this.bgTileEpoch;
+      this.load.once('complete', () => {
+        if (epoch !== this.bgTileEpoch) return; // scene restarted meanwhile
+        this.bgTileLoadActive = false;
+        this.drawBackgroundTiles(mapData);
+      });
+      for (const { key, url } of pending) {
+        this.bgTilesAttempted.add(key);
+        this.load.image(key, url);
+      }
+      this.load.start();
+      return;
+    }
+
+    // Everything available — draw the layer (missing/failed tiles are skipped)
+    const bgCellSize = CELL_SIZE / 2;
+    const { prefix } = resolveTilesetAssets(mapData.tileset);
+    for (let row = 0; row < mapData.bgTiles.length; row++) {
+      for (let col = 0; col < mapData.bgTiles[row].length; col++) {
+        const tileIdx = mapData.bgTiles[row][col];
+        if (tileIdx < 0) continue;
+        const tileKey = `${prefix}_${Math.floor(tileIdx).toString().padStart(3, '0')}`;
+        if (this.textures.exists(tileKey)) {
+          this.add.image(col * bgCellSize + bgCellSize / 2, row * bgCellSize + GRID_OFFSET_Y + bgCellSize / 2, tileKey)
+            .setDisplaySize(bgCellSize, bgCellSize)
+            .setDepth(20);
+        }
+      }
     }
   }
 

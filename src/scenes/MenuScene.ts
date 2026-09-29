@@ -72,8 +72,12 @@ export class MenuScene extends Phaser.Scene {
     container.add([bg, text]);
 
     bg.setInteractive({ useHandCursor: true });
-    bg.on('pointerdown', onClick);
+    bg.on('pointerdown', () => {
+      if (!this.menuInputAllowed()) return;
+      onClick();
+    });
     bg.on('pointerover', () => {
+      if (!this.menuInputAllowed()) return;
       bg.setFillStyle(0x5CBF60);
       bg.setScale(1.05);
       text.setScale(1.05);
@@ -83,5 +87,23 @@ export class MenuScene extends Phaser.Scene {
       bg.setScale(1);
       text.setScale(1);
     });
+  }
+
+  /**
+   * Menu buttons are only allowed to fire while this menu is really the
+   * foreground screen: not while a game/other scene runs behind us (the
+   * menu stays active under GameScene, where its invisible PLAY button
+   * used to swallow clicks and restart the match at level 1) and not
+   * while a DOM dialog is open above the canvas.
+   */
+  private menuInputAllowed(): boolean {
+    if (
+      this.scene.isActive('GameScene') ||
+      this.scene.isActive('GameOverScene') ||
+      this.scene.isActive('LevelSelectScene')
+    ) {
+      return false;
+    }
+    return !document.querySelector('.ov-backdrop');
   }
 }

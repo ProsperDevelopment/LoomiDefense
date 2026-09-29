@@ -123,7 +123,18 @@ export class LevelSelectScene extends Phaser.Scene {
     if (unlocked) {
       const hitZone = this.add.zone(x, y, size * 2, size * 2);
       hitZone.setInteractive({ useHandCursor: true });
-      hitZone.on('pointerdown', () => this.scene.start('GameScene', { levelId }));
+      hitZone.on('pointerdown', () => {
+        // Same guard as MenuScene: never fire while a game runs behind us
+        // or a dialog is open above the canvas.
+        if (
+          this.scene.isActive('GameScene') ||
+          this.scene.isActive('GameOverScene') ||
+          document.querySelector('.ov-backdrop')
+        ) {
+          return;
+        }
+        this.scene.start('GameScene', { levelId });
+      });
       hitZone.on('pointerover', () => {
         graphics.clear();
         graphics.fillStyle(completed ? 0x27ae60 : 0x2980b9, 1);
