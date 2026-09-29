@@ -1,4 +1,4 @@
-import type { MapData, CellType, Difficulty, WaveData, WaveEntry } from '../types';
+import type { MapData, CellType, Difficulty, WaveData, WaveEntry, FgAreaType } from '../types';
 import { ENEMY_DEFINITIONS } from './enemies';
 
 /**
@@ -17,6 +17,16 @@ function parseColor(value: unknown): number | undefined {
 /** Validate a difficulty value; anything unknown falls back to undefined (easy). */
 function parseDifficulty(value: unknown): Difficulty | undefined {
   return value === 'easy' || value === 'medium' || value === 'hard' ? value : undefined;
+}
+
+/**
+ * Parse the foreground-marker layer (background-tile resolution).
+ * Anything that isn't a proper 2D array of 'fg'/other values becomes undefined.
+ */
+function parseFgAreas(value: unknown): FgAreaType[][] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  if (!value.every((row) => Array.isArray(row))) return undefined;
+  return value.map((row) => row.map((v) => (v === 'fg' ? 'fg' as const : 'none' as const)));
 }
 
 /**
@@ -96,6 +106,7 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
     bgTiles: jsonData.bgTiles,
     tileset: jsonData.tileset,
     areas: Array.isArray(jsonData.areas) ? jsonData.areas : undefined,
+    fgAreas: parseFgAreas(jsonData.fgAreas),
     difficulty: parseDifficulty(jsonData.difficulty),
     waves: parseWaves(jsonData.waves),
     grassColor: parseColor(jsonData.grassColor),

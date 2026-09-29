@@ -13,6 +13,14 @@ export type RoadDirection = 'horizontal' | 'vertical' | 'curve_tl' | 'curve_tr' 
  */
 export type AreaType = 'none' | 'tree' | 'wall' | 'roof';
 
+/**
+ * Foreground marker for background tiles — painted at background-tile
+ * resolution (2x the grid). Marked tiles render at depth 20 (above
+ * gameplay objects); unmarked background tiles render at depth 10.
+ * Invisible layer: only affects depth, drawn in the editor only.
+ */
+export type FgAreaType = 'none' | 'fg';
+
 /** Level difficulty — decides how many lives the player starts with. */
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
@@ -29,6 +37,7 @@ export interface MapData {
   bgTiles?: number[][];  // Background tiles (2x resolution, tile indices)
   tileset?: string;      // Tileset used for bgTiles (e.g. 'TilesetNature')
   areas?: AreaType[][];  // Area overlay layer (same size as grid)
+  fgAreas?: FgAreaType[][]; // Foreground markers (same size as bgTiles, 2x grid)
   difficulty?: Difficulty; // Starting lives come from this (default: easy)
   waves?: WaveData[];    // Custom wave definitions (default: game's built-in waves)
   grassColor?: number;   // Tint for light grass chessboard squares (0xRRGGBB)

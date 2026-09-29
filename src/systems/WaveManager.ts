@@ -32,7 +32,7 @@ export class WaveManager {
   private waitingForNextWave: boolean = false;
 
   // Early start bonus
-  private earlyStartBonus: number = 25;
+  private earlyStartBonus: number = 50;
 
   // Callbacks
   onSpawnEnemy: ((enemyType: EnemyType) => void) | null = null;

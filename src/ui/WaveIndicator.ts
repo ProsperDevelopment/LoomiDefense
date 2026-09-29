@@ -59,7 +59,7 @@ export class WaveIndicator {
     const earlyBtnBg = this.scene.add.rectangle(0, 0, 130, 30, 0xFF9800);
     earlyBtnBg.setStrokeStyle(2, 0xffffff);
 
-    const earlyBtnText = this.scene.add.text(0, 0, 'EARLY (+25g)', {
+    const earlyBtnText = this.scene.add.text(0, 0, 'EARLY (+50g)', {
       fontSize: '11px',
       color: '#ffffff',
       fontStyle: 'bold',

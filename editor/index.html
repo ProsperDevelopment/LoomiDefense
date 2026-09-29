@@ -103,6 +103,8 @@
     <button class="tool-btn" data-tool="area" onclick="setTool('area')">Paint Area</button>
     <button class="tool-btn" data-tool="paintBg" onclick="setTool('paintBg')">Paint Background</button>
     <button class="tool-btn" data-tool="eraseBg" onclick="setTool('eraseBg')">Erase Background</button>
+    <button class="tool-btn" data-tool="paintFg" onclick="setTool('paintFg')">Paint Foreground</button>
+    <button class="tool-btn" data-tool="deleteFg" onclick="setTool('deleteFg')">Delete Foreground</button>
     <button class="tool-btn" data-tool="spawn" onclick="setTool('spawn')">Place Spawn</button>
     <button class="tool-btn" data-tool="base" onclick="setTool('base')">Place Base</button>
 
@@ -197,6 +199,7 @@ let gridWidth = 16;
 let gridHeight = 12;
 let bgGrid = []; // Background grid (2x resolution)
 let areas = [];  // Area overlay ('none' | 'tree' | 'wall' | 'roof')
+let fgAreas = []; // Foreground markers at background-tile resolution ('none' | 'fg')
 let currentAreaType = 'tree';
 let difficulty = 'easy';
 let pathPoints = [];
@@ -233,6 +236,15 @@ function makeAreas(w, h) {
   return result;
 }
 
+// Foreground markers live at background-tile resolution (2x grid)
+function makeFgAreas(w, h) {
+  const result = [];
+  for (let y = 0; y < h * 2; y++) {
+    result.push(new Array(w * 2).fill('none'));
+  }
+  return result;
+}
+
 function clearGrid() {
   // Background grid is 2x resolution
   bgGrid = [];
@@ -240,6 +252,7 @@ function clearGrid() {
     bgGrid.push(new Array(gridWidth * 2).fill(-1));
   }
   areas = makeAreas(gridWidth, gridHeight);
+  fgAreas = makeFgAreas(gridWidth, gridHeight);
   pathPoints = [];
   spawnPoints = [];
   basePoints = [];
@@ -271,11 +284,21 @@ function resizeGrid() {
     }
     newAreas.push(row);
   }
+
+  const newFgAreas = [];
+  for (let y = 0; y < newH * 2; y++) {
+    const row = [];
+    for (let x = 0; x < newW * 2; x++) {
+      row.push(y < gridHeight * 2 && x < gridWidth * 2 ? fgAreas[y][x] : 'none');
+    }
+    newFgAreas.push(row);
+  }
   
   gridWidth = newW;
   gridHeight = newH;
   bgGrid = newBgGrid;
   areas = newAreas;
+  fgAreas = newFgAreas;
   render();
 }
 
@@ -309,6 +332,8 @@ function toolLabel() {
     : currentTool === 'area' ? `Paint Area (${currentAreaType === 'none' ? 'erase' : currentAreaType})`
     : currentTool === 'paintBg' ? 'Paint Background'
     : currentTool === 'eraseBg' ? 'Erase Background'
+    : currentTool === 'paintFg' ? 'Paint Foreground'
+    : currentTool === 'deleteFg' ? 'Delete Foreground'
     : currentTool === 'spawn' ? 'Place Spawn'
     : 'Place Base';
 }
@@ -486,7 +511,24 @@ function render() {
       }
     }
   }
-  
+
+  // Foreground markers are only shown while a foreground tool is active
+  // (invisible layer — only affects tile depth in the game)
+  if (currentTool === 'paintFg' || currentTool === 'deleteFg') {
+    for (let y = 0; y < gridHeight * 2; y++) {
+      for (let x = 0; x < gridWidth * 2; x++) {
+        if (fgAreas[y][x] !== 'fg') continue;
+        const px = x * bgTileSize;
+        const py = y * bgTileSize;
+        ctx.fillStyle = 'rgba(233, 69, 96, 0.45)';
+        ctx.fillRect(px + 1, py + 1, bgTileSize - 2, bgTileSize - 2);
+        ctx.strokeStyle = '#e94560';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(px + 2, py + 2, bgTileSize - 4, bgTileSize - 4);
+      }
+    }
+  }
+
   // Draw path
   if (document.getElementById('showPath').checked && pathPoints.length > 1) {
     ctx.strokeStyle = roadColor;
@@ -566,7 +608,7 @@ function setupInput() {
   });
   
   canvas.addEventListener('mousemove', (e) => {
-    if (currentTool === 'paintBg' || currentTool === 'eraseBg') {
+    if (currentTool === 'paintBg' || currentTool === 'eraseBg' || currentTool === 'paintFg' || currentTool === 'deleteFg') {
       const bgCell = getBgCell(e);
       if (bgCell) {
         document.getElementById('status').textContent = 
@@ -602,6 +644,8 @@ function setupInput() {
       case '5': setTool('paintBg'); break;
       case '6': setTool('eraseBg'); break;
       case '7': setTool('area'); break;
+      case '8': setTool('paintFg'); break;
+      case '9': setTool('deleteFg'); break;
     }
   });
 }
@@ -634,8 +678,8 @@ function handleCell(e) {
   const canvas = document.getElementById('editorCanvas');
   const rect = canvas.getBoundingClientRect();
   
-  if (currentTool === 'paintBg' || currentTool === 'eraseBg') {
-    // Use background grid coordinates
+  if (currentTool === 'paintBg' || currentTool === 'eraseBg' || currentTool === 'paintFg' || currentTool === 'deleteFg') {
+    // Use background grid coordinates (2x resolution)
     const bgCell = getBgCell(e);
     if (!bgCell) return;
     if (lastCell && lastCell.x === bgCell.x && lastCell.y === bgCell.y) return;
@@ -643,8 +687,13 @@ function handleCell(e) {
     
     if (currentTool === 'paintBg') {
       bgGrid[bgCell.y][bgCell.x] = selectedTileIndex;
-    } else {
+    } else if (currentTool === 'eraseBg') {
       bgGrid[bgCell.y][bgCell.x] = -1;
+    } else if (currentTool === 'paintFg') {
+      fgAreas[bgCell.y][bgCell.x] = 'fg';
+    } else {
+      // deleteFg
+      fgAreas[bgCell.y][bgCell.x] = 'none';
     }
   } else {
     // Use cell coordinates (path / spawn / base tools)
@@ -832,6 +881,7 @@ function exportJSON() {
     tileset: currentTileset,
     bgTiles: bgGrid,
     areas: areas,
+    fgAreas: fgAreas,
     difficulty: difficulty,
     ...(waves.length > 0 && {
       waves: waves.map((w, i) => ({ waveNumber: i + 1, entries: w.entries })),
@@ -884,6 +934,13 @@ function handleFileImport(e) {
       areas = (Array.isArray(data.areas) && data.areas.length === gridHeight)
         ? data.areas.map(row => row.map(a => ['tree', 'wall', 'roof'].includes(a) ? a : 'none'))
         : makeAreas(gridWidth, gridHeight);
+
+      // Load foreground markers (fall back to an empty layer)
+      fgAreas = (Array.isArray(data.fgAreas) && data.fgAreas.length === gridHeight * 2)
+        ? Array.from({ length: gridHeight * 2 }, (_, y) =>
+            Array.from({ length: gridWidth * 2 }, (_, x) =>
+              data.fgAreas[y]?.[x] === 'fg' ? 'fg' : 'none'))
+        : makeFgAreas(gridWidth, gridHeight);
 
       // Load difficulty (unknown values fall back to easy)
       difficulty = ['easy', 'medium', 'hard'].includes(data.difficulty) ? data.difficulty : 'easy';

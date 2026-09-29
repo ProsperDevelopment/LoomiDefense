@@ -6,6 +6,7 @@ A standalone level editor for creating and editing tower defense maps.
 
 - **Paint/erase background tiles** from multiple tilesets (Nature, Field, Desert, Floor, Water)
 - **Paint areas**: tree, wall (no building) and roof (sniper-only building)
+- **Foreground markers**: mark background tiles to render above gameplay (depth 20)
 - **Difficulty**: easy / medium / hard — decides starting lives
 - **Draw and erase paths** for enemy movement
 - **Place spawn points** and **base locations**
@@ -13,7 +14,7 @@ A standalone level editor for creating and editing tower defense maps.
 - **Import/Export** levels as JSON
 - **Export** as PNG image
 - **Zoom** and **grid** controls
-- **Keyboard shortcuts** (1-7 for tools)
+- **Keyboard shortcuts** (1-9 for tools)
 
 ## How to Use
 
@@ -36,6 +37,8 @@ npx serve editor
 | Paint Background | 5 | Paint background tiles (half-cell grid) |
 | Erase Background | 6 | Remove background tiles |
 | Paint Area | 7 | Paint the selected area type (tree / wall / roof / erase) |
+| Paint Foreground | 8 | Mark background tiles to render above gameplay |
+| Delete Foreground | 9 | Remove foreground markers (half-cell grid) |
 
 ### Areas
 
@@ -46,6 +49,17 @@ The **Area Type** dropdown picks what the Paint Area tool places:
 | Tree | No towers may be built on it |
 | Wall | No towers may be built on it |
 | Roof | Only the **Sniper** may be built on it — and snipers can't be built anywhere else |
+
+### Foreground Layer
+
+An invisible layer at **background-tile resolution** (half-cell grid, same as
+the background tiles):
+
+- **Paint Foreground (8)** marks a background tile as foreground; **Delete
+  Foreground (9)** removes the mark (click or drag for both)
+- In the game, marked tiles render at **depth 20** (above gameplay objects
+  like enemies and towers); all other background tiles render at **depth 10**
+- Markers are **only visible in the editor while a foreground tool is active**
 
 Area markings are **only visible in the editor while the Paint Area tool is active**
 and are **invisible in the game** — paint them where the background art already
@@ -104,6 +118,7 @@ Select from the dropdown to switch between tilesets (used by the background pain
   "tileset": "TilesetNature",
   "bgTiles": [[0, 0, ...], ...],
   "areas": [["tree", "none", "roof", ...], ...],
+  "fgAreas": [["fg", "none", ...], ...],
   "difficulty": "medium",
   "path": [{"x": 0, "y": 7}, ...],
   "spawnPoints": [{"x": 0, "y": 7}],

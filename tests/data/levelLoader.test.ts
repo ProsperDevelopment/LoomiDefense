@@ -74,3 +74,36 @@ describe('LevelLoader wave definitions', () => {
     });
   });
 });
+
+describe('LevelLoader foreground markers (fgAreas)', () => {
+  it('loads fg markers at background-tile resolution', () => {
+    const level = loadLevelFromJSON({
+      ...baseLevel,
+      fgAreas: [
+        ['fg', 'none'],
+        ['fg', 'fg'],
+      ],
+    }, 1);
+
+    expect(level.fgAreas).toEqual([
+      ['fg', 'none'],
+      ['fg', 'fg'],
+    ]);
+  });
+
+  it('normalizes non-fg values to none', () => {
+    const level = loadLevelFromJSON({
+      ...baseLevel,
+      fgAreas: [['fg', 'tree', 1, null]],
+    }, 1);
+
+    expect(level.fgAreas).toEqual([['fg', 'none', 'none', 'none']]);
+  });
+
+  it('rejects malformed layers', () => {
+    expect(loadLevelFromJSON({ ...baseLevel, fgAreas: 'nope' }, 1).fgAreas).toBeUndefined();
+    expect(loadLevelFromJSON({ ...baseLevel, fgAreas: [] }, 1).fgAreas).toBeUndefined();
+    expect(loadLevelFromJSON({ ...baseLevel, fgAreas: [1, 2, 3] }, 1).fgAreas).toBeUndefined();
+    expect(loadLevelFromJSON({ ...baseLevel }, 1).fgAreas).toBeUndefined();
+  });
+});

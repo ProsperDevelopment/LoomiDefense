@@ -772,9 +772,12 @@ export class GameScene extends Phaser.Scene {
         if (tileIdx < 0) continue;
         const tileKey = `${prefix}_${Math.floor(tileIdx).toString().padStart(3, '0')}`;
         if (this.textures.exists(tileKey)) {
+          // Foreground-marked tiles draw above gameplay (20);
+          // regular background tiles sit below health bars etc. (10).
+          const isFg = mapData.fgAreas?.[row]?.[col] === 'fg';
           this.add.image(col * bgCellSize + bgCellSize / 2, row * bgCellSize + GRID_OFFSET_Y + bgCellSize / 2, tileKey)
             .setDisplaySize(bgCellSize, bgCellSize)
-            .setDepth(20);
+            .setDepth(isFg ? 20 : 10);
         }
       }
     }

@@ -187,6 +187,10 @@
           }
         }
       }
+    },
+    "fgAreas": {
+      "type": "array",
+      "description": "Foreground markers at background-tile resolution (2x grid, same as bgTiles): 'fg' marks tiles that render above gameplay (depth 20); others render at depth 10. Invisible layer."
     }
   }
 }

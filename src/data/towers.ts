@@ -43,7 +43,7 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
   sniper: {
     type: 'sniper',
     name: 'Sniper Tower',
-    cost: 175,
+    cost: 110,
     damage: 70,
     fireRate: 0.3,
     range: 270,
