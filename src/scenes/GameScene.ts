@@ -4,6 +4,7 @@ import { Grid } from '../utils/Grid';
 import { Pathfinding } from '../utils/Pathfinding';
 import { WaveManager } from '../systems/WaveManager';
 import { EconomySystem } from '../systems/EconomySystem';
+import { PlayerEconomy } from '../systems/PlayerEconomy';
 import { HealthSystem } from '../systems/HealthSystem';
 import { TargetingSystem, type TargetableEntity } from '../systems/TargetingSystem';
 import { Tower } from '../entities/Tower';
@@ -129,6 +130,8 @@ export class GameScene extends Phaser.Scene {
   private pendingSnaps: NetSnapshot[] = [];
   private snapshotTimer: number = 0;
   private guestWaveNumber: number = 0;
+  /** Per-player gold: players never share economics (see PlayerEconomy). */
+  private playerEcon: PlayerEconomy | null = null;
   private guestEnemyTargets = new Map<string, { x: number; y: number }>();
   private guestProjectiles = new Map<string, { img: Phaser.GameObjects.Image; tx: number; ty: number }>();
 
@@ -170,6 +173,19 @@ export class GameScene extends Phaser.Scene {
     // Use level-specific starting gold
     const startingGold = LEVEL_STARTING_GOLD[levelId] ?? STARTING_GOLD;
     this.economy = new EconomySystem(startingGold);
+
+    // Multiplayer: every player starts with their own gold pot.
+    // The host's pot is this.economy; other players are ledger entries.
+    const otherIds = this.netRole === 'host' && lobby.room
+      ? lobby.room.players.map((p) => p.id).filter((id) => id !== this.myPlayerId())
+      : [];
+    this.playerEcon = new PlayerEconomy(
+      this.myPlayerId(),
+      this.economy,
+      this.netRole !== null,
+      otherIds,
+      startingGold,
+    );
 
     this.healthSystem = new HealthSystem();
 
@@ -242,6 +258,38 @@ export class GameScene extends Phaser.Scene {
     this.selectedTower = null;
     this.isGameOver = false;
     this.enemiesSpawnedInWave = 0;
+    this.playerEcon = null; // rebuilt in create() once the net role is known
+  }
+
+  // ------------------------------------------------------------
+  // Per-player economy (multiplayer): players never share gold.
+  // All pots are tracked by PlayerEconomy; the host validates every
+  // remote action against the acting player's own pot.
+  // ------------------------------------------------------------
+
+  private myPlayerId(): string {
+    return userProfile.user?.id ?? 'local';
+  }
+
+  private goldOf(playerId: string): number {
+    return this.playerEcon?.goldOf(playerId) ?? this.economy.getGold();
+  }
+
+  private addGold(playerId: string, amount: number): void {
+    if (this.playerEcon) this.playerEcon.add(playerId, amount);
+    else if (amount > 0) this.economy.earn(amount);
+    else if (amount < 0) this.economy.spend(-amount);
+  }
+
+  /** Deduct from the acting player's own pot. False if they can't afford it. */
+  private spendGold(playerId: string, amount: number): boolean {
+    if (this.playerEcon) return this.playerEcon.spend(playerId, amount);
+    return this.economy.spend(amount);
+  }
+
+  /** Update the HUD with this player's own gold. */
+  private refreshOwnGoldHud(): void {
+    this.hud.setGold(this.goldOf(this.myPlayerId()));
   }
 
   private setLevelLives(levelId: number): void {
@@ -334,9 +382,10 @@ export class GameScene extends Phaser.Scene {
 
   private setupEvents(): void {
     eventBus.on('enemy-killed', (p) => {
-      this.economy.earn(p.reward);
+      // Kill rewards go to the owner of the tower that landed the kill
+      this.addGold(p.ownerId ?? this.myPlayerId(), p.reward);
       this.score += p.reward;
-      this.hud.setGold(this.economy.getGold());
+      this.refreshOwnGoldHud();
       this.hud.setScore(this.score);
       this.checkWaveComplete();
     });
@@ -424,10 +473,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private applySnapshot(snap: NetSnapshot): void {
-    // Economy/HUD mirrors (only touch when changed to avoid text spam)
-    if (this.economy.getGold() !== snap.gold) {
-      this.economy.reset(snap.gold);
-      this.hud.setGold(snap.gold);
+    // Economy/HUD mirrors (only touch when changed to avoid text spam).
+    // Guests see THEIR OWN gold, not the host's (economies are per-player).
+    const myId = this.myPlayerId();
+    const myGold = snap.golds && myId in snap.golds ? snap.golds[myId] : snap.gold;
+    if (this.economy.getGold() !== myGold) {
+      this.economy.reset(myGold);
+      this.hud.setGold(myGold);
     }
     if (this.lives !== snap.lives) {
       this.lives = snap.lives;
@@ -449,7 +501,7 @@ export class GameScene extends Phaser.Scene {
     else if (snap.status === 'lost') this.gameOver(false);
   }
 
-  private syncGuestTowers(snaps: Array<{ id: string; type: string; col: number; row: number; level: number; color: string }>): void {
+  private syncGuestTowers(snaps: Array<{ id: string; type: string; col: number; row: number; level: number; color: string; ownerId?: string }>): void {
     const seen = new Set<string>();
     for (const s of snaps) {
       seen.add(s.id);
@@ -457,12 +509,15 @@ export class GameScene extends Phaser.Scene {
       if (!tower) {
         if (!(s.type in TOWER_DEFINITIONS)) continue;
         tower = new Tower(s.type as TowerType, s.col, s.row, s.id);
+        tower.ownerId = s.ownerId ?? null;
         if (s.color) tower.setPlayerColor(s.color);
         tower.createSprite(this);
         tower.showRange(false);
         this.towers.push(tower);
         if (this.grid.canPlace(s.col, s.row)) this.grid.placeTower(s.col, s.row);
         while (tower.level < s.level) tower.upgrade();
+      } else {
+        tower.ownerId = s.ownerId ?? tower.ownerId;
       }
     }
     for (let i = this.towers.length - 1; i >= 0; i--) {
@@ -533,10 +588,13 @@ export class GameScene extends Phaser.Scene {
 
   private sendSnapshot(status: NetStatus): void {
     if (this.netRole !== 'host') return;
+    // Per-player gold: each player has their own pot
+    const golds = this.playerEcon?.toRecord() ?? { [this.myPlayerId()]: this.economy.getGold() };
     lobby.sendSnapshot({
       kind: 'snap',
       status,
       gold: this.economy.getGold(),
+      golds,
       lives: this.lives,
       wave: this.waveManager.getWaveNumber(),
       waveTotal: this.waveManager.getTotalWaves(),
@@ -558,6 +616,7 @@ export class GameScene extends Phaser.Scene {
         row: t.getGridRow(),
         level: t.level,
         color: t.tintColorHex ?? userProfile.towerColor,
+        ownerId: t.ownerId ?? undefined,
       })),
       projectiles: this.projectiles
         .filter((p) => p.alive)
@@ -572,23 +631,23 @@ export class GameScene extends Phaser.Scene {
 
     switch (cmd.k) {
       case 'place':
-        this.placeTower(cmd.col, cmd.row, cmd.type as TowerType, senderColor);
+        this.placeTower(cmd.col, cmd.row, cmd.type as TowerType, from, senderColor);
         break;
       case 'upgrade': {
         const tower = this.towers.find((t) => t.id === cmd.id);
-        if (tower) this.upgradeTower(tower);
+        if (tower) this.upgradeTower(tower, from);
         break;
       }
       case 'sell': {
         const tower = this.towers.find((t) => t.id === cmd.id);
-        if (tower) this.sellTower(tower);
+        if (tower) this.sellTower(tower, from);
         break;
       }
       case 'wave':
         this.startNextWave();
         break;
       case 'early':
-        this.startWaveEarly();
+        this.startWaveEarly(from);
         break;
     }
   }
@@ -963,11 +1022,14 @@ export class GameScene extends Phaser.Scene {
     this.cancelPendingBuild();
   }
 
-  private placeTower(col: number, row: number, type: TowerType, colorHex?: string): void {
+  private placeTower(col: number, row: number, type: TowerType, ownerId?: string, colorHex?: string): void {
     const data = TOWER_DEFINITIONS[type];
     if (!data) return;
     if (!this.loadoutTypes.includes(type)) return;
     if (!this.grid.canPlace(col, row)) return;
+
+    // Who is paying? Solo/host = self; remote command = its sender.
+    const owner = ownerId ?? this.myPlayerId();
 
     // Guest: relay the action to the host (authoritative)
     if (this.netRole === 'guest') {
@@ -977,10 +1039,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (!this.economy.canAfford(data.cost)) return;
-    this.economy.spend(data.cost);
+    // Spend from the ACTING player's own pot — never shared
+    if (!this.spendGold(owner, data.cost)) return;
     this.grid.placeTower(col, row);
     const tower = new Tower(type, col, row);
+    tower.ownerId = owner;
     tower.setPlayerColor(colorHex ?? userProfile.towerColor);
     tower.createSprite(this);
     tower.showRange(false);
@@ -990,7 +1053,7 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: tower.sprite, scaleX: 1.2, scaleY: 1.2, duration: 100, yoyo: true });
     }
     this.hoverRangeCircle?.setVisible(false);
-    this.hud.setGold(this.economy.getGold());
+    this.refreshOwnGoldHud();
   }
 
   private selectExistingTower(tower: Tower): void {
@@ -1012,6 +1075,12 @@ export class GameScene extends Phaser.Scene {
     if (!this.selectedTower) return;
     const tower = this.selectedTower;
 
+    // Only the owner may sell (each player funds their own towers)
+    if (tower.ownerId && tower.ownerId !== this.myPlayerId()) {
+      this.towerPanel.hide();
+      return;
+    }
+
     // Guest: relay to the host
     if (this.netRole === 'guest') {
       lobby.sendCommand({ k: 'sell', id: tower.id });
@@ -1021,20 +1090,27 @@ export class GameScene extends Phaser.Scene {
     this.sellTower(tower);
   }
 
-  private sellTower(tower: Tower): void {
+  private sellTower(tower: Tower, actorId: string = this.myPlayerId()): void {
+    if (tower.ownerId && tower.ownerId !== actorId) return; // not yours to sell
     const refund = this.economy.getSellValue(tower.type, tower.level);
-    this.economy.earn(refund);
+    this.addGold(actorId, refund);
     this.grid.removeTower(tower.getGridCol(), tower.getGridRow());
     tower.destroy();
     this.towers = this.towers.filter((t) => t !== tower);
     eventBus.emit('tower-sold', { towerType: tower.type, refund });
     this.deselectTower();
-    this.hud.setGold(this.economy.getGold());
+    this.refreshOwnGoldHud();
   }
 
   private onUpgradeTower(): void {
     if (!this.selectedTower || this.selectedTower.level >= 3) return;
     const tower = this.selectedTower;
+
+    // Only the owner may upgrade (each player funds their own towers)
+    if (tower.ownerId && tower.ownerId !== this.myPlayerId()) {
+      this.towerPanel.hide();
+      return;
+    }
 
     // Guest: relay to the host
     if (this.netRole === 'guest') {
@@ -1045,11 +1121,11 @@ export class GameScene extends Phaser.Scene {
     this.upgradeTower(tower);
   }
 
-  private upgradeTower(tower: Tower): void {
+  private upgradeTower(tower: Tower, actorId: string = this.myPlayerId()): void {
+    if (tower.ownerId && tower.ownerId !== actorId) return; // not yours to upgrade
     if (tower.level >= 3) return;
     const cost = this.economy.getUpgradeCost(tower.type, tower.level);
-    if (!this.economy.canAfford(cost)) return;
-    this.economy.spend(cost);
+    if (!this.spendGold(actorId, cost)) return;
 
     const oldRange = tower.range;
     const worldPos = tower.getWorldPosition();
@@ -1061,7 +1137,7 @@ export class GameScene extends Phaser.Scene {
 
     eventBus.emit('tower-upgraded', { towerType: tower.type, newLevel: tower.level });
     this.towerPanel.hide();
-    this.hud.setGold(this.economy.getGold());
+    this.refreshOwnGoldHud();
 
     // Animate range growth
     this.animateRangeGrowth(worldPos, oldRange, newRange);
@@ -1149,6 +1225,7 @@ export class GameScene extends Phaser.Scene {
     const towerPos = tower.getWorldPosition();
     const damage = { baseDamage: tower.damage, splashRadius: tower.splashRadius, slowFactor: tower.slowFactor, slowDuration: tower.slowDuration };
     const proj = new Projectile(tower.type, towerPos.x, towerPos.y, damage as any, target.id, Phaser.Display.Color.HexStringToColor(tower.data.color).color);
+    proj.ownerId = tower.ownerId;
     proj.createSprite(this);
     this.projectiles.push(proj);
     eventBus.emit('projectile-fired', { towerType: tower.type, x: towerPos.x, y: towerPos.y });
@@ -1187,7 +1264,7 @@ export class GameScene extends Phaser.Scene {
       { id: primaryTarget.id, position: primaryTarget.position, health: primaryTarget.health },
       dmg.baseDamage,
     );
-    if (killed) {this.onEnemyKilled(primaryTarget);
+    if (killed) {this.onEnemyKilled(primaryTarget, proj.ownerId);
       this.createBloodSplatter(dir.x, dir.y, primaryTarget.position, primaryTarget.data.size, 3);
 
     }
@@ -1201,7 +1278,7 @@ export class GameScene extends Phaser.Scene {
       const splashKilled = this.healthSystem.applySplashDamage(
         primaryTarget.position.x, primaryTarget.position.y, dmg.splashRadius, dmg.baseDamage * 0.5, nearbyEnemies,
       );
-      for (const k of splashKilled) this.onEnemyKilledById(k.id);
+      for (const k of splashKilled) this.onEnemyKilledById(k.id, proj.ownerId);
     }
   }
 
@@ -1309,7 +1386,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private onEnemyKilled(enemy: Enemy): void {
+  private onEnemyKilled(enemy: Enemy, ownerId?: string | null): void {
     // Guard: a kill must only be processed once (damage systems can
     // report the same enemy through multiple paths in one frame).
     if (!enemy.alive) return;
@@ -1324,12 +1401,12 @@ export class GameScene extends Phaser.Scene {
     this.createDeathEffect(x, y, enemy.data.color);
     // Remove BEFORE notifying: wave completion checks the live enemy list
     this.removeEnemy(enemy);
-    eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x, y });
+    eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x, y, ownerId: ownerId ?? undefined });
   }
 
-  private onEnemyKilledById(id: string): void {
+  private onEnemyKilledById(id: string, ownerId?: string | null): void {
     const enemy = this.enemies.find(e => e.id === id && e.alive);
-    if (enemy) this.onEnemyKilled(enemy);
+    if (enemy) this.onEnemyKilled(enemy, ownerId);
   }
 
   private createDeathEffect(x: number, y: number, color: string): void {
@@ -1363,7 +1440,7 @@ export class GameScene extends Phaser.Scene {
     this.hud.setWave(this.waveManager.getWaveNumber(), this.waveManager.getTotalWaves());
   }
 
-  private startWaveEarly(): void {
+  private startWaveEarly(actorId: string = this.myPlayerId()): void {
     if (this.isGameOver) return;
     // Guest: ask the host to start early
     if (this.netRole === 'guest') {
@@ -1372,8 +1449,9 @@ export class GameScene extends Phaser.Scene {
     }
     const bonus = this.waveManager.startWaveEarly();
     if (bonus > 0) {
-      this.economy.earn(bonus);
-      this.hud.setGold(this.economy.getGold());
+      // Early-start bonus goes to whoever triggered it
+      this.addGold(actorId, bonus);
+      this.refreshOwnGoldHud();
       this.startNextWave();
     }
   }
@@ -1390,8 +1468,11 @@ export class GameScene extends Phaser.Scene {
     });
     if (!resolved) return;
 
-    this.economy.earn(25);
-    this.hud.setGold(this.economy.getGold());
+    // Shared wave-clear bonus: each player gets their own +25
+    if (this.playerEcon) this.playerEcon.addAll(25);
+    else this.economy.earn(25);
+    this.refreshOwnGoldHud();
+
     this.waveManager.completeWave();
     if (this.waveManager.isComplete()) {
       this.gameOver(true);

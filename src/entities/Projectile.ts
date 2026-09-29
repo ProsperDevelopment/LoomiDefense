@@ -26,6 +26,8 @@ export class Projectile {
   damage: Damage;
   speed: number;
   alive: boolean = true;
+  /** Player who fired this tower (kill rewards go to them). */
+  ownerId: string | null = null;
 
   private targetId: string;
   private towerType: TowerType;

@@ -75,4 +75,58 @@ describe('Tower', () => {
     expect(frost.slowFactor).toBe(0.4);
     expect(frost.slowDuration).toBe(2000);
   });
+
+  describe('ownership and player color', () => {
+    it('has no owner until one is assigned', () => {
+      const tower = new Tower('arrow', 1, 1);
+      expect(tower.ownerId).toBeNull();
+      tower.ownerId = 'player-42';
+      expect(tower.ownerId).toBe('player-42');
+    });
+
+    it('stores the player color even before the sprite exists', () => {
+      const tower = new Tower('arrow', 1, 1);
+      tower.setPlayerColor('#ff8800');
+      expect(tower.tintColorHex).toBe('#ff8800');
+      expect(tower.tintColor).not.toBeNull();
+
+      tower.setPlayerColor('not-a-color'); // ignored
+      expect(tower.tintColorHex).toBe('#ff8800');
+    });
+
+    it('colors only the accents (pad + crest), never tints the tower art', () => {
+      const setTint = vi.fn();
+      const circles: Array<{ setStrokeStyle: ReturnType<typeof vi.fn>; setDepth: ReturnType<typeof vi.fn>; destroy: ReturnType<typeof vi.fn> }> = [];
+      const scene = {
+        add: {
+          image: vi.fn(() => ({
+            setDisplaySize: vi.fn(),
+            setDepth: vi.fn(),
+            setTint,
+            destroy: vi.fn(),
+          })),
+          circle: vi.fn(() => {
+            const c = {
+              setStrokeStyle: vi.fn(),
+              setDepth: vi.fn(),
+              setVisible: vi.fn(),
+              destroy: vi.fn(),
+            };
+            circles.push(c);
+            return c;
+          }),
+        },
+      } as any;
+
+      const tower = new Tower('arrow', 1, 1);
+      tower.setPlayerColor('#3366ff'); // stored before sprite
+      tower.createSprite(scene);
+
+      // Whole-tower tint must NOT be applied...
+      expect(setTint).not.toHaveBeenCalled();
+      // ...instead: owner pad + crest gem (+ the range indicator circle)
+      expect(circles.length).toBe(3);
+      expect(scene.add.image).toHaveBeenCalledTimes(1);
+    });
+  });
 });

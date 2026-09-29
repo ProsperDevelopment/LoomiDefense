@@ -51,10 +51,14 @@ export class Tower {
   tintColor: number | null = null;
   /** Hex string form of the player color (e.g. '#ff8800'). */
   tintColorHex: string | null = null;
+  /** Player who owns this tower (their gold paid for it). */
+  ownerId: string | null = null;
 
   private gridCol: number;
   private gridRow: number;
   private upgradeRings: Phaser.GameObjects.Arc[] = [];
+  private ownerPad: Phaser.GameObjects.Arc | null = null;
+  private ownerCrest: Phaser.GameObjects.Arc | null = null;
 
   constructor(type: TowerType, gridCol: number, gridRow: number, id?: string) {
     this.type = type;
@@ -86,9 +90,10 @@ export class Tower {
     this.sprite.setDisplaySize(CELL_SIZE, CELL_SIZE);
     this.sprite.setDepth(5);
 
-    // Per-player color tint
+    // Owner color goes on the base pad and crest — the tower art itself
+    // keeps its original colors.
     if (this.tintColor !== null) {
-      this.sprite.setTint(this.tintColor);
+      this.applyOwnerVisuals();
     }
 
     // Range indicator (hidden by default)
@@ -110,12 +115,38 @@ export class Tower {
     }
   }
 
-  /** Apply a per-player tint color (hex string like '#ff8800'). */
+  /** Apply a per-player color: colored base pad + crest, art untouched. */
   setPlayerColor(hex: string): void {
     if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
     this.tintColorHex = hex;
     this.tintColor = Phaser.Display.Color.HexStringToColor(hex).color;
-    this.sprite?.setTint(this.tintColor);
+    this.applyOwnerVisuals();
+  }
+
+  /**
+   * Draw only small colored accents for the owner:
+   *  - a translucent colored pad with a solid rim under the tower
+   *  - a small colored crest gem above the tower
+   * The tower sprite itself is never tinted.
+   */
+  private applyOwnerVisuals(): void {
+    if (!this.scene || this.tintColor === null) return;
+    const color = this.tintColor;
+    const worldPos = this.getWorldPosition();
+
+    this.ownerPad?.destroy();
+    this.ownerCrest?.destroy();
+
+    // Base pad: rim shows around the tower art
+    const pad = this.scene.add.circle(worldPos.x, worldPos.y + 2, CELL_SIZE / 2 + 1, color, 0.28);
+    pad.setStrokeStyle(2, color, 0.9);
+    pad.setDepth(3);
+    this.ownerPad = pad;
+
+    // Crest gem above the battlements
+    const crest = this.scene.add.circle(worldPos.x, worldPos.y - CELL_SIZE / 2 - 5, 3.5, color, 1);
+    crest.setDepth(6);
+    this.ownerCrest = crest;
   }
 
   upgrade(): boolean {
@@ -186,6 +217,10 @@ export class Tower {
     this.rangeCircle?.destroy();
     for (const ring of this.upgradeRings) ring.destroy();
     this.upgradeRings = [];
+    this.ownerPad?.destroy();
+    this.ownerPad = null;
+    this.ownerCrest?.destroy();
+    this.ownerCrest = null;
     this.sprite = null;
     this.rangeCircle = null;
   }

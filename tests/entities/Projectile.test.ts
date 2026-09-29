@@ -53,4 +53,12 @@ describe('Projectile', () => {
     const proj = new Projectile('cannon', 0, 0, dmg as any, 't1', 0xFF5722, 300, );
     expect(proj.id).toContain('proj_');
   });
+
+  it('carries the owning player for kill-reward attribution', () => {
+    const dmg = new Damage(10);
+    const proj = new Projectile('arrow', 0, 0, dmg as any, 't1', 0x4CAF50);
+    expect(proj.ownerId).toBeNull(); // solo towers have no owner id
+    proj.ownerId = 'player-7';
+    expect(proj.ownerId).toBe('player-7');
+  });
 });

@@ -114,6 +114,7 @@ export interface NetTowerSnap {
   row: number;
   level: number;
   color: string;
+  ownerId?: string;
 }
 
 export interface NetProjectileSnap {
@@ -129,6 +130,8 @@ export interface NetSnapshot {
   kind: 'snap';
   status: NetStatus;
   gold: number;
+  /** Per-player gold (each player has their own economy). */
+  golds?: Record<string, number>;
   lives: number;
   wave: number;
   waveTotal: number;

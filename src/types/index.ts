@@ -107,7 +107,7 @@ export type GameEvent =
   | 'enemy-spawned';
 
 export interface EventPayload {
-  'enemy-killed': { enemyType: EnemyType; reward: number; x: number; y: number };
+  'enemy-killed': { enemyType: EnemyType; reward: number; x: number; y: number; ownerId?: string };
   'enemy-reached-base': { damage: number };
   'tower-placed': { towerType: TowerType; x: number; y: number };
   'tower-sold': { towerType: TowerType; refund: number };
