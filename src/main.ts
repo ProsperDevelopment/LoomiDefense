@@ -43,13 +43,13 @@ void userProfile.init().finally(() => {
   buildTopbar();
 });
 
-// When the multiplayer lobby starts a game, launch GameScene in net mode
-onLobbyStart((loadout, levelId) => {
+// When the multiplayer lobby starts a game, launch GameScene in net mode.
+// Each player uses their own loadout — no loadout is passed here.
+onLobbyStart((_loadout, levelId) => {
   const isHost = !!userProfile.user && lobby.room?.hostId === userProfile.user.id;
   game.scene.start('GameScene', {
     levelId,
     netRole: isHost ? 'host' : 'guest',
-    netLoadout: loadout,
   });
 });
 

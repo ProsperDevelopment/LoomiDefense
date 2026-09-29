@@ -65,7 +65,7 @@ class LobbyClient {
     });
 
     // Authenticate (server requires auth as first message)
-    this.send({ type: 'auth', token: token!, towerColor: userProfile.towerColor });
+    this.send({ type: 'auth', token: token!, towerColor: userProfile.towerColor, loadout: userProfile.loadout });
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Auth timeout')), 4000);
       const onMsg = (ev: MessageEvent) => {

@@ -64,6 +64,8 @@ export interface RoomPlayer {
   username: string;
   displayName: string;
   color: string;
+  /** The player's own chosen loadout (3 tower types). */
+  loadout: string[];
   ready: boolean;
   host: boolean;
 }
@@ -77,7 +79,7 @@ export interface RoomState {
 }
 
 export type ClientMessage =
-  | { type: 'auth'; token: string; towerColor: string }
+  | { type: 'auth'; token: string; towerColor: string; loadout: string[] }
   | { type: 'host'; levelId: number }
   | { type: 'join'; code: string }
   | { type: 'leave' }

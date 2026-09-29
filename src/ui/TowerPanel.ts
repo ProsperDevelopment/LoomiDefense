@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { TowerType } from '../types';
-import { TOWER_LIST, TOWER_UPGRADES, TOWER_DEFINITIONS } from '../data/towers';
+import { TOWER_LIST, TOWER_UPGRADES, TOWER_DEFINITIONS, MAX_TOWER_LEVEL } from '../data/towers';
 import { TOWER_SPRITE_FRAMES } from '../entities/Tower';
 
 export interface TowerPanelCallbacks {
@@ -161,7 +161,7 @@ export class TowerPanel {
   private createTowerInfoMenu(x: number, y: number, data: { type: TowerType; level: number; sellValue: number }): void {
     const towerDef = TOWER_DEFINITIONS[data.type];
     const upgradeData = TOWER_UPGRADES[data.level];
-    const canUpgrade = data.level < 3;
+    const canUpgrade = data.level < MAX_TOWER_LEVEL;
     const upgradeCost = canUpgrade ? Math.floor(towerDef.cost * upgradeData.costMultiplier) : 0;
 
     // Background

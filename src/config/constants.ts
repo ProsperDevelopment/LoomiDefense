@@ -1,4 +1,4 @@
-import type { TowerData, TowerUpgradeData, EnemyData, WaveData, MapData, GameState } from '../types';
+import type { TowerData, TowerUpgradeData, EnemyData, WaveData, MapData, GameState, Difficulty } from '../types';
 
 // --- Display ---
 export const GAME_WIDTH = 1024;
@@ -21,6 +21,18 @@ export const WAVE_CLEAR_BONUS = 25;
 
 // --- Meta economy (store coins) ---
 export const COINS_PER_LEVEL_WIN = 50;
+
+// --- Difficulty: starting lives per difficulty tier ---
+export const DIFFICULTY_LIVES: Record<Difficulty, number> = {
+  easy: 20,
+  medium: 5,
+  hard: 1,
+};
+
+/** Starting lives for a level's difficulty (defaults to easy). */
+export function livesForDifficulty(difficulty?: Difficulty): number {
+  return DIFFICULTY_LIVES[difficulty ?? 'easy'];
+}
 
 // --- Starting Gold per Level ---
 export const LEVEL_STARTING_GOLD: Record<number, number> = {

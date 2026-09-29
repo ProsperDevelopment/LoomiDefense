@@ -6,6 +6,16 @@
 export type CellType = 'empty' | 'path' | 'tower' | 'blocked' | 'spawn' | 'base';
 export type RoadDirection = 'horizontal' | 'vertical' | 'curve_tl' | 'curve_tr' | 'curve_bl' | 'curve_br' | 'cross' | 't_up' | 't_down' | 't_left' | 't_right';
 
+/**
+ * Area overlay layer painted per cell on top of the logical grid.
+ *  - tree / wall: no towers may be built
+ *  - roof: only the sniper may be built (and snipers need a roof)
+ */
+export type AreaType = 'none' | 'tree' | 'wall' | 'roof';
+
+/** Level difficulty — decides how many lives the player starts with. */
+export type Difficulty = 'easy' | 'medium' | 'hard';
+
 export interface MapData {
   id: number;
   name: string;
@@ -17,9 +27,12 @@ export interface MapData {
   spawnPoints: { x: number; y: number }[];
   basePath: { x: number; y: number }[];
   bgTiles?: number[][];  // Background tiles (2x resolution, tile indices)
-  tileset?: string;      // Tileset name to use
+  tileset?: string;      // Tileset used for bgTiles (e.g. 'TilesetNature')
+  areas?: AreaType[][];  // Area overlay layer (same size as grid)
+  difficulty?: Difficulty; // Starting lives come from this (default: easy)
+  waves?: WaveData[];    // Custom wave definitions (default: game's built-in waves)
   grassColor?: number;   // Tint for light grass chessboard squares (0xRRGGBB)
-  grassColorDark?: number; // Tint for dark grass chessboard squares (0xRRGGBB)
+  grassColorDark?: number;   // Tint for dark grass chessboard squares (0xRRGGBB)
   roadColor?: number;    // Tint for road fill (0xRRGGBB)
   roadColorDark?: number; // Tint for road outline (0xRRGGBB)
 }

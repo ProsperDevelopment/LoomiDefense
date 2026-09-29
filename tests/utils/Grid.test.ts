@@ -104,3 +104,66 @@ describe('Grid', () => {
     expect(grid.getMapData()).toBe(testMap);
   });
 });
+
+describe('Grid area layer', () => {
+  const areaMap: MapData = {
+    ...testMap,
+    areas: [
+      ['tree', 'wall', 'roof', 'none'],
+      ['none', 'none', 'none', 'none'],
+      ['none', 'none', 'none', 'none'],
+    ],
+  };
+  let grid: Grid;
+
+  beforeEach(() => {
+    grid = new Grid(areaMap);
+  });
+
+  it('reports the area type of a cell', () => {
+    expect(grid.getArea(0, 0)).toBe('tree');
+    expect(grid.getArea(1, 0)).toBe('wall');
+    expect(grid.getArea(2, 0)).toBe('roof');
+    expect(grid.getArea(3, 0)).toBe('none');
+    expect(grid.getArea(-1, 0)).toBe('none');
+    expect(grid.getArea(0, 99)).toBe('none');
+  });
+
+  it('defaults to no areas when the map has none', () => {
+    const g = new Grid(testMap);
+    expect(g.getArea(0, 0)).toBe('none');
+    expect(g.canPlace(0, 0, 'arrow')).toBe(true);
+  });
+
+  it('blocks all building on trees and walls', () => {
+    expect(grid.canPlace(0, 0)).toBe(false);          // generic gate
+    expect(grid.canPlace(0, 0, 'arrow')).toBe(false);
+    expect(grid.canPlace(0, 0, 'sniper')).toBe(false);
+    expect(grid.canPlace(1, 0, 'arrow')).toBe(false);
+    expect(grid.canPlace(1, 0, 'sniper')).toBe(false);
+    expect(grid.placeTower(0, 0, 'arrow')).toBe(false);
+    expect(grid.placeTower(1, 0, 'sniper')).toBe(false);
+  });
+
+  it('allows ONLY the sniper on a roof', () => {
+    expect(grid.canPlace(2, 0, 'sniper')).toBe(true);
+    expect(grid.placeTower(2, 0, 'sniper')).toBe(true);
+    expect(grid.getCell(2, 0)).toBe('tower');
+  });
+
+  it('keeps other towers off roofs', () => {
+    expect(grid.canPlace(2, 0, 'arrow')).toBe(false);
+    expect(grid.canPlace(2, 0, 'cannon')).toBe(false);
+    expect(grid.canPlace(2, 0, 'frost')).toBe(false);
+    expect(grid.canPlace(2, 0, 'mortar')).toBe(false);
+    expect(grid.canPlace(2, 0, 'tesla')).toBe(false);
+  });
+
+  it('keeps snipers off normal ground', () => {
+    expect(grid.canPlace(3, 0, 'sniper')).toBe(false);   // plain empty cell
+    expect(grid.canPlace(3, 2, 'sniper')).toBe(false);   // another empty cell
+    expect(grid.placeTower(3, 2, 'sniper')).toBe(false);
+    // ...but other towers are fine there
+    expect(grid.canPlace(3, 2, 'arrow')).toBe(true);
+  });
+});

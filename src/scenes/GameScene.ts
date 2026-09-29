@@ -15,11 +15,11 @@ import { HUD } from '../ui/HUD';
 import { TowerPanel } from '../ui/TowerPanel';
 import { WaveIndicator } from '../ui/WaveIndicator';
 import { MAP_DEFINITIONS } from '../data/maps';
-import { TOWER_DEFINITIONS } from '../data/towers';
+import { TOWER_DEFINITIONS, MAX_TOWER_LEVEL } from '../data/towers';
 import { userProfile } from '../state/UserProfile';
 import { lobby } from '../ui/overlay/lobbyScreen';
 import type { NetSnapshot, NetCommand, NetStatus } from '../../shared/protocol';
-import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, LEVEL_STARTING_GOLD, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN } from '../config/constants';
+import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, LEVEL_STARTING_GOLD, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN, livesForDifficulty } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
 import { isWaveResolved } from '../utils/waveCompletion';
 import type { WaveData } from '../types';
@@ -124,8 +124,9 @@ export class GameScene extends Phaser.Scene {
 
   // Multiplayer state
   private netRole: 'host' | 'guest' | null = null;
-  private netLoadout: string[] | null = null;
   private loadoutTypes: TowerType[] = [];
+  /** Multiplayer host: each player's own loadout (userId → tower types). */
+  private remoteLoadouts = new Map<string, string[]>();
   private lobbyUnsubs: Array<() => void> = [];
   private pendingSnaps: NetSnapshot[] = [];
   private snapshotTimer: number = 0;
@@ -139,22 +140,28 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
-  create(data: { levelId?: number; netRole?: 'host' | 'guest'; netLoadout?: string[] }): void {
+  create(data: { levelId?: number; netRole?: 'host' | 'guest' }): void {
     this.cameras.main.setBackgroundColor(COLORS.BACKGROUND);
     this.resetState();
 
     this.netRole = data.netRole ?? null;
-    this.netLoadout = data.netLoadout ?? null;
     this.pendingSnaps = [];
     this.snapshotTimer = 0;
     this.guestEnemyTargets.clear();
     this.guestProjectiles.clear();
 
-    // Loadout: multiplayer uses the host's loadout; solo uses the profile loadout
-    const rawLoadout = this.netLoadout ?? userProfile.loadout;
-    this.loadoutTypes = rawLoadout.filter((t): t is TowerType => t in TOWER_DEFINITIONS);
+    // Every player builds from THEIR OWN selected loadout (multiplayer too)
+    this.loadoutTypes = userProfile.loadout.filter((t): t is TowerType => t in TOWER_DEFINITIONS);
     if (this.loadoutTypes.length === 0) {
       this.loadoutTypes = ['arrow', 'cannon', 'frost'];
+    }
+
+    // Host keeps every player's loadout to validate their build commands
+    this.remoteLoadouts.clear();
+    if (this.netRole === 'host' && lobby.room) {
+      for (const p of lobby.room.players) {
+        this.remoteLoadouts.set(p.id, p.loadout ?? []);
+      }
     }
 
     const levelId = data.levelId !== undefined ? data.levelId : 1;
@@ -166,8 +173,8 @@ export class GameScene extends Phaser.Scene {
     this.blockSmoothRoadCells();
     this.pathfinding = new Pathfinding(this.grid);
 
-    // Use special waves for dev demo
-    const waves = levelId === 0 ? DEV_DEMO_WAVES : undefined;
+    // Level-defined waves first; dev demo keeps its special set
+    const waves = mapData.waves ?? (levelId === 0 ? DEV_DEMO_WAVES : undefined);
     this.waveManager = new WaveManager(waves);
 
     // Use level-specific starting gold
@@ -294,9 +301,11 @@ export class GameScene extends Phaser.Scene {
 
   private setLevelLives(levelId: number): void {
     if (levelId === 0) {
+      // Dev demo gets a big pool
       this.lives = 250;
     } else {
-      this.lives = STARTING_LIVES;
+      // Lives come from the level's difficulty (easy 20 / medium 5 / hard 1)
+      this.lives = livesForDifficulty(this.grid.getMapData().difficulty);
     }
   }
 
@@ -514,10 +523,19 @@ export class GameScene extends Phaser.Scene {
         tower.createSprite(this);
         tower.showRange(false);
         this.towers.push(tower);
-        if (this.grid.canPlace(s.col, s.row)) this.grid.placeTower(s.col, s.row);
+        if (this.grid.canPlace(s.col, s.row, s.type as TowerType)) {
+          this.grid.placeTower(s.col, s.row, s.type as TowerType);
+        }
         while (tower.level < s.level) tower.upgrade();
       } else {
         tower.ownerId = s.ownerId ?? tower.ownerId;
+        // Apply upgrades accepted by the host (level only ever goes up;
+        // selling removes the tower entirely instead)
+        if (tower.level < s.level) {
+          while (tower.level < s.level) tower.upgrade();
+          // Any open info popup now shows stale stats
+          if (this.selectedTower === tower) this.towerPanel.hide();
+        }
       }
     }
     for (let i = this.towers.length - 1; i >= 0; i--) {
@@ -679,7 +697,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-
     // Draw smooth road
     this.drawSmoothRoad(mapData.roadColor, mapData.roadColorDark);
 
@@ -688,6 +705,17 @@ export class GameScene extends Phaser.Scene {
     // Draw background tiles on top of grass (if available)
     if (mapData.bgTiles && mapData.bgTiles.length > 0) {
       const bgCellSize = CELL_SIZE / 2;
+      // Map tileset names to the texture prefixes loaded in BootScene.
+      // Old levels use prefixes ('nature_tile'), the editor exports folder
+      // names ('TilesetNature') — both must resolve to the same textures.
+      const TILESET_PREFIX: Record<string, string> = {
+        nature_tile: 'nature_tile',
+        desert_tile: 'desert_tile',
+        TilesetNature: 'nature_tile',
+        TilesetDesert: 'desert_tile',
+      };
+      const prefix = TILESET_PREFIX[mapData.tileset ?? ''] ?? 'nature_tile';
+
       for (let row = 0; row < mapData.bgTiles.length; row++) {
         for (let col = 0; col < mapData.bgTiles[row].length; col++) {
           const tileIdx = mapData.bgTiles[row][col];
@@ -696,7 +724,7 @@ export class GameScene extends Phaser.Scene {
             const y = row * bgCellSize + GRID_OFFSET_Y;
 
             const tileNum = tileIdx.toString().padStart(3, '0');
-            const tileKey = `${mapData.tileset}_${tileNum}`;
+            const tileKey = `${prefix}_${tileNum}`;
 
             if (this.textures.exists(tileKey)) {
               this.add.image(x + bgCellSize / 2, y + bgCellSize / 2, tileKey)
@@ -928,9 +956,14 @@ export class GameScene extends Phaser.Scene {
 
     // Left-click on empty cell - freeze target and show build popup
     const canPlace = this.grid.canPlace(col, row);
-    if (canPlace) {
+    // Which loadout towers are legal on THIS cell (areas + sniper/roof rules)
+    const allowed = canPlace
+      ? this.loadoutTypes.filter((t) => this.grid.canPlace(col, row, t))
+      : [];
+    if (allowed.length > 0) {
       this.pendingBuildPos = { col, row };
       this.showPendingRange(col, row);
+      this.towerPanel.setAvailableTypes(allowed);
       this.towerPanel.showAtCursor(pointer.x, pointer.y, 'build');
     } else {
       this.deselectTower();
@@ -1025,8 +1058,13 @@ export class GameScene extends Phaser.Scene {
   private placeTower(col: number, row: number, type: TowerType, ownerId?: string, colorHex?: string): void {
     const data = TOWER_DEFINITIONS[type];
     if (!data) return;
-    if (!this.loadoutTypes.includes(type)) return;
-    if (!this.grid.canPlace(col, row)) return;
+    // Local builds use this player's own loadout; the host validates a remote
+    // player's build against THEIR loadout (shared by the lobby). Unknown or
+    // empty remote loadouts are trusted — the sender already checked locally.
+    const isRemote = ownerId !== undefined && ownerId !== this.myPlayerId();
+    const loadout = isRemote ? this.remoteLoadouts.get(ownerId) : this.loadoutTypes;
+    if (loadout && loadout.length > 0 && !loadout.includes(type)) return;
+    if (!this.grid.canPlace(col, row, type)) return;
 
     // Who is paying? Solo/host = self; remote command = its sender.
     const owner = ownerId ?? this.myPlayerId();
@@ -1041,7 +1079,7 @@ export class GameScene extends Phaser.Scene {
 
     // Spend from the ACTING player's own pot — never shared
     if (!this.spendGold(owner, data.cost)) return;
-    this.grid.placeTower(col, row);
+    this.grid.placeTower(col, row, type);
     const tower = new Tower(type, col, row);
     tower.ownerId = owner;
     tower.setPlayerColor(colorHex ?? userProfile.towerColor);
@@ -1103,7 +1141,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onUpgradeTower(): void {
-    if (!this.selectedTower || this.selectedTower.level >= 3) return;
+    if (!this.selectedTower || this.selectedTower.level >= MAX_TOWER_LEVEL) return;
     const tower = this.selectedTower;
 
     // Only the owner may upgrade (each player funds their own towers)
@@ -1123,7 +1161,7 @@ export class GameScene extends Phaser.Scene {
 
   private upgradeTower(tower: Tower, actorId: string = this.myPlayerId()): void {
     if (tower.ownerId && tower.ownerId !== actorId) return; // not yours to upgrade
-    if (tower.level >= 3) return;
+    if (tower.level >= MAX_TOWER_LEVEL) return;
     const cost = this.economy.getUpgradeCost(tower.type, tower.level);
     if (!this.spendGold(actorId, cost)) return;
 

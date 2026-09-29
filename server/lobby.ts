@@ -26,6 +26,7 @@ interface Room {
 const rooms = new Map<string, Room>(); // code -> room
 const userRooms = new Map<string, string>(); // userId -> room code
 const userColors = new Map<string, string>(); // userId -> tower color
+const userLoadouts = new Map<string, string[]>(); // userId -> chosen loadout (3 tower types)
 
 function generateCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -113,6 +114,15 @@ export function attachLobbyServer(server: HttpServer): WebSocketServer {
           user.settings.towerColor = msg.towerColor;
           store.updateUser(user);
         }
+        // Remember this player's own loadout so the host can validate their builds
+        if (Array.isArray(msg.loadout)) {
+          const sanitized = [
+            ...new Set(
+              msg.loadout.filter((t): t is string => typeof t === 'string' && t.length > 0 && t.length <= 20),
+            ),
+          ].slice(0, 10);
+          userLoadouts.set(id, sanitized);
+        }
         send(ws, { type: 'auth-ok', userId: id, username: user?.displayName ?? 'Player' });
         return;
       }
@@ -123,12 +133,14 @@ export function attachLobbyServer(server: HttpServer): WebSocketServer {
       }
 
       const color = userColors.get(userId) ?? store.findUserById(userId)?.settings.towerColor ?? '#4CAF50';
+      const loadout = userLoadouts.get(userId) ?? [];
       const user = store.findUserById(userId)!;
       const playerInfo = (): RoomPlayer => ({
         id: userId!,
         username: user.username,
         displayName: user.displayName,
         color,
+        loadout,
         ready: false,
         host: false,
       });
@@ -224,7 +236,8 @@ export function attachLobbyServer(server: HttpServer): WebSocketServer {
           const room = code ? rooms.get(code) : undefined;
           if (!room || room.hostId !== userId || room.status === 'started') return;
           room.status = 'started';
-          // Host's loadout is shared with everyone for co-op consistency
+          // Informational: the host's own loadout. Each player builds from
+          // their own loadout (see per-player loadouts on RoomPlayer).
           room.loadout = [...user.progress.loadout];
           broadcast(room, {
             type: 'start',

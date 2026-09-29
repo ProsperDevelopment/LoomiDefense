@@ -1,6 +1,6 @@
 import type { MapData, CellType } from '../types';
 import { straight, curve90, curve45, diagonal, combinePaths, type CurvePoint } from '../utils/CurveBuilder';
-import { LEVEL_3, LEVEL_5 } from './LevelLoader';
+import { LEVEL_3, LEVEL_5, LEVEL_8, LEVEL_9 } from './LevelLoader';
 import { LEVEL_4 } from './LevelLoader';
 
 const _ = 'empty' as CellType;
@@ -141,36 +141,9 @@ export const MAP_DEFINITIONS: MapData[] = [
       straight(8, 11, 'down', 2),
     )
   ),
+ LEVEL_8,
 
-  // Level 8: Fork with diagonals (advanced)
-  generateMap(8, 'Fork', 'Choose your path wisely', 16, 12, 0, 1,
-    combinePaths(
-      straight(1, 1, 'right', 3),
-      curve45(4, 1, 'right', 'down', 1),
-      straight(4, 2, 'down', 2),
-      curve45(4, 4, 'down', 'right', 1),
-      straight(5, 4, 'right', 2),
-      diagonal(7, 4, 1, 1, 3),
-      straight(10, 7, 'right', 3),
-      curve45(13, 7, 'right', 'down', 1),
-      straight(13, 8, 'down', 2),
-    )
-  ),
-
-  // Level 9: Castle with curves (intermediate)
-  generateMap(9, 'Castle', 'Storm the castle defenses', 14, 12, 0, 2,
-    combinePaths(
-      straight(1, 2, 'right', 3),
-      curve45(4, 2, 'right', 'down', 1),
-      straight(4, 3, 'down', 2),
-      curve45(4, 5, 'down', 'right', 1),
-      straight(5, 5, 'right', 4),
-      curve45(9, 5, 'right', 'up', 1),
-      straight(9, 4, 'up', 2),
-      curve45(9, 2, 'up', 'right', 1),
-      straight(10, 2, 'right', 3),
-    )
-  ),
+ LEVEL_9,
 
   // Level 10: Diagonal bridge (beginner)
   generateMap(10, 'Diagonal Bridge', 'Cross the bridge at an angle', 16, 10, 0, 1,

@@ -1,15 +1,21 @@
-import type { CellType, MapData } from '../types';
+import type { CellType, MapData, AreaType, TowerType } from '../types';
 import { CELL_SIZE, GRID_OFFSET_Y } from '../config/constants';
 
 /**
  * Grid-based map system.
  * Manages cell states, validates placement, and provides world<->grid conversions.
+ *
+ * Placement rules (area overlay layer):
+ *  - tree / wall cells: no towers at all
+ *  - roof cells: only the sniper tower
+ *  - snipers may ONLY be built on roof cells
  */
 export class Grid {
   readonly cols: number;
   readonly rows: number;
   readonly cellSize: number;
   private cells: CellType[][];
+  private areas: AreaType[][];
   private mapData: MapData;
 
   constructor(mapData: MapData) {
@@ -18,6 +24,9 @@ export class Grid {
     this.rows = mapData.height;
     this.cellSize = mapData.cellSize;
     this.cells = mapData.grid.map(row => [...row]);
+    this.areas = mapData.areas
+      ? mapData.areas.map(row => [...row])
+      : Array.from({ length: this.rows }, () => new Array<AreaType>(this.cols).fill('none'));
   }
 
   getCell(col: number, row: number): CellType {
@@ -33,12 +42,29 @@ export class Grid {
     }
   }
 
-  canPlace(col: number, row: number): boolean {
-    return this.getCell(col, row) === 'empty';
+  /** Area overlay type for a cell ('none' when out of bounds or unset). */
+  getArea(col: number, row: number): AreaType {
+    if (col < 0 || col >= this.cols || row < 0 || row >= this.rows) {
+      return 'none';
+    }
+    return this.areas[row]?.[col] ?? 'none';
   }
 
-  placeTower(col: number, row: number): boolean {
-    if (this.canPlace(col, row)) {
+  /**
+   * Can `towerType` be built on this cell?
+   * Without a type (hover/menu checks) only the cell+area gates apply.
+   */
+  canPlace(col: number, row: number, towerType?: TowerType): boolean {
+    if (this.getCell(col, row) !== 'empty') return false;
+    const area = this.getArea(col, row);
+    if (area === 'tree' || area === 'wall') return false;
+    if (towerType === undefined) return true;
+    if (towerType === 'sniper') return area === 'roof';
+    return area !== 'roof';
+  }
+
+  placeTower(col: number, row: number, towerType?: TowerType): boolean {
+    if (this.canPlace(col, row, towerType)) {
       this.cells[row][col] = 'tower';
       return true;
     }
@@ -79,5 +105,8 @@ export class Grid {
 
   reset(): void {
     this.cells = this.mapData.grid.map(row => [...row]);
+    this.areas = this.mapData.areas
+      ? this.mapData.areas.map(row => [...row])
+      : Array.from({ length: this.rows }, () => new Array<AreaType>(this.cols).fill('none'));
   }
 }

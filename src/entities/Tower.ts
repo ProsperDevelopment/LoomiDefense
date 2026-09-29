@@ -88,7 +88,8 @@ export class Tower {
     const frame = TOWER_SPRITE_FRAMES[this.type];
     this.sprite = scene.add.image(worldPos.x, worldPos.y, 'towers_tileset', frame);
     this.sprite.setDisplaySize(CELL_SIZE, CELL_SIZE);
-    this.sprite.setDepth(5);
+  
+    this.sprite.setDepth(this.type == 'sniper' ? 30 : 5);
 
     // Owner color goes on the base pad and crest — the tower art itself
     // keeps its original colors.

@@ -57,7 +57,7 @@ describe('EconomySystem', () => {
   });
 
   it('returns Infinity for max level upgrade', () => {
-    const cost = eco.getUpgradeCost('arrow', 3);
+    const cost = eco.getUpgradeCost('arrow', 5);
     expect(cost).toBe(Infinity);
   });
 

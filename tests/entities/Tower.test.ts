@@ -29,7 +29,7 @@ describe('Tower', () => {
   it('fires again after cooldown', () => {
     const tower = new Tower('arrow', 0, 0);
     tower.fire();
-    tower.update(500); // Arrow fireRate=2.5, cooldown=400ms
+    tower.update(600); // Arrow fireRate=1.8, cooldown=~556ms
     expect(tower.canFire()).toBe(true);
   });
 
@@ -44,11 +44,11 @@ describe('Tower', () => {
 
   it('cannot upgrade beyond max level', () => {
     const tower = new Tower('arrow', 0, 0);
-    tower.upgrade(); // level 2
-    tower.upgrade(); // level 3
-    const result = tower.upgrade(); // should fail
+    for (let i = 0; i < 4; i++) tower.upgrade(); // level 2..5
+    expect(tower.level).toBe(5);
+    const result = tower.upgrade(); // should fail at max
     expect(result).toBe(false);
-    expect(tower.level).toBe(3);
+    expect(tower.level).toBe(5); // unchanged after failed upgrade
   });
 
   it('generates unique IDs for different positions', () => {
@@ -64,11 +64,11 @@ describe('Tower', () => {
 
   it('initializes with correct stats for each type', () => {
     const arrow = new Tower('arrow', 0, 0);
-    expect(arrow.damage).toBe(10);
-    expect(arrow.range).toBe(150);
+    expect(arrow.damage).toBe(5);
+    expect(arrow.range).toBe(120);
 
     const cannon = new Tower('cannon', 0, 0);
-    expect(cannon.damage).toBe(40);
+    expect(cannon.damage).toBe(25);
     expect(cannon.splashRadius).toBe(60);
 
     const frost = new Tower('frost', 0, 0);

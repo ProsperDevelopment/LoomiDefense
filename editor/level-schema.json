@@ -5,9 +5,7 @@
   "required": [
     "version",
     "width",
-    "height",
-    "tileSize",
-    "tiles"
+    "height"
   ],
   "properties": {
     "version": {
@@ -50,7 +48,7 @@
           "type": "number"
         }
       },
-      "description": "2D array of tile indices (-1 = empty)"
+      "description": "Legacy foreground tile grid (no longer produced by the editor; ignored by the game)"
     },
     "path": {
       "type": "array",
@@ -124,6 +122,71 @@
     "roadColorDark": {
       "type": "number",
       "description": "Tint for road outline (0xRRGGBB)"
+    },
+    "areas": {
+      "type": "array",
+      "description": "Area overlay layer (same size as grid): 'none' | 'tree' | 'wall' | 'roof'. Tree/wall block building; roof allows only the sniper."
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ],
+      "description": "Starting lives: easy=20, medium=5, hard=1 (default easy)"
+    },
+    "waves": {
+      "type": "array",
+      "description": "Custom wave definitions for this level. Each wave: { waveNumber, entries: [{ enemyType, count, spawnDelay, waveDelay }] }. Omit to use the game defaults.",
+      "items": {
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "properties": {
+          "waveNumber": {
+            "type": "number"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "enemyType",
+                "count"
+              ],
+              "properties": {
+                "enemyType": {
+                  "type": "string",
+                  "enum": [
+                    "basic",
+                    "fast",
+                    "armored",
+                    "healer",
+                    "swarm",
+                    "tank",
+                    "elite",
+                    "boss"
+                  ]
+                },
+                "count": {
+                  "type": "number",
+                  "minimum": 1
+                },
+                "spawnDelay": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "waveDelay": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

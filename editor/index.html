@@ -47,6 +47,26 @@
   /* Grid size inputs */
   .grid-inputs { display: flex; gap: 4px; align-items: center; }
   .grid-inputs input { width: 50px; }
+
+  /* Wave definitions dialog */
+  .waves-row { display: flex; align-items: center; gap: 6px; }
+  .waves-summary { font-size: 11px; color: #8888aa; }
+  .waves-overlay { position: fixed; inset: 0; background: rgba(10, 10, 30, 0.85); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .waves-dialog { background: #16213e; border: 2px solid #0f3460; border-radius: 10px; width: 680px; max-width: calc(100vw - 40px); max-height: calc(100vh - 60px); overflow-y: auto; padding: 18px; }
+  .waves-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .waves-head h2 { color: #e94560; font-size: 18px; }
+  .waves-hint { color: #8888aa; font-size: 12px; margin: 6px 0 12px; }
+  .wave-card { background: #0d1b33; border: 1px solid #24406a; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .wave-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .wave-entry { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  .wave-entry select, .wave-entry input { width: auto; margin: 0; padding: 3px 6px; }
+  .wave-entry input { width: 64px; }
+  .wave-entry label { font-size: 11px; color: #a0a0a0; display: flex; align-items: center; gap: 4px; }
+  .entry-remove { background: #8B0000; border: none; color: #fff; border-radius: 4px; width: 24px; height: 24px; cursor: pointer; font-size: 14px; line-height: 1; }
+  .entry-remove:hover { background: #a93226; }
+  .waves-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+  .waves-actions .spacer { flex: 1; }
+  .btn.small { padding: 5px 10px; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -63,15 +83,36 @@
       <input type="number" id="gridHeight" value="12" min="4" max="50">
       <button class="btn" onclick="resizeGrid()">Resize</button>
     </div>
+
+    <h3>Difficulty</h3>
+    <select id="difficulty" onchange="setDifficulty(this.value)">
+      <option value="easy">Easy — 20 lives</option>
+      <option value="medium">Medium — 5 lives</option>
+      <option value="hard">Hard — 1 life</option>
+    </select>
+
+    <h3>Waves</h3>
+    <div class="waves-row">
+      <button class="btn" onclick="openWavesDialog()">Edit Waves…</button>
+      <span id="wavesSummary" class="waves-summary">default</span>
+    </div>
     
     <h3>Tools</h3>
-    <button class="tool-btn active" data-tool="paint" onclick="setTool('paint')">Paint Tile</button>
-    <button class="tool-btn" data-tool="erase" onclick="setTool('erase')">Erase Tile</button>
+    <button class="tool-btn active" data-tool="path" onclick="setTool('path')">Draw Path</button>
+    <button class="tool-btn" data-tool="erasePath" onclick="setTool('erasePath')">Erase Path</button>
+    <button class="tool-btn" data-tool="area" onclick="setTool('area')">Paint Area</button>
     <button class="tool-btn" data-tool="paintBg" onclick="setTool('paintBg')">Paint Background</button>
     <button class="tool-btn" data-tool="eraseBg" onclick="setTool('eraseBg')">Erase Background</button>
-    <button class="tool-btn" data-tool="path" onclick="setTool('path')">Draw Path</button>
     <button class="tool-btn" data-tool="spawn" onclick="setTool('spawn')">Place Spawn</button>
     <button class="tool-btn" data-tool="base" onclick="setTool('base')">Place Base</button>
+
+    <h3>Area Type</h3>
+    <select id="areaType" onchange="setAreaType(this.value)">
+      <option value="tree">Tree — no building</option>
+      <option value="wall">Wall — no building</option>
+      <option value="roof">Roof — sniper only</option>
+      <option value="none">Erase Area</option>
+    </select>
 
     <h3>Colors</h3>
     <label>Grass:</label>
@@ -120,11 +161,33 @@
     <div id="canvas-container">
       <canvas id="editorCanvas"></canvas>
     </div>
-    <div id="status">Ready | Tile: (0,0) | Tool: Paint</div>
+    <div id="status">Ready | Cell: (0,0) | Tool: Draw Path</div>
   </div>
 </div>
 
 <input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleFileImport(event)">
+
+<!-- Wave definitions dialog -->
+<div id="wavesOverlay" class="waves-overlay" style="display:none">
+  <div class="waves-dialog">
+    <div class="waves-head">
+      <h2>Wave Definitions</h2>
+      <button class="btn secondary" onclick="closeWavesDialog()">Close</button>
+    </div>
+    <p class="waves-hint">
+      Custom waves replace the game's built-in waves for this level.
+      Leave the list empty to keep the defaults. Spawn ms = delay between
+      spawns of an entry; wave ms = delay before the entry starts.
+    </p>
+    <div id="wavesList"></div>
+    <div class="waves-actions">
+      <button class="btn" onclick="addWave()">+ Add Wave</button>
+      <button class="btn danger" onclick="clearWaves()">Clear All</button>
+      <span class="spacer"></span>
+      <button class="btn" onclick="saveWaves()">Save</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // ============================================================
@@ -132,12 +195,14 @@
 // ============================================================
 let gridWidth = 16;
 let gridHeight = 12;
-let grid = [];
 let bgGrid = []; // Background grid (2x resolution)
+let areas = [];  // Area overlay ('none' | 'tree' | 'wall' | 'roof')
+let currentAreaType = 'tree';
+let difficulty = 'easy';
 let pathPoints = [];
 let spawnPoints = [];
 let basePoints = [];
-let currentTool = 'paint';
+let currentTool = 'path';
 let currentTileset = 'TilesetNature';
 let selectedTileIndex = 0;
 let tileImages = {};
@@ -156,19 +221,25 @@ async function init() {
   await loadTilesetData();
   clearGrid();
   loadTileset('TilesetNature');
+  updateWavesSummary();
   render();
 }
 
-function clearGrid() {
-  grid = [];
-  for (let y = 0; y < gridHeight; y++) {
-    grid.push(new Array(gridWidth).fill(-1));
+function makeAreas(w, h) {
+  const result = [];
+  for (let y = 0; y < h; y++) {
+    result.push(new Array(w).fill('none'));
   }
+  return result;
+}
+
+function clearGrid() {
   // Background grid is 2x resolution
   bgGrid = [];
   for (let y = 0; y < gridHeight * 2; y++) {
     bgGrid.push(new Array(gridWidth * 2).fill(-1));
   }
+  areas = makeAreas(gridWidth, gridHeight);
   pathPoints = [];
   spawnPoints = [];
   basePoints = [];
@@ -178,19 +249,6 @@ function clearGrid() {
 function resizeGrid() {
   const newW = parseInt(document.getElementById('gridWidth').value);
   const newH = parseInt(document.getElementById('gridHeight').value);
-  
-  const newGrid = [];
-  for (let y = 0; y < newH; y++) {
-    const row = [];
-    for (let x = 0; x < newW; x++) {
-      if (y < gridHeight && x < gridWidth) {
-        row.push(grid[y][x]);
-      } else {
-        row.push(-1);
-      }
-    }
-    newGrid.push(row);
-  }
   
   const newBgGrid = [];
   for (let y = 0; y < newH * 2; y++) {
@@ -204,11 +262,20 @@ function resizeGrid() {
     }
     newBgGrid.push(row);
   }
+
+  const newAreas = [];
+  for (let y = 0; y < newH; y++) {
+    const row = [];
+    for (let x = 0; x < newW; x++) {
+      row.push(y < gridHeight && x < gridWidth ? areas[y][x] : 'none');
+    }
+    newAreas.push(row);
+  }
   
   gridWidth = newW;
   gridHeight = newH;
-  grid = newGrid;
   bgGrid = newBgGrid;
+  areas = newAreas;
   render();
 }
 
@@ -220,7 +287,30 @@ function setTool(tool) {
   document.querySelectorAll('.tool-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tool === tool);
   });
-  document.getElementById('status').textContent = `Tool: ${tool}`;
+  document.getElementById('status').textContent = `Tool: ${toolLabel()}`;
+  render(); // some visuals (area overlay) depend on the active tool
+}
+
+function setAreaType(type) {
+  currentAreaType = type;
+  setTool('area');
+}
+
+function setDifficulty(value) {
+  difficulty = value;
+  const lives = value === 'easy' ? 20 : value === 'medium' ? 5 : 1;
+  document.getElementById('status').textContent =
+    `Difficulty: ${value} — ${lives} ${lives === 1 ? 'life' : 'lives'}`;
+}
+
+function toolLabel() {
+  return currentTool === 'path' ? 'Draw Path'
+    : currentTool === 'erasePath' ? 'Erase Path'
+    : currentTool === 'area' ? `Paint Area (${currentAreaType === 'none' ? 'erase' : currentAreaType})`
+    : currentTool === 'paintBg' ? 'Paint Background'
+    : currentTool === 'eraseBg' ? 'Erase Background'
+    : currentTool === 'spawn' ? 'Place Spawn'
+    : 'Place Base';
 }
 
 // ============================================================
@@ -353,18 +443,46 @@ function render() {
     }
   }
   
-  // Draw foreground tiles at native 16x16 size
-  for (let y = 0; y < gridHeight; y++) {
-    for (let x = 0; x < gridWidth; x++) {
-      const tileIdx = grid[y][x];
-      const px = x * tileSize;
-      const py = y * tileSize;
-      
-      if (tileIdx >= 0 && tileImages[tileIdx]) {
-        // Draw tile at native size (16x16) centered in cell
-        const offsetX = (tileSize - 16) / 2;
-        const offsetY = (tileSize - 16) / 2;
-        ctx.drawImage(tileImages[tileIdx], px + offsetX, py + offsetY);
+  // Area overlays are only shown while the Paint Area tool is active
+  if (currentTool === 'area') {
+    for (let y = 0; y < gridHeight; y++) {
+      for (let x = 0; x < gridWidth; x++) {
+        const area = areas[y][x];
+        if (!area || area === 'none') continue;
+        const px = x * tileSize;
+        const py = y * tileSize;
+        
+        if (area === 'tree') {
+          // trunk
+          ctx.fillStyle = '#6b4423';
+          ctx.fillRect(px + tileSize * 0.42, py + tileSize * 0.6, tileSize * 0.16, tileSize * 0.35);
+          // canopy
+          ctx.fillStyle = '#2e7d32';
+          ctx.beginPath();
+          ctx.arc(px + tileSize / 2, py + tileSize * 0.4, tileSize * 0.28, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#43a047';
+          ctx.beginPath();
+          ctx.arc(px + tileSize * 0.42, py + tileSize * 0.3, tileSize * 0.12, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (area === 'wall') {
+          ctx.fillStyle = '#9e9e9e';
+          ctx.fillRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+          ctx.fillStyle = '#757575';
+          ctx.fillRect(px + 1, py + tileSize / 3, tileSize - 2, 2);
+          ctx.fillRect(px + 1, py + (tileSize * 2) / 3, tileSize - 2, 2);
+          ctx.fillRect(px + tileSize / 2, py + 1, 2, tileSize / 3 - 1);
+          ctx.fillRect(px + tileSize / 4, py + tileSize / 3 + 2, 2, tileSize / 3 - 2);
+          ctx.fillRect(px + (tileSize * 3) / 4, py + tileSize / 3 + 2, 2, tileSize / 3 - 2);
+        } else if (area === 'roof') {
+          ctx.fillStyle = '#c0392b';
+          ctx.fillRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+          ctx.fillStyle = '#e74c3c';
+          ctx.fillRect(px + 2, py + tileSize * 0.2, tileSize - 4, tileSize * 0.22);
+          ctx.fillRect(px + 2, py + tileSize * 0.55, tileSize - 4, tileSize * 0.22);
+          ctx.fillStyle = '#96281b';
+          ctx.fillRect(px + 1, py + 1, tileSize - 2, 2);
+        }
       }
     }
   }
@@ -452,7 +570,7 @@ function setupInput() {
       const bgCell = getBgCell(e);
       if (bgCell) {
         document.getElementById('status').textContent = 
-          `BG Tile: (${bgCell.x}, ${bgCell.y}) | Tool: ${currentTool} | Tileset: ${currentTileset}[${selectedTileIndex}]`;
+          `BG Tile: (${bgCell.x}, ${bgCell.y}) | Tool: ${toolLabel()} | Tileset: ${currentTileset}[${selectedTileIndex}]`;
       }
       if (isMouseDown) {
         handleCell(e);
@@ -461,9 +579,10 @@ function setupInput() {
       const cell = getCell(e);
       if (cell) {
         document.getElementById('status').textContent = 
-          `Tile: (${cell.x}, ${cell.y}) | Tool: ${currentTool} | Tileset: ${currentTileset}[${selectedTileIndex}]`;
+          `Cell: (${cell.x}, ${cell.y}) | Tool: ${toolLabel()} | Tileset: ${currentTileset}[${selectedTileIndex}]`;
       }
-      if (isMouseDown && (currentTool === 'paint' || currentTool === 'erase')) {
+      // Drag while the erase-path or paint-area tool is held down
+      if (isMouseDown && (currentTool === 'erasePath' || currentTool === 'area')) {
         handleCell(e);
       }
     }
@@ -476,11 +595,13 @@ function setupInput() {
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') return;
     switch(e.key) {
-      case '1': setTool('paint'); break;
-      case '2': setTool('erase'); break;
-      case '3': setTool('path'); break;
-      case '4': setTool('spawn'); break;
-      case '5': setTool('base'); break;
+      case '1': setTool('path'); break;
+      case '2': setTool('erasePath'); break;
+      case '3': setTool('spawn'); break;
+      case '4': setTool('base'); break;
+      case '5': setTool('paintBg'); break;
+      case '6': setTool('eraseBg'); break;
+      case '7': setTool('area'); break;
     }
   });
 }
@@ -526,21 +647,21 @@ function handleCell(e) {
       bgGrid[bgCell.y][bgCell.x] = -1;
     }
   } else {
-    // Use foreground grid coordinates
+    // Use cell coordinates (path / spawn / base tools)
     const cell = getCell(e);
     if (!cell) return;
     if (lastCell && lastCell.x === cell.x && lastCell.y === cell.y) return;
     lastCell = cell;
     
     switch(currentTool) {
-      case 'paint':
-        grid[cell.y][cell.x] = selectedTileIndex;
-        break;
-      case 'erase':
-        grid[cell.y][cell.x] = -1;
-        break;
       case 'path':
         addPathPoint(cell.x, cell.y);
+        break;
+      case 'erasePath':
+        removePathPoint(cell.x, cell.y);
+        break;
+      case 'area':
+        areas[cell.y][cell.x] = currentAreaType;
         break;
       case 'spawn':
         spawnPoints = spawnPoints.filter(s => !(s.x === cell.x && s.y === cell.y));
@@ -562,6 +683,15 @@ function addPathPoint(x, y) {
   }
 }
 
+function removePathPoint(x, y) {
+  const before = pathPoints.length;
+  pathPoints = pathPoints.filter(p => !(p.x === x && p.y === y));
+  if (pathPoints.length !== before) {
+    document.getElementById('status').textContent =
+      `Removed path point (${x}, ${y}) — ${pathPoints.length} points left`;
+  }
+}
+
 // ============================================================
 // Zoom
 // ============================================================
@@ -569,6 +699,117 @@ function updateZoom() {
   zoom = parseFloat(document.getElementById('zoom').value);
   document.getElementById('zoomLabel').textContent = zoom + 'x';
   render();
+}
+
+// ============================================================
+// Wave Definitions
+// ============================================================
+const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss'];
+// Custom waves for this level: [{ entries: [{enemyType, count, spawnDelay, waveDelay}] }]
+// Empty list = the level uses the game's built-in waves.
+let waves = [];
+
+function updateWavesSummary() {
+  document.getElementById('wavesSummary').textContent =
+    waves.length ? `${waves.length} custom wave${waves.length > 1 ? 's' : ''}` : 'default';
+}
+
+function openWavesDialog() {
+  renderWavesDialog();
+  document.getElementById('wavesOverlay').style.display = 'flex';
+}
+
+function closeWavesDialog() {
+  document.getElementById('wavesOverlay').style.display = 'none';
+}
+
+function renderWavesDialog() {
+  const list = document.getElementById('wavesList');
+  if (!waves.length) {
+    list.innerHTML = '<p class="waves-hint">No custom waves — this level will use the game\'s default waves.</p>';
+    return;
+  }
+  list.innerHTML = waves.map((wave, wi) => `
+    <div class="wave-card">
+      <div class="wave-card-head">
+        <strong>Wave ${wi + 1}</strong>
+        <button class="btn danger small" onclick="removeWave(${wi})">Remove Wave</button>
+      </div>
+      ${wave.entries.map((entry, ei) => `
+        <div class="wave-entry">
+          <select onchange="setWaveEntry(${wi}, ${ei}, 'enemyType', this.value)">
+            ${ENEMY_TYPES.map(t => `<option value="${t}"${t === entry.enemyType ? ' selected' : ''}>${t}</option>`).join('')}
+          </select>
+          <label>count <input type="number" min="1" value="${entry.count}" onchange="setWaveEntry(${wi}, ${ei}, 'count', this.value)"></label>
+          <label>spawn ms <input type="number" min="0" value="${entry.spawnDelay}" onchange="setWaveEntry(${wi}, ${ei}, 'spawnDelay', this.value)"></label>
+          <label>wave ms <input type="number" min="0" value="${entry.waveDelay}" onchange="setWaveEntry(${wi}, ${ei}, 'waveDelay', this.value)"></label>
+          <button class="entry-remove" title="Remove entry" onclick="removeWaveEntry(${wi}, ${ei})">&times;</button>
+        </div>`).join('')}
+      <button class="btn secondary small" onclick="addWaveEntry(${wi})">+ Entry</button>
+    </div>`).join('');
+}
+
+function addWave() {
+  waves.push({ entries: [{ enemyType: 'basic', count: 10, spawnDelay: 500, waveDelay: 0 }] });
+  renderWavesDialog();
+}
+
+function removeWave(wi) {
+  waves.splice(wi, 1);
+  renderWavesDialog();
+}
+
+function addWaveEntry(wi) {
+  waves[wi].entries.push({ enemyType: 'basic', count: 5, spawnDelay: 500, waveDelay: 0 });
+  renderWavesDialog();
+}
+
+function removeWaveEntry(wi, ei) {
+  waves[wi].entries.splice(ei, 1);
+  renderWavesDialog();
+}
+
+function setWaveEntry(wi, ei, field, value) {
+  const entry = waves[wi].entries[ei];
+  if (field === 'enemyType') {
+    entry.enemyType = ENEMY_TYPES.includes(value) ? value : 'basic';
+  } else {
+    const min = field === 'count' ? 1 : 0;
+    const n = Math.floor(Number(value));
+    entry[field] = Number.isFinite(n) && n >= min ? n : min;
+  }
+}
+
+function clearWaves() {
+  waves = [];
+  renderWavesDialog();
+}
+
+function saveWaves() {
+  // Drop empty waves and invalid entries
+  waves = waves
+    .map(w => ({ entries: w.entries.filter(e => e.count >= 1) }))
+    .filter(w => w.entries.length > 0);
+  updateWavesSummary();
+  closeWavesDialog();
+}
+
+// Validate/import wave data from a level JSON (returns [] when unusable)
+function normalizeWaves(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(w => w && Array.isArray(w.entries))
+    .map(w => ({
+      entries: w.entries
+        .filter(e => e && ENEMY_TYPES.includes(e.enemyType) && Number(e.count) >= 1)
+        .map(e => ({
+          enemyType: e.enemyType,
+          count: Math.floor(Number(e.count)),
+          spawnDelay: Math.max(0, Math.floor(Number(e.spawnDelay) || 0)),
+          waveDelay: Math.max(0, Math.floor(Number(e.waveDelay) || 0)),
+        })),
+    }))
+    .filter(w => w.entries.length > 0);
 }
 
 // ============================================================
@@ -588,10 +829,13 @@ function exportJSON() {
     description: '',
     width: gridWidth,
     height: gridHeight,
-    tileSize: 16,
     tileset: currentTileset,
-    tiles: grid,
     bgTiles: bgGrid,
+    areas: areas,
+    difficulty: difficulty,
+    ...(waves.length > 0 && {
+      waves: waves.map((w, i) => ({ waveNumber: i + 1, entries: w.entries })),
+    }),
     path: pathPoints,
     spawnPoints: spawnPoints,
     basePoints: basePoints,
@@ -625,7 +869,7 @@ function handleFileImport(e) {
       const data = JSON.parse(event.target.result);
       gridWidth = data.width;
       gridHeight = data.height;
-      grid = data.tiles;
+      // Legacy 'tiles' (foreground) are ignored — only backgrounds are kept
       bgGrid = data.bgTiles || [];
       
       // Initialize bgGrid if not provided
@@ -635,6 +879,19 @@ function handleFileImport(e) {
           bgGrid.push(new Array(gridWidth * 2).fill(-1));
         }
       }
+
+      // Load area overlay (fall back to an empty layer)
+      areas = (Array.isArray(data.areas) && data.areas.length === gridHeight)
+        ? data.areas.map(row => row.map(a => ['tree', 'wall', 'roof'].includes(a) ? a : 'none'))
+        : makeAreas(gridWidth, gridHeight);
+
+      // Load difficulty (unknown values fall back to easy)
+      difficulty = ['easy', 'medium', 'hard'].includes(data.difficulty) ? data.difficulty : 'easy';
+      document.getElementById('difficulty').value = difficulty;
+
+      // Load custom wave definitions (invalid data falls back to defaults)
+      waves = normalizeWaves(data.waves);
+      updateWavesSummary();
       
       pathPoints = data.path || [];
       spawnPoints = data.spawnPoints || [];

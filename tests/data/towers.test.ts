@@ -2,7 +2,8 @@
 // Tests for the extended tower roster and store/loadout rules.
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { TOWER_DEFINITIONS, TOWER_LIST, TOWER_UPGRADES } from '../../src/data/towers';
+import { Tower } from '../../src/entities/Tower';
+import { TOWER_DEFINITIONS, TOWER_LIST, TOWER_UPGRADES, MAX_TOWER_LEVEL } from '../../src/data/towers';
 import { TOWER_SPRITE_FRAMES } from '../../src/entities/Tower';
 import type { TowerType } from '../../src/types';
 
@@ -43,9 +44,25 @@ describe('tower roster', () => {
     }
   });
 
-  it('defines upgrade multipliers for all towers', () => {
-    expect(TOWER_UPGRADES).toHaveLength(3);
-    expect(TOWER_UPGRADES[2].damageMultiplier).toBeGreaterThan(1);
+  it('defines 5 upgrade levels with growing multipliers', () => {
+    expect(TOWER_UPGRADES).toHaveLength(5);
+    expect(TOWER_UPGRADES[4].level).toBe(5);
+    expect(TOWER_UPGRADES[4].damageMultiplier).toBeGreaterThan(TOWER_UPGRADES[3].damageMultiplier);
+    expect(TOWER_UPGRADES[4].damageMultiplier).toBeGreaterThan(TOWER_UPGRADES[2].damageMultiplier);
+    expect(TOWER_UPGRADES[4].fireRateMultiplier).toBeGreaterThan(1);
+    expect(MAX_TOWER_LEVEL).toBe(5);
+  });
+
+  it('starts weak and grows across all 5 levels', () => {
+    const tower = new Tower('arrow', 0, 0);
+    const base = { damage: tower.damage, fireRate: tower.fireRate, range: tower.range };
+    let upgrades = 0;
+    while (tower.upgrade()) upgrades++;
+    expect(upgrades).toBe(4); // 1 -> 5
+    expect(tower.level).toBe(5);
+    expect(tower.damage).toBeGreaterThan(base.damage * 3);
+    expect(tower.fireRate).toBeGreaterThan(base.fireRate);
+    expect(tower.range).toBeGreaterThan(base.range);
   });
 
   it('splits free vs store towers', () => {

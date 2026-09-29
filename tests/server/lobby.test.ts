@@ -78,7 +78,7 @@ class TestClient {
     });
   }
 
-  async authenticate(username: string): Promise<string> {
+  async authenticate(username: string, loadout: string[] = ['arrow', 'cannon', 'frost']): Promise<string> {
     await this.open();
     const res = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
       method: 'POST',
@@ -86,7 +86,7 @@ class TestClient {
       body: JSON.stringify({ username, password: 'secret123' }),
     });
     const { token } = (await res.json()) as { token: string };
-    this.send({ type: 'auth', token, towerColor: '#4CAF50' });
+    this.send({ type: 'auth', token, towerColor: '#4CAF50', loadout });
     const ok = await this.wait((m) => m.type === 'auth-ok' || m.type === 'error');
     if (ok.type !== 'auth-ok') throw new Error('auth failed: ' + JSON.stringify(ok));
     return token;
@@ -110,7 +110,7 @@ describe('lobby', () => {
   it('rejects invalid tokens', async () => {
     const client = new TestClient();
     await client.open();
-    client.send({ type: 'auth', token: 'bogus', towerColor: '#4CAF50' });
+    client.send({ type: 'auth', token: 'bogus', towerColor: '#4CAF50', loadout: [] });
     const err = await client.wait((m) => m.type === 'error');
     expect(err.type).toBe('error');
     client.close();
@@ -135,18 +135,25 @@ describe('lobby', () => {
   it('second player joins with the room code', async () => {
     const host = new TestClient();
     const guest = new TestClient();
-    await host.authenticate('host2');
-    await guest.authenticate('guest2');
+    // Each player picks their OWN loadout
+    await host.authenticate('host2', ['arrow', 'sniper', 'frost']);
+    await guest.authenticate('guest2', ['cannon', 'tesla', 'mortar']);
 
     host.send({ type: 'host', levelId: 1 });
     const roomMsg = await host.wait((m) => m.type === 'room');
     if (roomMsg.type !== 'room') throw new Error('no room');
     const code = roomMsg.room.code;
+    expect(roomMsg.room.players[0].loadout).toEqual(['arrow', 'sniper', 'frost']);
 
     guest.send({ type: 'join', code });
     const joined = await guest.wait((m) => m.type === 'room');
     if (joined.type !== 'room') throw new Error('join failed');
     expect(joined.room.players).toHaveLength(2);
+
+    // Every player keeps their own loadout in the room state
+    const byUser = new Map(joined.room.players.map((p) => [p.username, p.loadout]));
+    expect(byUser.get('host2')).toEqual(['arrow', 'sniper', 'frost']);
+    expect(byUser.get('guest2')).toEqual(['cannon', 'tesla', 'mortar']);
 
     // Host also sees the updated room
     const hostUpdate = await host.wait(
