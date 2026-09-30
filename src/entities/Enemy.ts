@@ -53,6 +53,10 @@ export class Enemy {
   private pulseTimer: number = 0;
   /** Visibility pulse tween for invisible enemies (phantoms). */
   private invisibilityTween: Phaser.Tweens.Tween | null = null;
+  /** Hit impact: knockback offset (eases back to 0) + stagger timer. */
+  private impactOffset = { x: 0, y: 0 };
+  private impactTween: Phaser.Tweens.Tween | null = null;
+  private staggerMs = 0;
   /** Last movement delta (set by refresh() during multiplayer sync). */
   private netFacing: { dx: number; dy: number } | null = null;
 
@@ -122,6 +126,28 @@ export class Enemy {
   }
 
   /**
+   * A hit pushes the enemy around: knockback along the hit direction
+   * that eases back onto the path, plus a short stagger that slows its
+   * movement — so the impact the hit makes is visible.
+   */
+  applyImpact(dirX: number, dirY: number, strength: number = 6): void {
+    const len = Math.hypot(dirX, dirY);
+    if (len > 0.001 && this.scene && this.sprite) {
+      this.impactTween?.stop();
+      this.impactOffset.x = (dirX / len) * strength;
+      this.impactOffset.y = (dirY / len) * strength;
+      this.impactTween = this.scene.tweens.add({
+        targets: this.impactOffset,
+        x: 0,
+        y: 0,
+        duration: 240,
+        ease: 'Power2.out',
+      });
+    }
+    this.staggerMs = Math.max(this.staggerMs, 180);
+  }
+
+  /**
    * Update enemy position along the path.
    */
   update(deltaMs: number): boolean {
@@ -138,7 +164,13 @@ export class Enemy {
     }
 
     const target = this.path[this.pathIndex];
-    const reached = this.position.moveToward(target.x, target.y, this.speed, deltaMs / 1000);
+    // A recent hit staggers movement briefly so the impact reads
+    let moveSpeed = this.speed;
+    if (this.staggerMs > 0) {
+      this.staggerMs = Math.max(0, this.staggerMs - deltaMs);
+      moveSpeed *= 0.25;
+    }
+    const reached = this.position.moveToward(target.x, target.y, moveSpeed, deltaMs / 1000);
 
     if (reached) {
       this.pathIndex++;
@@ -160,8 +192,10 @@ export class Enemy {
   }
 
   private updateVisuals(): void {
+    const vx = this.position.x + this.impactOffset.x;
+    const vy = this.position.y + this.impactOffset.y;
     if (this.sprite) {
-      this.sprite.setPosition(this.position.x, this.position.y);
+      this.sprite.setPosition(vx, vy);
 
       // Play correct animation based on movement direction.
       // Multiplayer guests face the direction of network movement;
@@ -197,16 +231,16 @@ export class Enemy {
 
     if (this.healthBarBg) {
       this.healthBarBg.setPosition(
-        this.position.x,
-        this.position.y - this.data.size - 6,
+        vx,
+        vy - this.data.size - 6,
       );
     }
 
     if (this.healthBar) {
       const hpPercent = this.health.getHealthPercent();
       this.healthBar.setPosition(
-        this.position.x - this.data.size,
-        this.position.y - this.data.size - 6,
+        vx - this.data.size,
+        vy - this.data.size - 6,
       );
       this.healthBar.setSize(this.data.size * 2 * hpPercent, 4);
 
@@ -251,6 +285,11 @@ export class Enemy {
     // The pulse tween repeats forever — stop it or it outlives the sprite
     this.invisibilityTween?.stop();
     this.invisibilityTween = null;
+    this.impactTween?.stop();
+    this.impactTween = null;
+    this.impactOffset.x = 0;
+    this.impactOffset.y = 0;
+    this.staggerMs = 0;
     this.sprite?.destroy();
     this.healthBar?.destroy();
     this.healthBarBg?.destroy();
@@ -275,6 +314,11 @@ export class Enemy {
     this.reachedBase = false;
     this.pulseTimer = 0;
     this.invisibilityTween = null;
+    this.impactTween?.stop();
+    this.impactTween = null;
+    this.impactOffset.x = 0;
+    this.impactOffset.y = 0;
+    this.staggerMs = 0;
     this.netFacing = null;
   }
 }

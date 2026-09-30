@@ -1280,6 +1280,9 @@ export class GameScene extends Phaser.Scene {
     this.createBloodSplatter(dir.x, dir.y, primaryTarget.position, primaryTarget.data.size, 0);
 
     const dmg = proj.damage;
+    // The hit shoves the enemy back along the flight direction —
+    // harder hits push further
+    primaryTarget.applyImpact(dir.x, dir.y, 4 + Math.min(8, dmg.baseDamage / 10));
     const killed = this.healthSystem.applyDamage(
       { id: primaryTarget.id, position: primaryTarget.position, health: primaryTarget.health },
       dmg.baseDamage,
@@ -1297,6 +1300,17 @@ export class GameScene extends Phaser.Scene {
           && !(e.data.immuneTo && e.data.immuneTo.includes(proj.getTowerType()))
           && canDamageEnemy(proj.getTowerType(), proj.towerLevel, e.data))
         .map(e => ({ id: e.id, position: e.position, health: e.health }));
+      // The blast knocks everyone in the radius away from the impact
+      for (const n of nearbyEnemies) {
+        const victim = this.enemies.find(e => e.id === n.id);
+        if (victim) {
+          victim.applyImpact(
+            n.position.x - primaryTarget.position.x,
+            n.position.y - primaryTarget.position.y,
+            3 + Math.min(6, dmg.baseDamage / 14),
+          );
+        }
+      }
       const splashKilled = this.healthSystem.applySplashDamage(
         primaryTarget.position.x, primaryTarget.position.y, dmg.splashRadius, dmg.baseDamage * 0.5, nearbyEnemies,
       );
@@ -1342,9 +1356,11 @@ export class GameScene extends Phaser.Scene {
       const formPool = (poolX: number, poolY: number) => {
         if (!particle.active) return;
 
-        // Instant: snap straight out of the drip into the pool
+        // Instant: snap straight out of the drip into the pool, on the
+        // ground layer (depth 0 — under walls, tiles and everything else)
         const poolSX = 1.35 + Math.random() * 0.45;
         const poolSY = 0.55 + Math.random() * 0.15;
+        particle.setDepth(0);
         particle.setPosition(poolX, poolY);
         particle.rotation = 0;
         particle.setScale(poolSX, poolSY);
@@ -1370,7 +1386,7 @@ export class GameScene extends Phaser.Scene {
             0xcc0000,
             particle.alpha,
           );
-          drop.setDepth(11);
+          drop.setDepth(0);
           drop.rotation = Math.atan2(endY - startY, endX - startX);
           drop.setScale(1.5 + Math.random() * 0.6, 0.7 + Math.random() * 0.15);
           this.tweens.add({
@@ -1424,6 +1440,40 @@ export class GameScene extends Phaser.Scene {
         const run = 10 + Math.random() * 26;
         dripDown(y + run, run, () => {
           if (particle.active) formPool(x, y + run);
+        });
+        return;
+      }
+
+      // Small particles hitting an object skip the drip/pool entirely —
+      // they leave a scatter of speckles on its face that dry in place
+      if (particle.radius < 3) {
+        const dots: Phaser.GameObjects.Arc[] = [];
+        const speckCount = 2 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < speckCount; i++) {
+          const dot = this.add.circle(
+            x + (Math.random() - 0.5) * 10,
+            y + (Math.random() - 0.5) * 10,
+            1 + Math.random() * 0.6,
+            0xcc0000,
+            particle.alpha,
+          );
+          dot.setDepth(11); // on the object's face, under enemies (14)
+          dots.push(dot);
+        }
+        this.time.delayedCall(300, () => {
+          dry();
+          for (const dot of dots) {
+            if (!dot.active) continue;
+            dot.setFillStyle(0x4a0000, 0.8);
+            this.tweens.add({
+              targets: dot,
+              alpha: 0,
+              duration: fadeMs * (0.6 + Math.random() * 0.4),
+              onComplete: () => {
+                if (dot.active) dot.destroy();
+              },
+            });
+          }
         });
         return;
       }
