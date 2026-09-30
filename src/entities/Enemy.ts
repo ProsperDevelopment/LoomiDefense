@@ -83,7 +83,7 @@ export class Enemy {
     // Create animated sprite
     const sprite = scene.add.sprite(this.position.x, this.position.y, spriteInfo.key, 0);
     sprite.play(spriteInfo.anim);
-    sprite.setDepth(0); // ground layer — blood, tiles and towers draw over it
+    sprite.setDepth(10); 
     this.sprite = sprite;
 
     // Health bar background
@@ -145,6 +145,32 @@ export class Enemy {
       });
     }
     this.staggerMs = Math.max(this.staggerMs, 180);
+  }
+
+  /** Stop the phantom visibility pulse (death animations take over). */
+  stopInvisibilityPulse(): void {
+    this.invisibilityTween?.stop();
+    this.invisibilityTween = null;
+  }
+
+  /**
+   * Unit direction the enemy is travelling right now — the way its
+   * corpse keeps gliding when it dies (falls back to the last network
+   * movement, then straight right).
+   */
+  currentDirection(): { x: number; y: number } {
+    const target = this.path[this.pathIndex];
+    if (target) {
+      const dx = target.x - this.position.x;
+      const dy = target.y - this.position.y;
+      const len = Math.hypot(dx, dy);
+      if (len > 0.01) return { x: dx / len, y: dy / len };
+    }
+    if (this.netFacing) {
+      const len = Math.hypot(this.netFacing.dx, this.netFacing.dy);
+      if (len > 0.01) return { x: this.netFacing.dx / len, y: this.netFacing.dy / len };
+    }
+    return { x: 1, y: 0 };
   }
 
   /**

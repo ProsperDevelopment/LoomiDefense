@@ -1202,6 +1202,11 @@ export class GameScene extends Phaser.Scene {
 
   private removeEnemy(enemy: Enemy, index?: number): void {
     enemy.destroy();
+    this.detachEnemy(enemy, index);
+  }
+
+  /** Drop the enemy from the live list without touching its sprite. */
+  private detachEnemy(enemy: Enemy, index?: number): void {
     if (index !== undefined) {
       this.enemies.splice(index, 1);
     } else {
@@ -1696,16 +1701,486 @@ export class GameScene extends Phaser.Scene {
     const reward = enemy.data.reward;
     const { x, y } = enemy.position;
     this.createDeathEffect(x, y, enemy.data.color);
-    // The sprite bursts into shards alongside the blood splatter
-    this.explodeEnemySprite(enemy);
-    // Remove BEFORE notifying: wave completion checks the live enemy list
-    this.removeEnemy(enemy);
+
+    // Detach from the list immediately (wave completion checks it) —
+    // each death variant owns the corpse sprite from here on
+    this.detachEnemy(enemy);
+    enemy.healthBar?.setVisible(false);
+    enemy.healthBarBg?.setVisible(false);
+
+    // Three death animations, picked at random: bleed out, tip over
+    // and explode, or the plain sprite burst
+    const roll = Math.random();
+    if (roll < 1 / 3) {
+      this.deathBleedOut(enemy);
+    } else if (roll < 2 / 3) {
+      this.deathTipOver(enemy);
+    } else {
+      this.explodeEnemySprite(enemy);
+      enemy.destroy();
+    }
+
     eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x, y, ownerId: ownerId ?? undefined });
   }
 
   private onEnemyKilledById(id: string, ownerId?: string | null): void {
     const enemy = this.enemies.find(e => e.id === id && e.alive);
     if (enemy) this.onEnemyKilled(enemy, ownerId);
+  }
+
+  /**
+   * Death variant: the corpse slides a little off the road, shrinks in
+   * height, then bleeds out — blood drips from its center into a pool
+   * that dries like every other splatter.
+   */
+  /**
+   * Solid thing a dying corpse's glide bumps into here — anything that
+   * isn't ground: tree/wall cells, towers and other enemies — as an
+   * obstacle center to bounce off, or null when the way is clear.
+   */
+  private glideObstacleAt(x: number, y: number, selfSize: number): { cx: number; cy: number } | null {
+    const { col, row } = this.grid.worldToBgGrid(x, y);
+    const area = this.grid.getArea(col, row);
+    if (area === 'tree' || area === 'wall') {
+      const cell = this.grid.bgToWorld(col, row);
+      return { cx: cell.x, cy: cell.y };
+    }
+    for (const t of this.towers) {
+      if (Math.hypot(t.position.x - x, t.position.y - y) < CELL_SIZE * 0.5 + selfSize * 0.4) {
+        return { cx: t.position.x, cy: t.position.y };
+      }
+    }
+    for (const e of this.enemies) {
+      if (!e.alive || e.isDead()) continue;
+      if (Math.hypot(e.position.x - x, e.position.y - y) < e.data.size + selfSize * 0.5) {
+        return { cx: e.position.x, cy: e.position.y };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Once the corpse has glided to rest, running enemies shove it around:
+   * contact pushes it away, the skid bounces off anything that isn't
+   * ground, and friction brings it to a stop. Stops when the fade begins.
+   */
+  private enableCorpsePush(enemy: Enemy, sprite: Phaser.GameObjects.Image): void {
+    const size = enemy.data.size;
+    const vel = { x: 0, y: 0 };
+    let stopping = false;
+
+    const event = this.time.addEvent({
+      delay: 16,
+      loop: true,
+      callback: () => {
+        if (stopping || !sprite.active) {
+          event.remove();
+          return;
+        }
+
+        // Running enemies shove the corpse out of their way
+        for (const e of this.enemies) {
+          if (!e.alive || e.isDead()) continue;
+          const dx = sprite.x - e.position.x;
+          const dy = sprite.y - e.position.y;
+          const dist = Math.hypot(dx, dy);
+          const reach = e.data.size + size * 0.5;
+          if (dist < reach && dist > 0.01) {
+            const nx = dx / dist;
+            const ny = dy / dist;
+            const depth = Math.min(reach - dist, 3);
+            sprite.x += nx * depth;
+            sprite.y += ny * depth;
+            vel.x += nx * depth * 0.7;
+            vel.y += ny * depth * 0.7;
+          }
+        }
+
+        // Cap the skid speed, then move — bouncing off non-ground objects
+        const speed = Math.hypot(vel.x, vel.y);
+        if (speed > 4) {
+          vel.x = (vel.x / speed) * 4;
+          vel.y = (vel.y / speed) * 4;
+        }
+        if (Math.hypot(vel.x, vel.y) > 0.02) {
+          const nx = sprite.x + vel.x;
+          const ny = sprite.y + vel.y;
+          const obstacle = this.glideObstacleAt(nx, ny, size);
+          if (obstacle) {
+            // Reflect off the surface with a little damping
+            const ox = nx - obstacle.cx;
+            const oy = ny - obstacle.cy;
+            const ol = Math.hypot(ox, oy) || 1;
+            const nX = ox / ol;
+            const nY = oy / ol;
+            const dot = vel.x * nX + vel.y * nY;
+            vel.x = (vel.x - 2 * dot * nX) * 0.7;
+            vel.y = (vel.y - 2 * dot * nY) * 0.7;
+          } else {
+            sprite.x = nx;
+            sprite.y = ny;
+          }
+          // Friction — the skid dies out on its own
+          vel.x *= 0.9;
+          vel.y *= 0.9;
+        }
+      },
+    });
+
+    // Rigs stop the moment the corpse starts fading (pool spread = 1400ms)
+    this.time.delayedCall(1450, () => {
+      stopping = true;
+    });
+  }
+
+  /**
+   * March forward along dir for up to `distance` px, reflecting off
+   * trees, walls and other enemies — the polyline a dying corpse glides.
+   */
+  private buildGlidePath(
+    startX: number,
+    startY: number,
+    dir: { x: number; y: number },
+    distance: number,
+    selfSize: number,
+  ): { x: number; y: number }[] {
+    const pts = [{ x: startX, y: startY }];
+    let px = startX;
+    let py = startY;
+    let dx = dir.x;
+    let dy = dir.y;
+    let remaining = distance;
+    const step = 3;
+    let bounces = 0;
+
+    while (remaining > 0 && bounces <= 3) {
+      let traveled = 0;
+      let obstacle: { cx: number; cy: number } | null = null;
+      while (traveled < remaining) {
+        const nx = px + dx * step;
+        const ny = py + dy * step;
+        obstacle = this.glideObstacleAt(nx, ny, selfSize);
+        if (obstacle) break;
+        px = nx;
+        py = ny;
+        traveled += step;
+      }
+      remaining -= traveled;
+      if (obstacle && remaining > 6) {
+        pts.push({ x: px, y: py });
+        // Reflect off the surface that points back at us
+        const nx = px - obstacle.cx;
+        const ny = py - obstacle.cy;
+        const nl = Math.hypot(nx, ny) || 1;
+        const nX = nx / nl;
+        const nY = ny / nl;
+        const dot = dx * nX + dy * nY;
+        dx = dx - 2 * dot * nX;
+        dy = dy - 2 * dot * nY;
+        // Hop past the obstacle so the next step doesn't re-hit it
+        px += dx * step * 2;
+        py += dy * step * 2;
+        remaining -= step * 2;
+        bounces++;
+      } else {
+        px += dx * remaining;
+        py += dy * remaining;
+        remaining = 0;
+      }
+    }
+    const end = { x: px, y: py };
+    const last = pts[pts.length - 1];
+    if (Math.hypot(end.x - last.x, end.y - last.y) > 1) pts.push(end);
+    return pts;
+  }
+
+  private deathBleedOut(enemy: Enemy): void {
+    const sprite = enemy.sprite;
+    if (!sprite || !sprite.active) {
+      enemy.destroy();
+      return;
+    }
+    enemy.stopInvisibilityPulse();
+    // Above the blood (11) and its pools (11 -> 0) for the whole death,
+    // so the corpse always lies on top of its own bleed pool
+    sprite.setDepth(12);
+
+    // Glide on in the direction it was travelling when shot — bouncing
+    // off trees, walls and other enemies — flipping as it goes
+    const startDir = enemy.currentDirection();
+    const jitter = (Math.random() - 0.5) * 0.3;
+    const cosJ = Math.cos(jitter);
+    const sinJ = Math.sin(jitter);
+    const dir = {
+      x: startDir.x * cosJ - startDir.y * sinJ,
+      y: startDir.x * sinJ + startDir.y * cosJ,
+    };
+    const slide = 40 + Math.random() * 30;
+    const flip = (Math.random() < 0.5 ? -1 : 1) * (4 + Math.random() * 6);
+    const slideMs = 700;
+    const pts = this.buildGlidePath(sprite.x, sprite.y, dir, slide, enemy.data.size);
+
+    // Arc-length position along the (possibly bouncing) path at t (0..1)
+    const segLens: number[] = [];
+    let totalLen = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const l = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      segLens.push(l);
+      totalLen += l;
+    }
+    const glidePath = (t: number): { x: number; y: number } => {
+      let dist = t * totalLen;
+      for (let i = 0; i < segLens.length; i++) {
+        if (dist <= segLens[i] || i === segLens.length - 1) {
+          const u = segLens[i] > 0 ? Math.min(dist / segLens[i], 1) : 0;
+          return {
+            x: pts[i].x + (pts[i + 1].x - pts[i].x) * u,
+            y: pts[i].y + (pts[i + 1].y - pts[i].y) * u,
+          };
+        }
+        dist -= segLens[i];
+      }
+      return pts[pts.length - 1];
+    };
+
+    // Bleed from the very start: the full pattern flies out of the
+    // corpse while it is still gliding (frames slow as it goes)
+    this.createBloodSplatter(dir.x, dir.y, new Position(sprite.x, sprite.y), enemy.data.size, 1);
+
+    // Small splatter spurts out of the sprite the whole time it dies
+    const spurtCount = 5 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < spurtCount; i++) {
+      this.time.delayedCall(i * 120 + Math.random() * 60, () => {
+        if (sprite.active) this.bloodSpurt(sprite.x, sprite.y);
+      });
+    }
+
+    // Blood dots mark the drag along the glide path — scheduled at the
+    // wall-clock time the eased glide actually reaches each point
+    const timeAt = (t: number): number => slideMs * (1 - Math.pow(1 - t, 1 / 5)); // inverse of Power4.out
+    const traceCount = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < traceCount; i++) {
+      const t = (i + 1) / (traceCount + 1);
+      this.time.delayedCall(timeAt(t), () => {
+        const pt = glidePath(t);
+        const dot = this.add.circle(
+          pt.x + (Math.random() - 0.5) * 4,
+          pt.y + (Math.random() - 0.5) * 4,
+          1.5 + Math.random() * 1.5,
+          0xcc0000,
+          0.85,
+        );
+        dot.setDepth(11);
+        // Dry like the rest of the blood
+        this.time.delayedCall(400, () => {
+          if (!dot.active) return;
+          dot.setDepth(0);
+          dot.setFillStyle(0x4a0000, 0.8);
+          this.tweens.add({
+            targets: dot,
+            alpha: 0,
+            duration: 5000,
+            onComplete: () => {
+              if (dot.active) dot.destroy();
+            },
+          });
+        });
+      });
+    }
+
+    // One continuous glide that slows down more and more as it goes:
+    // eased progress mapped along the two-leg (veering) path
+    const prog = { t: 0 };
+
+    // The walk-cycle tiles slow down in step with the glide...
+    if (sprite.anims.isPlaying) {
+      this.tweens.add({
+        targets: sprite.anims,
+        timeScale: 0,
+        duration: slideMs,
+        ease: 'Power4.out',
+      });
+    }
+
+    this.tweens.add({
+      targets: prog,
+      t: 1,
+      duration: slideMs,
+      ease: 'Power4.out', // slows down fast — visibly at rest well before the fade
+      onUpdate: () => {
+        if (!sprite.active) return;
+        const pt = glidePath(prog.t);
+        sprite.setPosition(pt.x, pt.y);
+        sprite.angle = flip * prog.t;
+      },
+      onComplete: () => {
+        if (!sprite.active) {
+          enemy.destroy();
+          return;
+        }
+        // The animation has stopped: after lying still for a second it
+        // bleeds into a blood pool — no splatter, just drips and a pool
+        sprite.anims.stop();
+        this.time.delayedCall(1000, () => {
+          if (sprite.active) {
+            this.bleedOutPool(sprite.x, sprite.y, enemy.data.size);
+          }
+        });
+        // From here running enemies can shove the corpse around
+        this.enableCorpsePush(enemy, sprite);
+        // The corpse fades out alongside the blood — the same
+        // 5s fade, starting as the pool begins to dry
+        this.tweens.add({
+          targets: sprite,
+          alpha: 0,
+          duration: 5000,
+          delay: 2400, // still second (1000) + pool spread (1400)
+          onComplete: () => enemy.destroy(),
+        });
+      },
+    });
+  }
+
+  /** Small spurt of blood spraying out from the dying sprite. */
+  private bloodSpurt(x: number, y: number): void {
+    const count = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 6 + Math.random() * 14;
+      const dot = this.add.circle(x, y, 1.2 + Math.random() * 1.2, 0xcc0000, 0.95);
+      dot.setDepth(11);
+      dot.rotation = angle;
+      this.tweens.add({
+        targets: dot,
+        x: x + Math.cos(angle) * dist,
+        y: y + Math.sin(angle) * dist,
+        scaleX: 1.8,
+        scaleY: 0.65,
+        alpha: 0.5,
+        duration: 180 + Math.random() * 140,
+        ease: 'Power2.out',
+        onComplete: () => {
+          if (!dot.active) return;
+          dot.setDepth(0);
+          dot.setFillStyle(0x4a0000, 0.8);
+          this.tweens.add({
+            targets: dot,
+            alpha: 0,
+            duration: 4000,
+            onComplete: () => {
+              if (dot.active) dot.destroy();
+            },
+          });
+        },
+      });
+    }
+  }
+
+
+  /** Blood drips out from under the corpse into a spreading pool that dries. */
+  private bleedOutPool(x: number, y: number, corpseSize: number): void {
+    const poolY = y + corpseSize * 0.5;
+    const pool = this.add.circle(x, poolY, 10 + Math.random() * 6, 0xcc0000, 1);
+    pool.setDepth(11);
+    pool.setScale(0.1);
+
+    // Drips fall from the corpse's center into the pool
+    const dripCount = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < dripCount; i++) {
+      this.time.delayedCall(i * 130 + Math.random() * 90, () => {
+        if (!pool.active) return;
+        const drip = this.add.circle(
+          x + (Math.random() - 0.5) * 8,
+          y,
+          1.5 + Math.random() * 0.8,
+          0xcc0000,
+          0.9,
+        );
+        drip.setDepth(11);
+        this.tweens.add({
+          targets: drip,
+          y: poolY,
+          duration: 160 + Math.random() * 140,
+          ease: 'Power1.in',
+          onComplete: () => {
+            if (drip.active) drip.destroy();
+          },
+        });
+      });
+    }
+
+    // The pool spreads into the familiar oval, then dries like blood
+    this.tweens.add({
+      targets: pool,
+      scaleX: 1.4 + Math.random() * 0.4,
+      scaleY: 0.55 + Math.random() * 0.15,
+      duration: 1400,
+      ease: 'Power2.out',
+      onComplete: () => {
+        if (!pool.active) return;
+        pool.setDepth(0);
+        pool.setFillStyle(0x4a0000, 0.8);
+        this.tweens.add({
+          targets: pool,
+          alpha: 0,
+          duration: 5000,
+          onComplete: () => {
+            if (pool.active) pool.destroy();
+          },
+        });
+      },
+    });
+  }
+
+  /**
+   * Death variant: the corpse slides off the road, tips over ~100
+   * degrees, then explodes and splatters like the usual death.
+   */
+  private deathTipOver(enemy: Enemy): void {
+    const sprite = enemy.sprite;
+    if (!sprite || !sprite.active) {
+      enemy.destroy();
+      return;
+    }
+    enemy.stopInvisibilityPulse();
+
+    const dir = Math.random() * Math.PI * 2;
+    const slide = 8 + Math.random() * 10;
+    const fall = (Math.random() < 0.5 ? -1 : 1) * (75 + Math.random() * 70); // random way and angle
+
+    // 1. slide a bit off the road
+    this.tweens.add({
+      targets: sprite,
+      x: sprite.x + Math.cos(dir) * slide,
+      y: sprite.y + Math.sin(dir) * slide,
+      duration: 280,
+      ease: 'Power1.out',
+      onComplete: () => {
+        if (!sprite.active) {
+          enemy.destroy();
+          return;
+        }
+        // 2. tip over
+        this.tweens.add({
+          targets: sprite,
+          angle: fall,
+          duration: 180,
+          ease: 'Power1.in',
+          onComplete: () => {
+            if (!sprite.active) {
+              enemy.destroy();
+              return;
+            }
+            // 3. explode and splatter like the usual death
+            this.createBloodSplatter(
+              0, 1, new Position(sprite.x, sprite.y), enemy.data.size, 3,
+            );
+            this.explodeEnemySprite(enemy);
+            enemy.destroy();
+          },
+        });
+      },
+    });
   }
 
   /**
@@ -1726,8 +2201,9 @@ export class GameScene extends Phaser.Scene {
     const ph = Math.max(2, Math.floor(src.height / ROWS));
     const dispScaleX = sprite.displayWidth / src.width;
     const dispScaleY = sprite.displayHeight / src.height;
-    const left = sprite.x - sprite.displayWidth / 2;
-    const top = sprite.y - sprite.displayHeight / 2;
+    const rot = sprite.rotation; // tipped-over corpses burst from their pose
+    const cosR = Math.cos(rot);
+    const sinR = Math.sin(rot);
     const alpha = Math.max(sprite.alpha, 0.5); // phantoms still show their burst
 
     for (let gy = 0; gy < ROWS; gy++) {
@@ -1741,12 +2217,15 @@ export class GameScene extends Phaser.Scene {
           tex.add(shardName, src.sourceIndex, sx, sy, w, h);
         }
 
+        const ox = (gx * pw + w / 2) * dispScaleX - sprite.displayWidth / 2;
+        const oy = (gy * ph + h / 2) * dispScaleY - sprite.displayHeight / 2;
         const piece = this.add.image(
-          left + (gx * pw + w / 2) * dispScaleX,
-          top + (gy * ph + h / 2) * dispScaleY,
+          sprite.x + ox * cosR - oy * sinR,
+          sprite.y + ox * sinR + oy * cosR,
           sprite.texture.key,
           shardName,
         );
+        piece.rotation = rot;
         piece.setDepth(16); // above blood (11) and projectiles (15)
         piece.setAlpha(alpha);
 
@@ -1770,7 +2249,7 @@ export class GameScene extends Phaser.Scene {
           targets: piece,
           x: piece.x + dirX * dist,
           y: piece.y + dirY * dist + 8 + Math.random() * 14,
-          angle: (Math.random() - 0.5) * 720,
+          angle: piece.angle + (Math.random() - 0.5) * 720,
           duration,
           ease: 'Power2.out',
           onComplete: () => {
