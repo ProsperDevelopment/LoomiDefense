@@ -22,6 +22,7 @@ import { lobby } from '../ui/overlay/lobbyScreen';
 import type { NetSnapshot, NetCommand, NetStatus } from '../../shared/protocol';
 import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN, livesForDifficulty } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
+import { bindGameAudio } from '../audio/GameAudio';
 import { isWaveResolved } from '../utils/waveCompletion';
 import { canDamageEnemy } from '../utils/damageRules';
 
@@ -346,6 +347,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupEvents(): void {
+    // Gameplay sounds ride the same event bus
+    bindGameAudio(this);
     eventBus.on('enemy-killed', (p) => {
       // Kill rewards go to the owner of the tower that landed the kill
       this.addGold(p.ownerId ?? this.myPlayerId(), p.reward);
@@ -1288,9 +1291,8 @@ export class GameScene extends Phaser.Scene {
     this.createBloodSplatter(dir.x, dir.y, primaryTarget.position, primaryTarget.data.size, 0);
 
     const dmg = proj.damage;
-    // The hit shoves the enemy back along the flight direction —
-    // harder hits push further
-    primaryTarget.applyImpact(dir.x, dir.y, 4 + Math.min(8, dmg.baseDamage / 10));
+    // The hit staggers the enemy briefly
+    primaryTarget.applyImpact();
     const killed = this.healthSystem.applyDamage(
       { id: primaryTarget.id, position: primaryTarget.position, health: primaryTarget.health },
       dmg.baseDamage,
@@ -1308,16 +1310,10 @@ export class GameScene extends Phaser.Scene {
           && !(e.data.immuneTo && e.data.immuneTo.includes(proj.getTowerType()))
           && canDamageEnemy(proj.getTowerType(), proj.towerLevel, e.data))
         .map(e => ({ id: e.id, position: e.position, health: e.health }));
-      // The blast knocks everyone in the radius away from the impact
+      // The blast staggers everyone in the radius
       for (const n of nearbyEnemies) {
         const victim = this.enemies.find(e => e.id === n.id);
-        if (victim) {
-          victim.applyImpact(
-            n.position.x - primaryTarget.position.x,
-            n.position.y - primaryTarget.position.y,
-            3 + Math.min(6, dmg.baseDamage / 14),
-          );
-        }
+        if (victim) victim.applyImpact();
       }
       const splashKilled = this.healthSystem.applySplashDamage(
         primaryTarget.position.x, primaryTarget.position.y, dmg.splashRadius, dmg.baseDamage * 0.5, nearbyEnemies,
