@@ -8,6 +8,7 @@ import { userProfile, onProfile } from '../../state/UserProfile';
 import { showLobbyPanel } from './lobbyScreen';
 import { ApiError } from '../../api/client';
 import { TOWER_DEFINITIONS } from '../../data/towers';
+import { isSfxMuted, setSfxMuted } from '../../audio/GameAudio';
 import type { UserSearchResult, StoreCatalogItem } from '../../../shared/protocol';
 
 // ------------------------------------------------------------
@@ -427,8 +428,12 @@ export function buildTopbar(): void {
   const loadoutBtn = button0('Loadout', () => showLoadoutPanel());
   const lobbyBtn = button0('Multiplayer', () => showLobbyPanel());
   const authBtn = button0('Log In', () => showAuthPanel());
+  const soundBtn = button0(isSfxMuted() ? 'Sound: Off' : 'Sound: On', () => {
+    setSfxMuted(!isSfxMuted());
+    soundBtn.textContent = isSfxMuted() ? 'Sound: Off' : 'Sound: On';
+  });
 
-  bar.append(who, coins, spacer, loadoutBtn, storeBtn, friendsBtn, lobbyBtn, profileBtn, authBtn);
+  bar.append(who, coins, spacer, loadoutBtn, storeBtn, friendsBtn, lobbyBtn, profileBtn, soundBtn, authBtn);
   root.appendChild(bar);
 
   const refresh = () => refreshTopbar();

@@ -39,6 +39,23 @@ export class BootScene extends Phaser.Scene {
     // Background tiles are loaded on demand per level (only the tiles the
     // level actually uses) — see GameScene.drawBackgroundTiles.
 
+    // Sound effects (Ninja Adventure pack, CC0)
+    this.load.audio('sfx_slash', 'assets/audio/Slash.wav');      // arrow shot
+    this.load.audio('sfx_slash2', 'assets/audio/Slash2.wav');    // sniper shot
+    this.load.audio('sfx_impact', 'assets/audio/Impact.wav');    // cannon shot / base hit
+    this.load.audio('sfx_magic', 'assets/audio/Magic1.wav');     // frost shot
+    this.load.audio('sfx_fireball', 'assets/audio/Fireball.wav');// mortar shot
+    this.load.audio('sfx_fx', 'assets/audio/Fx.wav');            // tesla shot
+    this.load.audio('sfx_hit1', 'assets/audio/Hit1.wav');        // enemy death
+    this.load.audio('sfx_hit5', 'assets/audio/Hit5.wav');        // enemy death
+    this.load.audio('sfx_hit9', 'assets/audio/Hit9.wav');        // enemy death
+    this.load.audio('sfx_build', 'assets/audio/PowerUp1.wav');   // tower placed
+    this.load.audio('sfx_upgrade', 'assets/audio/PowerUp2.wav'); // tower upgraded
+    this.load.audio('sfx_coin', 'assets/audio/Coin.wav');        // tower sold
+    this.load.audio('sfx_wave', 'assets/audio/Bonus.wav');       // wave started
+    this.load.audio('sfx_success', 'assets/audio/Success1.wav'); // victory jingle
+    this.load.audio('sfx_gameover', 'assets/audio/GameOver.wav');// defeat jingle
+
     // Load Ninja Adventure tower tileset (768x192 after 200% resize, 12 columns x 3 rows, 64x64 tiles)
     // Each tower has 3 consecutive frames: normal, damaged1, damaged2
     this.load.spritesheet('towers_tileset', 'assets/images/towers/towers_tileset.png', {

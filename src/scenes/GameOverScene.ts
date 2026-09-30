@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { MAP_DEFINITIONS } from '../data/maps';
 import { userProfile, onProfile } from '../state/UserProfile';
 import { COINS_PER_LEVEL_WIN } from '../config/constants';
+import { playSfx } from '../audio/GameAudio';
 
 interface GameOverData {
   victory: boolean;
@@ -27,6 +28,10 @@ export class GameOverScene extends Phaser.Scene {
 
     const isVictory = data.victory;
     const titleColor = isVictory ? '#4CAF50' : '#e74c3c';
+
+    // Victory/defeat jingle
+    playSfx(this, isVictory ? 'sfx_success' : 'sfx_gameover', { volume: 0.6 });
+
     const titleText = isVictory ? 'VICTORY!' : 'DEFEAT';
     const levelId = data.levelId || 1;
 
