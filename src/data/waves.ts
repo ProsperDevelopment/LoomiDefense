@@ -38,6 +38,7 @@ export const WAVE_DEFINITIONS: WaveData[] = [
     waveNumber: 6,
     entries: [
       { enemyType: 'fast', count: 10, spawnDelay: 400, waveDelay: 0 },
+      { enemyType: 'sprinter', count: 5, spawnDelay: 350, waveDelay: 4000 },
       { enemyType: 'armored', count: 4, spawnDelay: 1500, waveDelay: 2000 },
     ],
   },
@@ -54,6 +55,7 @@ export const WAVE_DEFINITIONS: WaveData[] = [
     entries: [
       { enemyType: 'basic', count: 15, spawnDelay: 500, waveDelay: 0 },
       { enemyType: 'fast', count: 12, spawnDelay: 350, waveDelay: 3000 },
+      { enemyType: 'brute', count: 2, spawnDelay: 2500, waveDelay: 5000 },
       { enemyType: 'armored', count: 5, spawnDelay: 1500, waveDelay: 7000 },
     ],
   },
@@ -61,6 +63,8 @@ export const WAVE_DEFINITIONS: WaveData[] = [
     waveNumber: 9,
     entries: [
       { enemyType: 'armored', count: 10, spawnDelay: 1000, waveDelay: 0 },
+      { enemyType: 'brute', count: 3, spawnDelay: 2500, waveDelay: 3000 },
+      { enemyType: 'phantom', count: 3, spawnDelay: 1500, waveDelay: 6000 },
       { enemyType: 'fast', count: 15, spawnDelay: 300, waveDelay: 4000 },
     ],
   },
@@ -69,6 +73,8 @@ export const WAVE_DEFINITIONS: WaveData[] = [
     entries: [
       { enemyType: 'basic', count: 20, spawnDelay: 400, waveDelay: 0 },
       { enemyType: 'fast', count: 15, spawnDelay: 300, waveDelay: 3000 },
+      { enemyType: 'sprinter', count: 8, spawnDelay: 300, waveDelay: 2000 },
+      { enemyType: 'phantom', count: 5, spawnDelay: 1200, waveDelay: 5000 },
       { enemyType: 'armored', count: 8, spawnDelay: 1200, waveDelay: 6000 },
     ],
   },

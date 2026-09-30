@@ -17,6 +17,9 @@ const ENEMY_SPRITES: Record<EnemyType, { key: string; anim: string }> = {
   tank: { key: 'enemy_beast', anim: 'beast_walk' },
   elite: { key: 'enemy_cyclops', anim: 'cyclops_walk' },
   boss: { key: 'enemy_dragon', anim: 'dragon_walk' },
+  brute: { key: 'enemy_beast', anim: 'beast_walk' },
+  sprinter: { key: 'enemy_snake', anim: 'snake_walk' },
+  phantom: { key: 'enemy_dragon', anim: 'dragon_walk' },
 };
 
 /**
@@ -97,6 +100,21 @@ export class Enemy {
     );
     this.healthBar.setOrigin(0, 0.5);
     this.healthBar.setDepth(12);
+
+    // Invisible enemies (Phantoms) start half transparent and animate
+    // down to fully invisible — blood splatter from hits is the only
+    // giveaway of their position once they're gone
+    if (this.data.invisible) {
+      sprite.setAlpha(0.5);
+      scene.tweens.add({
+        targets: sprite,
+        alpha: 0,
+        duration: 2000,
+        ease: 'Linear',
+      });
+      this.healthBarBg.setVisible(false);
+      this.healthBar.setVisible(false);
+    }
   }
 
   /**

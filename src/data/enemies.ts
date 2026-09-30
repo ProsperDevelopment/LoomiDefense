@@ -89,6 +89,39 @@ export const ENEMY_DEFINITIONS: Record<string, EnemyData> = {
     color: '#cc2244',
     size: 28,
   },
+  // Special types
+  brute: {
+    type: 'brute',
+    name: 'Brute',
+    hp: 500,
+    speed: 30,
+    armor: 8,
+    reward: 35,
+    color: '#556b7f',
+    size: 24,
+    immuneTo: ['frost'],
+  },
+  sprinter: {
+    type: 'sprinter',
+    name: 'Sprinter',
+    hp: 40,
+    speed: 170,
+    armor: 0,
+    reward: 15,
+    color: '#e0b030',
+    size: 14,
+  },
+  phantom: {
+    type: 'phantom',
+    name: 'Phantom',
+    hp: 150,
+    speed: 85,
+    armor: 0,
+    reward: 40,
+    color: '#7755cc',
+    size: 16,
+    invisible: true,
+  },
 };
 
 export const ENEMY_LIST = Object.values(ENEMY_DEFINITIONS);

@@ -36,9 +36,6 @@ export class BootScene extends Phaser.Scene {
       loadingText.destroy();
     });
 
-    // Generate terrain tiles programmatically
-    this.generateTerrainTiles();
-
     // Background tiles are loaded on demand per level (only the tiles the
     // level actually uses) — see GameScene.drawBackgroundTiles.
 
@@ -162,107 +159,6 @@ export class BootScene extends Phaser.Scene {
       this.scene.start('GameScene', { levelId: startLevel });
     } else {
       this.scene.start('MenuScene');
-    }
-  }
-
-  private generateTerrainTiles(): void {
-    const s = 48;
-
-    // Helper to draw grass texture
-    const drawGrass = (ctx: CanvasRenderingContext2D) => {
-      ctx.fillStyle = '#AaCc2e';
-      ctx.fillRect(0, 0, s, s);
-      ctx.fillStyle = '#A5C63e';
-      for (let i = 0; i < 15; i++) {
-        ctx.fillRect(Math.random() * s, Math.random() * s, 2, 4);
-      }
-      ctx.fillStyle = '#8aBc1e';
-      for (let i = 0; i < 8; i++) {
-        ctx.fillRect(Math.random() * s, Math.random() * s, 3, 2);
-      }
-    };
-
-    // Helper to draw stone road
-    const drawStoneRoad = (ctx: CanvasRenderingContext2D) => {
-      ctx.fillStyle = '#6b6b6b';
-      ctx.fillRect(0, 0, s, s);
-      ctx.fillStyle = '#7a7a7a';
-      ctx.fillRect(2, 2, 20, 20);
-      ctx.fillRect(26, 2, 20, 20);
-      ctx.fillRect(14, 26, 20, 20);
-      ctx.fillStyle = '#5a5a5a';
-      ctx.fillRect(0, 22, s, 2);
-      ctx.fillRect(22, 0, 2, 22);
-      ctx.fillRect(2, 24, 2, 24);
-      ctx.fillRect(24, 24, 2, 24);
-      ctx.fillStyle = '#8a8a8a';
-      ctx.fillRect(4, 4, 4, 2);
-      ctx.fillRect(28, 4, 4, 2);
-    };
-
-    // Generate each tile as separate texture
-    const tiles: { key: string; draw: (ctx: CanvasRenderingContext2D) => void }[] = [
-      { key: 'tile_grass', draw: drawGrass },
-      { key: 'tile_stone_v', draw: drawStoneRoad },
-      { key: 'tile_stone_h', draw: (ctx) => {
-        ctx.save();
-        ctx.translate(s, 0);
-        ctx.rotate(Math.PI / 2);
-        drawStoneRoad(ctx);
-        ctx.restore();
-      }},
-      { key: 'tile_stone_cross', draw: drawStoneRoad },
-      { key: 'tile_trans_tl', draw: (ctx) => {
-        drawGrass(ctx);
-        ctx.fillStyle = '#6b6b6b';
-        ctx.beginPath();
-        ctx.moveTo(s, 0);
-        ctx.lineTo(s, s);
-        ctx.lineTo(0, s);
-        ctx.closePath();
-        ctx.fill();
-      }},
-      { key: 'tile_trans_tr', draw: (ctx) => {
-        drawGrass(ctx);
-        ctx.fillStyle = '#6b6b6b';
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(0, s);
-        ctx.lineTo(s, s);
-        ctx.closePath();
-        ctx.fill();
-      }},
-      { key: 'tile_trans_bl', draw: (ctx) => {
-        drawGrass(ctx);
-        ctx.fillStyle = '#6b6b6b';
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(s, 0);
-        ctx.lineTo(s, s);
-        ctx.closePath();
-        ctx.fill();
-      }},
-      { key: 'tile_trans_br', draw: (ctx) => {
-        drawGrass(ctx);
-        ctx.fillStyle = '#6b6b6b';
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(s, 0);
-        ctx.lineTo(0, s);
-        ctx.closePath();
-        ctx.fill();
-      }},
-    ];
-
-    for (const tile of tiles) {
-      const canvas = document.createElement('canvas');
-      canvas.width = s;
-      canvas.height = s;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) continue;
-      ctx.clearRect(0, 0, s, s);
-      tile.draw(ctx);
-      this.textures.addCanvas(tile.key, canvas);
     }
   }
 

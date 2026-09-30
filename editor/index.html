@@ -34,6 +34,13 @@
   .tile-palette img:hover { border-color: #e94560; }
   .tile-palette img.selected { border-color: #FFD700; background: rgba(255,215,0,0.2); }
   
+  /* Selection and stamp styles */
+  .stamp-list { max-height: 150px; overflow-y: auto; margin: 8px 0; }
+  .stamp-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; margin: 2px 0; background: #2a2a4e; border-radius: 4px; }
+  .stamp-item button { margin-left: 4px; padding: 2px 8px; font-size: 10px; }
+  .stamp-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #16213e; padding: 20px; border-radius: 8px; border: 2px solid #e94560; z-index: 1000; width: 300px; }
+  .stamp-dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 999; }
+  
   /* Tile palette tabs (tilesets) */
   .palette-tabs { display: flex; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
   .palette-tab { flex: 1; padding: 5px; min-width: 42px; background: #2a2a4e; border: 1px solid #4a4a6a; color: #aaa; border-radius: 4px; cursor: pointer; font-size: 11px; text-align: center; }
@@ -73,6 +80,14 @@
   .waves-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
   .waves-actions .spacer { flex: 1; }
   .btn.small { padding: 5px 10px; font-size: 11px; }
+  
+  /* Stamp and selection styles */
+  .stamp-list { max-height: 150px; overflow-y: auto; margin: 8px 0; }
+  .stamp-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; margin: 2px 0; background: #2a2a4e; border-radius: 4px; }
+  .stamp-item button { margin-left: 4px; padding: 2px 8px; font-size: 10px; }
+  .stamp-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #16213e; padding: 20px; border-radius: 8px; border: 2px solid #e94560; z-index: 1000; width: 300px; }
+  .stamp-dialog-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 999; }
+  .selection-overlay { position: absolute; border: 2px dashed #FFD700; background: rgba(255,215,0,0.15); pointer-events: none; }
 </style>
 </head>
 <body>
@@ -113,6 +128,12 @@
     <button class="tool-btn" data-tool="deleteFg" onclick="setTool('deleteFg')">Delete Foreground</button>
     <button class="tool-btn" data-tool="spawn" onclick="setTool('spawn')">Place Spawn</button>
     <button class="tool-btn" data-tool="base" onclick="setTool('base')">Place Base</button>
+    <button class="tool-btn" data-tool="select" onclick="setTool('select')">Select Area</button>
+    <button class="tool-btn" data-tool="stamp" onclick="setTool('stamp')">Stamp Set</button>
+    
+    <h3>Saved Stamps</h3>
+    <div class="stamp-list" id="stampList"></div>
+    <button class="btn" onclick="saveSelection()" id="saveStampBtn" disabled>Save Selection as Stamp</button>
 
     <h3>Area Type</h3>
     <select id="areaType" onchange="setAreaType(this.value)">
@@ -123,10 +144,10 @@
     </select>
 
     <h3>Colors</h3>
-    <label>Grass:</label>
-    <input type="color" id="grassColor" value="#8a8c4e" onchange="updateGrassColor()">
-    <label>Grass Dark:</label>
-    <input type="color" id="grassColorDark" value="#9a9c5e" onchange="updateGrassColorDark()">
+    <label>Ground:</label>
+    <input type="color" id="groundColor" value="#8a8c4e" onchange="updateGroundColor()">
+    <label>Ground Dark:</label>
+    <input type="color" id="groundColorDark" value="#9a9c5e" onchange="updateGroundColorDark()">
     <label>Road:</label>
     <input type="color" id="roadColor" value="#7a7a7a" onchange="updateRoadColor()">
     <label>Road Dark:</label>
@@ -188,6 +209,28 @@
   </div>
 </div>
 
+<!-- Stamp dialog for naming saved sets -->
+<div class="stamp-dialog-overlay" id="stampDialogOverlay" style="display:none" onclick="closeStampDialog()">
+  <div class="stamp-dialog" onclick="event.stopPropagation()">
+    <h3 style="margin-bottom:10px">Save Stamp</h3>
+    <div style="margin-bottom:10px">
+      <label>Stamp Name:</label>
+      <input type="text" id="stampName" placeholder="Enter stamp name" style="width:100%;margin-top:4px">
+    </div>
+    <div style="margin-bottom:10px">
+      <label>Width: <span id="stampWidth">0</span> cells</label>
+      <label style="margin-left:10px">Height: <span id="stampHeight">0</span> cells</label>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn secondary" onclick="closeStampDialog()">Cancel</button>
+      <button class="btn" onclick="confirmSaveStamp()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Selection overlay (will be positioned by JS) -->
+<div class="selection-overlay" id="selectionOverlay" style="display:none"></div>
+
 <script>
 // ============================================================
 // State
@@ -225,8 +268,15 @@ let tileImages = {};
 let zoom = 3;
 let isMouseDown = false;
 let lastCell = null;
-let grassColor = '#8a8c4e';
-let grassColorDark = '#9a9c5e';
+let groundColor = '#8a8c4e';
+
+// Selection and stamp state
+let selectionStart = null; // {x, y} in bg-cell coords
+let selectionEnd = null;   // {x, y} in bg-cell coords
+let savedStamps = [];      // [{name, w, h, bgTiles, areas, fgAreas}]
+let currentStamp = null;   // The stamp being placed
+let stampPreviewPos = null; // {x, y} where stamp preview is shown
+let groundColorDark = '#9a9c5e';
 let roadColor = '#7a7a7a';
 let roadColorDark = '#4a4a4a';
 
@@ -340,6 +390,19 @@ function resizeGrid() {
 // Tools
 // ============================================================
 function setTool(tool) {
+  // Clear selection when switching away from select tool
+  if (currentTool === 'select' && tool !== 'select') {
+    selectionStart = null;
+    selectionEnd = null;
+    updateSelection();
+  }
+  
+  // Clear stamp when switching away from stamp tool
+  if (currentTool === 'stamp' && tool !== 'stamp') {
+    currentStamp = null;
+    stampPreviewPos = null;
+  }
+  
   currentTool = tool;
   document.querySelectorAll('.tool-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tool === tool);
@@ -369,7 +432,10 @@ function toolLabel() {
     : currentTool === 'paintFg' ? 'Paint Foreground'
     : currentTool === 'deleteFg' ? 'Delete Foreground'
     : currentTool === 'spawn' ? 'Place Spawn'
-    : 'Place Base';
+    : currentTool === 'base' ? 'Place Base'
+    : currentTool === 'select' ? 'Select Area'
+    : currentTool === 'stamp' ? 'Place Stamp'
+    : 'Unknown Tool';
 }
 
 // ============================================================
@@ -488,9 +554,9 @@ function updatePreview() {
   }
 }
 
-function updateGrassColor() {
-  grassColor = document.getElementById('grassColor').value;
-  document.getElementById('status').textContent = `Grass color updated to ${grassColor}`;
+function updateGroundColor() {
+  groundColor = document.getElementById('groundColor').value;
+  document.getElementById('status').textContent = `Ground color updated to ${groundColor}`;
   render();
 }
 
@@ -500,9 +566,9 @@ function updateRoadColor() {
   render();
 }
 
-function updateGrassColorDark() {
-  grassColorDark = document.getElementById('grassColorDark').value;
-  document.getElementById('status').textContent = `Grass dark color updated to ${grassColorDark}`;
+function updateGroundColorDark() {
+  groundColorDark = document.getElementById('groundColorDark').value;
+  document.getElementById('status').textContent = `Ground dark color updated to ${groundColorDark}`;
   render();
 }
 
@@ -539,8 +605,8 @@ function render() {
         const offsetY = (bgTileSize - 16) / 2;
         ctx.drawImage(tileImages[tileIdx], px + offsetX, py + offsetY);
       } else {
-        // Default grass
-        ctx.fillStyle = (x + y) % 2 === 0 ? grassColorDark : grassColor;
+        // Default ground
+        ctx.fillStyle = (x + y) % 2 === 0 ? groundColorDark : groundColor;
         ctx.fillRect(px, py, bgTileSize, bgTileSize);
       }
     }
@@ -672,6 +738,51 @@ function render() {
       ctx.stroke();
     }
   }
+  
+  // Draw selection overlay if in select mode
+  if (currentTool === 'select' && selectionStart && selectionEnd) {
+    const bounds = getSelectionBounds();
+    if (bounds) {
+      ctx.strokeStyle = '#FFD700';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(
+        bounds.x * bgTileSize, 
+        bounds.y * bgTileSize, 
+        bounds.w * bgTileSize, 
+        bounds.h * bgTileSize
+      );
+      ctx.setLineDash([]);
+      
+      ctx.fillStyle = 'rgba(255, 215, 0, 0.15)';
+      ctx.fillRect(
+        bounds.x * bgTileSize, 
+        bounds.y * bgTileSize, 
+        bounds.w * bgTileSize, 
+        bounds.h * bgTileSize
+      );
+    }
+  }
+  
+  // Draw stamp preview if placing a stamp
+  if (currentTool === 'stamp' && currentStamp && stampPreviewPos) {
+    ctx.globalAlpha = 0.6;
+    for (let dy = 0; dy < currentStamp.h; dy++) {
+      for (let dx = 0; dx < currentStamp.w; dx++) {
+        const gridY = stampPreviewPos.y + dy;
+        const gridX = stampPreviewPos.x + dx;
+        if (gridY >= 0 && gridY < gridHeight * 2 && gridX >= 0 && gridX < gridWidth * 2) {
+          const tileIdx = currentStamp.bgTiles[dy]?.[dx];
+          if (tileIdx >= 0 && tileImages[tileIdx]) {
+            const px = gridX * bgTileSize;
+            const py = gridY * bgTileSize;
+            ctx.drawImage(tileImages[tileIdx], px, py, bgTileSize, bgTileSize);
+          }
+        }
+      }
+    }
+    ctx.globalAlpha = 1.0;
+  }
 }
 
 // ============================================================
@@ -682,10 +793,52 @@ function setupInput() {
   
   canvas.addEventListener('mousedown', (e) => {
     isMouseDown = true;
+    
+    // Handle stamp placement
+    if (currentTool === 'stamp' && currentStamp) {
+      const bgCell = getBgCell(e);
+      if (bgCell) {
+        placeStamp(bgCell.x, bgCell.y);
+      }
+      return;
+    }
+    
+    // Handle selection start
+    if (currentTool === 'select') {
+      const bgCell = getBgCell(e);
+      if (bgCell) {
+        selectionStart = { x: bgCell.x, y: bgCell.y };
+        selectionEnd = { x: bgCell.x, y: bgCell.y };
+        document.getElementById('saveStampBtn').disabled = false;
+      }
+      return;
+    }
+    
     handleCell(e);
   });
   
   canvas.addEventListener('mousemove', (e) => {
+    // Update stamp preview position
+    if (currentTool === 'stamp' && currentStamp) {
+      const bgCell = getBgCell(e);
+      if (bgCell) {
+        stampPreviewPos = { x: bgCell.x, y: bgCell.y };
+        render();
+      }
+      return;
+    }
+    
+    // Update selection
+    if (currentTool === 'select' && isMouseDown && selectionStart) {
+      const bgCell = getBgCell(e);
+      if (bgCell) {
+        selectionEnd = { x: bgCell.x, y: bgCell.y };
+        updateSelection();
+        render();
+      }
+      return;
+    }
+    
     if (currentTool === 'paintBg' || currentTool === 'eraseBg' || currentTool === 'paintFg' || currentTool === 'deleteFg' || currentTool === 'area') {
       const bgCell = getBgCell(e);
       if (bgCell) {
@@ -708,8 +861,22 @@ function setupInput() {
     }
   });
   
-  canvas.addEventListener('mouseup', () => { isMouseDown = false; lastCell = null; });
-  canvas.addEventListener('mouseleave', () => { isMouseDown = false; lastCell = null; });
+  canvas.addEventListener('mouseup', () => { 
+    isMouseDown = false; 
+    lastCell = null; 
+    
+    // If we were selecting, keep the selection visible
+    if (currentTool === 'select' && selectionStart && selectionEnd) {
+      // Selection stays visible
+    }
+  });
+  
+  canvas.addEventListener('mouseleave', () => { 
+    isMouseDown = false; 
+    lastCell = null; 
+    stampPreviewPos = null;
+    render();
+  });
   
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
@@ -724,6 +891,8 @@ function setupInput() {
       case '7': setTool('area'); break;
       case '8': setTool('paintFg'); break;
       case '9': setTool('deleteFg'); break;
+      case '0': setTool('select'); break;
+      case 's': setTool('stamp'); break;
     }
   });
 }
@@ -819,6 +988,226 @@ function removePathPoint(x, y) {
 }
 
 // ============================================================
+// Selection and Stamp System
+// ============================================================
+
+function updateSelection() {
+  const overlay = document.getElementById('selectionOverlay');
+  if (selectionStart && selectionEnd && currentTool === 'select') {
+    const canvas = document.getElementById('editorCanvas');
+    const rect = canvas.getBoundingClientRect();
+    const bgTileSize = 8 * zoom;
+    
+    const x1 = Math.min(selectionStart.x, selectionEnd.x);
+    const y1 = Math.min(selectionStart.y, selectionEnd.y);
+    const x2 = Math.max(selectionStart.x, selectionEnd.x);
+    const y2 = Math.max(selectionStart.y, selectionEnd.y);
+    
+    const width = x2 - x1 + 1;
+    const height = y2 - y1 + 1;
+    
+    overlay.style.display = 'block';
+    overlay.style.left = (rect.left + x1 * bgTileSize) + 'px';
+    overlay.style.top = (rect.top + y1 * bgTileSize) + 'px';
+    overlay.style.width = (width * bgTileSize) + 'px';
+    overlay.style.height = (height * bgTileSize) + 'px';
+  } else {
+    overlay.style.display = 'none';
+  }
+}
+
+function getSelectionBounds() {
+  if (!selectionStart || !selectionEnd) return null;
+  const x1 = Math.min(selectionStart.x, selectionEnd.x);
+  const y1 = Math.min(selectionStart.y, selectionEnd.y);
+  const x2 = Math.max(selectionStart.x, selectionEnd.x);
+  const y2 = Math.max(selectionStart.y, selectionEnd.y);
+  return { x: x1, y: y1, w: x2 - x1 + 1, h: y2 - y1 + 1 };
+}
+
+function captureSelection() {
+  const bounds = getSelectionBounds();
+  if (!bounds) return null;
+  
+  const { x, y, w, h } = bounds;
+  const bgTiles = [];
+  const areaTiles = [];
+  const fgTiles = [];
+  
+  // Capture all layers within the selection bounds
+  for (let dy = 0; dy < h; dy++) {
+    const bgRow = [];
+    const areaRow = [];
+    const fgRow = [];
+    for (let dx = 0; dx < w; dx++) {
+      bgRow.push(bgGrid[y + dy]?.[x + dx] ?? -1);
+      areaRow.push(areas[y + dy]?.[x + dx] ?? 'none');
+      fgRow.push(fgAreas[y + dy]?.[x + dx] ?? 'none');
+    }
+    bgTiles.push(bgRow);
+    areaTiles.push(areaRow);
+    fgTiles.push(fgRow);
+  }
+  
+  return {
+    name: '',
+    w,
+    h,
+    bgTiles,
+    areas: areaTiles,
+    fgAreas: fgTiles,
+    path: pathPoints.filter(p => 
+      p.x >= Math.floor(x/2) && p.x <= Math.floor((x+w-1)/2) &&
+      p.y >= Math.floor(y/2) && p.y <= Math.floor((y+h-1)/2)
+    ).map(p => ({x: p.x - Math.floor(x/2), y: p.y - Math.floor(y/2)})),
+    spawnPoints: spawnPoints.filter(p =>
+      p.x >= Math.floor(x/2) && p.x <= Math.floor((x+w-1)/2) &&
+      p.y >= Math.floor(y/2) && p.y <= Math.floor((y+h-1)/2)
+    ).map(p => ({x: p.x - Math.floor(x/2), y: p.y - Math.floor(y/2)})),
+    basePoints: basePoints.filter(p =>
+      p.x >= Math.floor(x/2) && p.x <= Math.floor((x+w-1)/2) &&
+      p.y >= Math.floor(y/2) && p.y <= Math.floor((y+h-1)/2)
+    ).map(p => ({x: p.x - Math.floor(x/2), y: p.y - Math.floor(y/2)}))
+  };
+}
+
+function saveSelection() {
+  const stamp = captureSelection();
+  if (!stamp) return;
+  
+  // Show the save dialog
+  document.getElementById('stampDialogOverlay').style.display = 'block';
+  document.getElementById('stampWidth').textContent = stamp.w;
+  document.getElementById('stampHeight').textContent = stamp.h;
+  document.getElementById('stampName').value = '';
+  document.getElementById('stampName').focus();
+  
+  // Store temporarily
+  window._tempStamp = stamp;
+}
+
+function closeStampDialog() {
+  document.getElementById('stampDialogOverlay').style.display = 'none';
+  window._tempStamp = null;
+}
+
+function confirmSaveStamp() {
+  const stamp = window._tempStamp;
+  if (!stamp) return;
+  
+  const name = document.getElementById('stampName').value.trim();
+  if (!name) {
+    alert('Please enter a name for the stamp');
+    return;
+  }
+  
+  stamp.name = name;
+  savedStamps.push(stamp);
+  saveStampsToStorage();
+  renderStampList();
+  closeStampDialog();
+  
+  document.getElementById('status').textContent = `Saved stamp "${name}" (${stamp.w}x${stamp.h})`;
+}
+
+function deleteStamp(index) {
+  const name = savedStamps[index].name;
+  savedStamps.splice(index, 1);
+  saveStampsToStorage();
+  renderStampList();
+  document.getElementById('status').textContent = `Deleted stamp "${name}"`;
+}
+
+function selectStamp(index) {
+  currentStamp = savedStamps[index];
+  setTool('stamp');
+  document.getElementById('status').textContent = `Placing stamp "${currentStamp.name}" - click to place`;
+}
+
+function placeStamp(x, y) {
+  if (!currentStamp) return;
+  
+  // Place all layers from the stamp
+  for (let dy = 0; dy < currentStamp.h; dy++) {
+    for (let dx = 0; dx < currentStamp.w; dx++) {
+      const gridY = y + dy;
+      const gridX = x + dx;
+      if (gridY >= 0 && gridY < gridHeight * 2 && gridX >= 0 && gridX < gridWidth * 2) {
+        if (currentStamp.bgTiles[dy]?.[dx] !== undefined) {
+          bgGrid[gridY][gridX] = currentStamp.bgTiles[dy][dx];
+        }
+        if (currentStamp.areas[dy]?.[dx] !== undefined) {
+          areas[gridY][gridX] = currentStamp.areas[dy][dx];
+        }
+        if (currentStamp.fgAreas[dy]?.[dx] !== undefined) {
+          fgAreas[gridY][gridX] = currentStamp.fgAreas[dy][dx];
+        }
+      }
+    }
+  }
+  
+  // Place path, spawn, and base points (offset by grid position)
+  if (currentStamp.path) {
+    const basePath = Math.floor(x/2);
+    const basePathY = Math.floor(y/2);
+    currentStamp.path.forEach(p => {
+      const newX = basePath + p.x;
+      const newY = basePathY + p.y;
+      if (newX >= 0 && newX < gridWidth && newY >= 0 && newY < gridHeight) {
+        if (!pathPoints.some(pp => pp.x === newX && pp.y === newY)) {
+          pathPoints.push({x: newX, y: newY});
+        }
+      }
+    });
+  }
+  
+  render();
+  document.getElementById('status').textContent = `Placed stamp "${currentStamp.name}"`;
+}
+
+function renderStampList() {
+  const list = document.getElementById('stampList');
+  if (savedStamps.length === 0) {
+    list.innerHTML = '<div style="color:#888;font-size:11px;padding:8px;">No saved stamps yet</div>';
+    return;
+  }
+  
+  list.innerHTML = savedStamps.map((stamp, i) => `
+    <div class="stamp-item">
+      <span style="flex:1;font-size:12px;">${stamp.name} (${stamp.w}x${stamp.h})</span>
+      <span style="font-size:10px;color:#888;margin-right:8px;">${stamp.w}x${stamp.h}</span>
+      <div>
+        <button class="btn secondary small" onclick="selectStamp(${i})" style="margin-right:4px;">Place</button>
+        <button class="btn danger small" onclick="deleteStamp(${i})">×</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function saveStampsToStorage() {
+  try {
+    localStorage.setItem('loomi_editor_stamps', JSON.stringify(savedStamps));
+  } catch (e) {
+    console.warn('Could not save stamps to localStorage:', e);
+  }
+}
+
+function loadStampsFromStorage() {
+  try {
+    const stored = localStorage.getItem('loomi_editor_stamps');
+    if (stored) {
+      savedStamps = JSON.parse(stored);
+      renderStampList();
+    }
+  } catch (e) {
+    console.warn('Could not load stamps from localStorage:', e);
+  }
+}
+
+// Initialize stamps on load
+loadStampsFromStorage();
+
+// ============================================================
 // Zoom
 // ============================================================
 function updateZoom() {
@@ -830,7 +1219,7 @@ function updateZoom() {
 // ============================================================
 // Wave Definitions
 // ============================================================
-const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss'];
+const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss', 'brute', 'sprinter', 'phantom'];
 // Custom waves for this level: [{ entries: [{enemyType, count, spawnDelay, waveDelay}] }]
 // Empty list = the level uses the game's built-in waves.
 let waves = [];
@@ -965,8 +1354,8 @@ function exportJSON() {
     path: pathPoints,
     spawnPoints: spawnPoints,
     basePoints: basePoints,
-    grassColor: colorToNum(grassColor, 0x8a8c4e),
-    grassColorDark: colorToNum(grassColorDark, 0x9a9c5e),
+    groundColor: colorToNum(groundColor, 0x8a8c4e),
+    groundColorDark: colorToNum(groundColorDark, 0x9a9c5e),
     roadColor: colorToNum(roadColor, 0x7a7a7a),
     roadColorDark: colorToNum(roadColorDark, 0x4a4a4a),
   };
@@ -1034,12 +1423,13 @@ function handleFileImport(e) {
         }
         return def;
       };
-      grassColor = toHex(data.grassColor, grassColor);
-      grassColorDark = toHex(data.grassColorDark, grassColorDark);
+      // Legacy exports used `grassColor`
+      groundColor = toHex(data.groundColor ?? data.grassColor, groundColor);
+      groundColorDark = toHex(data.groundColorDark ?? data.grassColorDark, groundColorDark);
       roadColor = toHex(data.roadColor, roadColor);
       roadColorDark = toHex(data.roadColorDark, roadColorDark);
-      document.getElementById('grassColor').value = grassColor;
-      document.getElementById('grassColorDark').value = grassColorDark;
+      document.getElementById('groundColor').value = groundColor;
+      document.getElementById('groundColorDark').value = groundColorDark;
       document.getElementById('roadColor').value = roadColor;
       document.getElementById('roadColorDark').value = roadColorDark;
       

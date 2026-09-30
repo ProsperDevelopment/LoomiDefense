@@ -111,8 +111,9 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
     fgAreas: parseFgAreas(jsonData.fgAreas),
     difficulty: parseDifficulty(jsonData.difficulty),
     waves: parseWaves(jsonData.waves),
-    grassColor: parseColor(jsonData.grassColor),
-    grassColorDark: parseColor(jsonData.grassColorDark),
+    // Legacy exports used `grassColor` — fall back so old files keep their colors
+    groundColor: parseColor(jsonData.groundColor ?? jsonData.grassColor),
+    groundColorDark: parseColor(jsonData.groundColorDark ?? jsonData.grassColorDark),
     roadColor: parseColor(jsonData.roadColor),
     roadColorDark: parseColor(jsonData.roadColorDark),
   };

@@ -10,7 +10,7 @@ A standalone level editor for creating and editing tower defense maps.
 - **Difficulty**: easy / medium / hard — decides starting lives
 - **Draw and erase paths** for enemy movement
 - **Place spawn points** and **base locations**
-- **Level colors** (grass/road) used by the game background
+- **Level colors** (ground/road) used by the game background
 - **Import/Export** levels as JSON
 - **Export** as PNG image
 - **Zoom** and **grid** controls
@@ -133,7 +133,7 @@ The status bar shows the **global tile id** of the selected tile.
   "path": [{"x": 0, "y": 7}, ...],
   "spawnPoints": [{"x": 0, "y": 7}],
   "basePoints": [{"x": 19, "y": 7}],
-  "grassColor": 8948814,
+  "groundColor": 8948814,
   "roadColor": 7829354
 }
 ```

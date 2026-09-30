@@ -28,8 +28,8 @@ for (const map of MAP_DEFINITIONS) {
     basePoints: [{ x: map.basePath[map.basePath.length - 1].x, y: map.basePath[map.basePath.length - 1].y }],
   };
   // Optional color overrides (generated maps fall back to defaults)
-  if (map.grassColor !== undefined) json.grassColor = map.grassColor;
-  if (map.grassColorDark !== undefined) json.grassColorDark = map.grassColorDark;
+  if (map.groundColor !== undefined) json.groundColor = map.groundColor;
+  if (map.groundColorDark !== undefined) json.groundColorDark = map.groundColorDark;
   if (map.roadColor !== undefined) json.roadColor = map.roadColor;
   if (map.roadColorDark !== undefined) json.roadColorDark = map.roadColorDark;
   // Dev demo carries its special waves in the JSON now

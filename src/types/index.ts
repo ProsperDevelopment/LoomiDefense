@@ -39,8 +39,8 @@ export interface MapData {
   fgAreas?: FgAreaType[][]; // Foreground markers (same size as bgTiles, 2x grid)
   difficulty?: Difficulty; // Starting lives come from this (default: easy)
   waves?: WaveData[];    // Custom wave definitions (default: game's built-in waves)
-  grassColor?: number;   // Tint for light grass chessboard squares (0xRRGGBB)
-  grassColorDark?: number;   // Tint for dark grass chessboard squares (0xRRGGBB)
+  groundColor?: number;    // Fill color for light ground chessboard squares (0xRRGGBB)
+  groundColorDark?: number; // Fill color for dark ground chessboard squares (0xRRGGBB)
   roadColor?: number;    // Tint for road fill (0xRRGGBB)
   roadColorDark?: number; // Tint for road outline (0xRRGGBB)
 }
@@ -72,7 +72,8 @@ export interface TowerUpgradeData {
 }
 
 // --- Enemies ---
-export type EnemyType = 'basic' | 'fast' | 'armored' | 'healer' | 'swarm' | 'tank' | 'elite' | 'boss';
+export type EnemyType = 'basic' | 'fast' | 'armored' | 'healer' | 'swarm' | 'tank' | 'elite' | 'boss'
+  | 'brute' | 'sprinter' | 'phantom';
 
 export interface EnemyData {
   type: EnemyType;
@@ -84,6 +85,12 @@ export interface EnemyData {
   color: string;
   size: number;
   immuneTo?: TowerType[];
+  /**
+   * Invisible enemies are never rendered (sprites and health bars hidden).
+   * Only an UPGRADED sniper or archer (level 2+) can damage them —
+   * see canDamageEnemy() in utils/damageRules.ts.
+   */
+  invisible?: boolean;
 }
 
 // --- Waves ---

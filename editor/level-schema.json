@@ -162,13 +162,13 @@
         }
       }
     },
-    "grassColor": {
+    "groundColor": {
       "type": "number",
-      "description": "Tint for light grass chessboard squares (0xRRGGBB)"
+      "description": "Fill color for light ground chessboard squares (0xRRGGBB)"
     },
-    "grassColorDark": {
+    "groundColorDark": {
       "type": "number",
-      "description": "Tint for dark grass chessboard squares (0xRRGGBB)"
+      "description": "Fill color for dark ground chessboard squares (0xRRGGBB)"
     },
     "roadColor": {
       "type": "number",

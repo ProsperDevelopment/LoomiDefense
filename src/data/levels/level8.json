@@ -2597,8 +2597,8 @@
       "y": 11
     }
   ],
-  "grassColor": 13478799,
-  "grassColorDark": 14731660,
+  "groundColor": 13478799,
+  "groundColorDark": 14731660,
   "roadColor": 8933713,
   "roadColorDark": 2367281
 }

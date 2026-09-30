@@ -23,39 +23,7 @@ import type { NetSnapshot, NetCommand, NetStatus } from '../../shared/protocol';
 import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, LEVEL_STARTING_GOLD, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN, livesForDifficulty } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
 import { isWaveResolved } from '../utils/waveCompletion';
-
-/**
- * Terrain tiles - individual textures generated in BootScene
- */
-const TERRAIN_TILES = {
-  GRASS: 'tile_grass',
-  STONE_VERTICAL: 'tile_stone_v',
-  STONE_HORIZONTAL: 'tile_stone_h',
-  STONE_CROSS: 'tile_stone_cross',
-  TRANSITION_TL: 'tile_trans_tl',
-  TRANSITION_TR: 'tile_trans_tr',
-  TRANSITION_BL: 'tile_trans_bl',
-  TRANSITION_BR: 'tile_trans_br',
-};
-
-function getTerrainTileKey(cellType: string, col: number, row: number, grid: Grid): string {
-  if (cellType !== 'path' && cellType !== 'spawn' && cellType !== 'base') {
-    return TERRAIN_TILES.GRASS;
-  }
-
-  const hasLeft = col > 0 && (grid.getCell(col - 1, row) === 'path' || grid.getCell(col - 1, row) === 'spawn' || grid.getCell(col - 1, row) === 'base');
-  const hasRight = col < grid.cols - 1 && (grid.getCell(col + 1, row) === 'path' || grid.getCell(col + 1, row) === 'spawn' || grid.getCell(col + 1, row) === 'base');
-  const hasUp = row > 0 && (grid.getCell(col, row - 1) === 'path' || grid.getCell(col, row - 1) === 'spawn' || grid.getCell(col, row - 1) === 'base');
-  const hasDown = row < grid.rows - 1 && (grid.getCell(col, row + 1) === 'path' || grid.getCell(col, row + 1) === 'spawn' || grid.getCell(col, row + 1) === 'base');
-
-  const horizontal = hasLeft || hasRight;
-  const vertical = hasUp || hasDown;
-
-  if (horizontal && vertical) return TERRAIN_TILES.STONE_CROSS;
-  if (horizontal) return TERRAIN_TILES.STONE_HORIZONTAL;
-  if (vertical) return TERRAIN_TILES.STONE_VERTICAL;
-  return TERRAIN_TILES.STONE_VERTICAL;
-}
+import { canDamageEnemy } from '../utils/damageRules';
 
 export class GameScene extends Phaser.Scene {
   private grid!: Grid;
@@ -668,24 +636,27 @@ export class GameScene extends Phaser.Scene {
   private drawGrid(): void {
     const mapData = this.grid.getMapData();
 
-    // Chessboard grass: light squares use grassColor, dark squares use grassColorDark
-    const grassLight = mapData.grassColor ?? 0x8a8c4e;
-    const grassDark = mapData.grassColorDark ?? 0x9a9c5e;
+    // Chessboard ground: exact colors from the level JSON (levels that
+    // don't specify them fall back to the classic green pair). Solid
+    // fills — a tinted grass texture would tint every color green.
+    const groundLight = mapData.groundColor ?? 0x8a8c4e;
+    const groundDark = mapData.groundColorDark ?? 0x9a9c5e;
     for (let row = 0; row < this.grid.rows; row++) {
       for (let col = 0; col < this.grid.cols; col++) {
         const x = col * CELL_SIZE;
         const y = row * CELL_SIZE + GRID_OFFSET_Y;
         const isDark = (row + col) % 2 === 0;
-        this.add.image(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 'tile_grass')
-          .setDisplaySize(CELL_SIZE, CELL_SIZE)
-          .setTint(isDark ? grassDark : grassLight);
+        this.add.rectangle(
+          x + CELL_SIZE / 2, y + CELL_SIZE / 2, CELL_SIZE, CELL_SIZE,
+          isDark ? groundDark : groundLight,
+        );
       }
     }
 
     // Draw smooth road
     this.drawSmoothRoad(mapData.roadColor, mapData.roadColorDark);
 
-    // Background tiles on top of grass — loaded on demand for this level
+    // Background tiles on top of the ground — loaded on demand for this level
     this.drawBackgroundTiles(mapData);
 
     for (const spawn of this.grid.getSpawnPixels()) {
@@ -1248,8 +1219,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private findTarget(tower: Tower): TargetableEntity | null {
-    // Prioritize selected enemy if in range and alive
-    if (this.selectedEnemy && this.selectedEnemy.alive && !this.selectedEnemy.isDead()) {
+    // Prioritize selected enemy if in range, alive AND damageable
+    // (phantoms ignore everything but upgraded snipers/archers)
+    if (
+      this.selectedEnemy && this.selectedEnemy.alive && !this.selectedEnemy.isDead() &&
+      canDamageEnemy(tower.type, tower.level, this.selectedEnemy.data)
+    ) {
       const dist = tower.position.distanceTo(this.selectedEnemy.position);
       if (dist <= tower.range) {
         return { id: this.selectedEnemy.id, position: this.selectedEnemy.position, health: this.selectedEnemy.health };
@@ -1257,7 +1232,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const enemies = this.enemies
-      .filter(e => e.alive && !e.isDead())
+      .filter(e => e.alive && !e.isDead() && canDamageEnemy(tower.type, tower.level, e.data))
       .map(e => ({ id: e.id, position: e.position, health: e.health }));
     return TargetingSystem.findTarget(tower.position, tower.range, enemies, tower.targetMode);
   }
@@ -1267,6 +1242,7 @@ export class GameScene extends Phaser.Scene {
     const damage = { baseDamage: tower.damage, splashRadius: tower.splashRadius, slowFactor: tower.slowFactor, slowDuration: tower.slowDuration };
     const proj = new Projectile(tower.type, towerPos.x, towerPos.y, damage as any, target.id, Phaser.Display.Color.HexStringToColor(tower.data.color).color);
     proj.ownerId = tower.ownerId;
+    proj.towerLevel = tower.level;
     proj.createSprite(this);
     this.projectiles.push(proj);
     eventBus.emit('projectile-fired', { towerType: tower.type, x: towerPos.x, y: towerPos.y });
@@ -1289,9 +1265,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private applyProjectileDamage(proj: Projectile, primaryTarget: Enemy): void {
-    // Check if enemy is immune to this tower type
-    if (primaryTarget.data.immuneTo && primaryTarget.data.immuneTo.includes(proj.getTowerType())) {
-      // Show immune indicator
+    // Immune to this tower type, or (for phantoms) this tower can't
+    // damage invisible enemies: show the immune indicator instead
+    const immune =
+      (primaryTarget.data.immuneTo && primaryTarget.data.immuneTo.includes(proj.getTowerType())) ||
+      !canDamageEnemy(proj.getTowerType(), proj.towerLevel, primaryTarget.data);
+    if (immune) {
       this.createImmuneIndicator(primaryTarget.position.x, primaryTarget.position.y);
       return;
     }
@@ -1314,7 +1293,9 @@ export class GameScene extends Phaser.Scene {
     }
     if (dmg.splashRadius > 0) {
       const nearbyEnemies = this.enemies
-        .filter(e => e.alive && e !== primaryTarget && !(e.data.immuneTo && e.data.immuneTo.includes(proj.getTowerType())))
+        .filter(e => e.alive && e !== primaryTarget
+          && !(e.data.immuneTo && e.data.immuneTo.includes(proj.getTowerType()))
+          && canDamageEnemy(proj.getTowerType(), proj.towerLevel, e.data))
         .map(e => ({ id: e.id, position: e.position, health: e.health }));
       const splashKilled = this.healthSystem.applySplashDamage(
         primaryTarget.position.x, primaryTarget.position.y, dmg.splashRadius, dmg.baseDamage * 0.5, nearbyEnemies,

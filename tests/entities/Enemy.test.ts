@@ -68,3 +68,29 @@ describe('Enemy', () => {
     expect(e.id).toBe('my_id');
   });
 });
+
+describe('new enemy types', () => {
+  it('defines brute, sprinter and phantom', () => {
+    const brute = new Enemy('brute', simplePath);
+    expect(brute.data.hp).toBeGreaterThan(400);
+    expect(brute.data.armor).toBeGreaterThan(0);
+    expect(brute.data.invisible).toBeUndefined();
+
+    const sprinter = new Enemy('sprinter', simplePath);
+    expect(sprinter.data.speed).toBeGreaterThan(150);
+    expect(sprinter.data.hp).toBeLessThan(60);
+
+    const phantom = new Enemy('phantom', simplePath);
+    expect(phantom.data.invisible).toBe(true);
+    expect(phantom.data.speed).toBeGreaterThan(60);
+  });
+
+  it('phantom is damageable only by upgraded sniper/archer', async () => {
+    const { canDamageEnemy } = await import('../../src/utils/damageRules');
+    const phantom = new Enemy('phantom', simplePath);
+    expect(canDamageEnemy('arrow', 1, phantom.data)).toBe(false);
+    expect(canDamageEnemy('arrow', 2, phantom.data)).toBe(true);
+    expect(canDamageEnemy('sniper', 3, phantom.data)).toBe(true);
+    expect(canDamageEnemy('cannon', 5, phantom.data)).toBe(false);
+  });
+});

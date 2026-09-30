@@ -28,6 +28,8 @@ export class Projectile {
   alive: boolean = true;
   /** Player who fired this tower (kill rewards go to them). */
   ownerId: string | null = null;
+  /** Level of the firing tower (used for damage eligibility, e.g. phantoms). */
+  towerLevel: number = 1;
 
   private targetId: string;
   private towerType: TowerType;
