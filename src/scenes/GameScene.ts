@@ -1311,20 +1311,16 @@ export class GameScene extends Phaser.Scene {
     // Number of particles
     const particleCount = 6 + (bloodSize * 4);
 
-    // Blood landing on a wall/tree runs down instead of just fading
-    const dripsHere = (x: number, y: number): boolean => {
-      const { col, row } = this.grid.worldToBgGrid(x, y);
-      const area = this.grid.getArea(col, row);
-      // Blood runs down walls and trees it lands on...
-      if (area === 'wall' || area === 'tree') return true;
-      // ...and towers, but only when it hits the tower body itself
-      // (narrower than the full collision footprint)
-      return this.grid.nearTower(x, y, 16);
-    };
+    // Blood landing on a wall/tree/tower runs down instead of just fading.
+    // The drip ends at the object's bottom edge — wherever that falls for
+    // the column the particle landed on.
+    const dripEndY = (x: number, y: number): number | null =>
+      this.grid.areaBottomY(x, y) ?? this.grid.towerBottomY(x, y);
 
     /**
-     * Landing sequence: drip down a wall/tree if applicable → turn into
-     * dried dark blood → fade out (slowly, so splatters linger).
+     * Landing sequence: on an object, run down to its base → spread into
+     * a pool there → dry dark and fade out (slowly, so splatters linger).
+     * On open ground, dry in place.
      */
     const settle = (particle: Phaser.GameObjects.Arc, x: number, y: number, fadeMs: number): void => {
       const dry = () => {
@@ -1340,24 +1336,111 @@ export class GameScene extends Phaser.Scene {
         });
       };
 
-      if (dripsHere(x, y)) {
-        // Run down the wall/tree, stretching as it goes, then dry in place
+      // Every landing ends in an oval pool, slightly different per splat.
+      // The vertical-drip → pool change is instant (no morph); a few
+      // pixel-sized drips scatter in an oval around it, then all dry.
+      const formPool = (poolX: number, poolY: number) => {
+        if (!particle.active) return;
+
+        // Instant: snap straight out of the drip into the pool
+        const poolSX = 1.35 + Math.random() * 0.45;
+        const poolSY = 0.55 + Math.random() * 0.15;
+        particle.setPosition(poolX, poolY);
+        particle.rotation = 0;
+        particle.setScale(poolSX, poolSY);
+
+        // Ejecta: irregular angles and staggered distances so the spray
+        // reads as an explosion flung out of the pool — each drop streaked
+        // along its flight path and popping outward. Sized to never render
+        // under 2x2 (radius 1.5+ x scaleY 0.7+ = 2.1px minimum).
+        const rx = particle.radius * poolSX * 2.2;
+        const ry = particle.radius * poolSY * 1.4;
+        const dropCount = 2 + Math.floor(Math.random() * 3);
+        const drops: Phaser.GameObjects.Arc[] = [];
+        for (let d = 0; d < dropCount; d++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 0.9 + Math.random() * 1.1; // 0.9-2.0x: close and flung
+          const startX = poolX + Math.cos(angle) * rx * 0.4;
+          const startY = poolY + Math.sin(angle) * ry * 0.4;
+          const endX = poolX + Math.cos(angle) * rx * dist;
+          const endY = poolY + Math.sin(angle) * ry * dist;
+          const drop = this.add.circle(
+            startX, startY,
+            1.5 + Math.random() * 0.7,
+            0xcc0000,
+            particle.alpha,
+          );
+          drop.setDepth(11);
+          drop.rotation = Math.atan2(endY - startY, endX - startX);
+          drop.setScale(1.5 + Math.random() * 0.6, 0.7 + Math.random() * 0.15);
+          this.tweens.add({
+            targets: drop,
+            x: endX,
+            y: endY,
+            duration: 160 + Math.random() * 100,
+            ease: 'Power3.out',
+          });
+          drops.push(drop);
+        }
+
+        // Let the fresh pool read for a beat, then dry together
+        this.time.delayedCall(300, () => {
+          dry();
+          for (const drop of drops) {
+            if (!drop.active) continue;
+            drop.setFillStyle(0x4a0000, 0.8);
+            this.tweens.add({
+              targets: drop,
+              alpha: 0,
+              duration: fadeMs * (0.6 + Math.random() * 0.4),
+              onComplete: () => {
+                if (drop.active) drop.destroy();
+              },
+            });
+          }
+        });
+      };
+
+      // The vertical drip — shared by wall/tower runs and open ground:
+      // hang the streak straight down, stretch it, accelerate toward the
+      // foot, then continue to the pool when it gets there
+      const dripDown = (targetY: number, distance: number, then: () => void): void => {
         this.tweens.add({
           targets: particle,
-          y: y + 10 + Math.random() * 16,
+          y: targetY,
+          rotation: 0,
           scaleX: 0.75,
           scaleY: 1.6,
-          duration: 500 + Math.random() * 400,
+          duration: Math.min(3500, 400 + distance * 6),
           ease: 'Power1.in',
-          onComplete: dry,
+          onComplete: then,
         });
-      } else {
-        dry();
+      };
+
+      const endY = dripEndY(x, y);
+      if (endY === null) {
+        // Open ground: drip vertical for a moment just before landing,
+        // then end in a pool where it stops
+        const run = 10 + Math.random() * 26;
+        dripDown(y + run, run, () => {
+          if (particle.active) formPool(x, y + run);
+        });
+        return;
       }
+
+      const distance = endY - y;
+      if (distance < 4) {
+        // Already at the object's base — pool at its foot
+        formPool(x, endY + 2);
+        return;
+      }
+
+      // Run down the whole object, then pool at the foot
+      dripDown(endY, distance, () => formPool(x, endY + 2));
     };
 
     for (let i = 0; i < particleCount; i++) {
-      const size = (2 + bloodSize) + Math.random() * 3;
+      const size = (2 + bloodSize) + Math.random() * 2;
       const particle = this.add.circle(
         hitPos.x,
         hitPos.y,
@@ -1365,20 +1448,23 @@ export class GameScene extends Phaser.Scene {
         0xcc0000,
         1,
       );
-      particle.setDepth(30);
+      particle.setDepth(11);
 
       // Random spread around the projectile's travel direction
       const angle = hitAngle + (Math.random() - 0.5) * 1.5;
-      const speed = 40 + Math.random() * 80;
+      const speed = 35 + Math.random() * 55;
       const targetX = hitPos.x + Math.cos(angle) * speed;
       const targetY = hitPos.y + Math.sin(angle) * speed;
 
-      // Main blood particles - fly outward, then settle
+      // Born circular, stretched into an oval along the flight direction
+      particle.rotation = angle;
       this.tweens.add({
         targets: particle,
         x: targetX,
         y: targetY,
         alpha: 0.6,
+        scaleX: 1.9 + Math.random() * 0.7,
+        scaleY: 0.55 + Math.random() * 0.25,
         duration: 300 + Math.random() * 200,
         ease: 'Power2',
         onComplete: () => {
@@ -1389,7 +1475,7 @@ export class GameScene extends Phaser.Scene {
       // Also spawn exit blood (opposite direction, fewer particles)
       if (i < 4) {
         const exitAngle = angle + Math.PI + (Math.random() - 0.5) * 0.6;
-        const exitSpeed = 20 + Math.random() * 40;
+        const exitSpeed = 18 + Math.random() * 32;
         const exitTargetX = hitPos.x + Math.cos(exitAngle) * exitSpeed;
         const exitTargetY = hitPos.y + Math.sin(exitAngle) * exitSpeed;
         const exitParticle = this.add.circle(
@@ -1399,13 +1485,16 @@ export class GameScene extends Phaser.Scene {
           0xcc0000,
           1,
         );
-        exitParticle.setDepth(30);
+        exitParticle.setDepth(11);
 
+        exitParticle.rotation = exitAngle;
         this.tweens.add({
           targets: exitParticle,
           x: exitTargetX,
           y: exitTargetY,
           alpha: 0.4,
+          scaleX: 1.7 + Math.random() * 0.6,
+          scaleY: 0.55 + Math.random() * 0.2,
           duration: 250,
           ease: 'Power2',
           onComplete: () => {
@@ -1413,6 +1502,32 @@ export class GameScene extends Phaser.Scene {
           },
         });
       }
+    }
+
+    // Fine spray: pixel-sized particles from the very start of the
+    // lifecycle — born at the hit, they fly, drip and pool like the rest
+    const speckCount = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < speckCount; i++) {
+      const angle = hitAngle + (Math.random() - 0.5) * 2.4; // wider spread
+      const speed = 25 + Math.random() * 60;
+      const targetX = hitPos.x + Math.cos(angle) * speed;
+      const targetY = hitPos.y + Math.sin(angle) * speed;
+      const speck = this.add.circle(hitPos.x, hitPos.y, 1.85 + Math.random() * 0.5, 0xcc0000, 1);
+      speck.setDepth(11);
+      speck.rotation = angle;
+      this.tweens.add({
+        targets: speck,
+        x: targetX,
+        y: targetY,
+        alpha: 0.6,
+        scaleX: 1.6 + Math.random() * 0.8,
+        scaleY: 0.6 + Math.random() * 0.3,
+        duration: 260 + Math.random() * 240,
+        ease: 'Power2',
+        onComplete: () => {
+          if (speck.active) settle(speck, targetX, targetY, 3500);
+        },
+      });
     }
   }
 

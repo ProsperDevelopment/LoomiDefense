@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Grid } from '../../src/utils/Grid';
-import type { MapData } from '../../src/types';
+import type { MapData, AreaType } from '../../src/types';
 
 const testMap: MapData = {
   id: 1,
@@ -250,5 +250,56 @@ describe('Grid area layer (background-grid resolution)', () => {
     expect(grid.placeTowerAtBg(6, 4, 'sniper')).toBe(false);
     // ...but other towers are fine there
     expect(grid.canPlaceAtBg(6, 4, 'arrow')).toBe(true);
+  });
+});
+
+// ============================================================
+// Blood drip bottoms: where a drip running down an object ends.
+// ============================================================
+describe('blood drip bottoms', () => {
+  /** Test map with a wall column in the given background rows. */
+  const wallColumn = (col: number, rows: number[]): MapData => {
+    const areas: AreaType[][] = Array.from({ length: 6 }, () =>
+      Array.from({ length: 8 }, () => 'none' as AreaType),
+    );
+    for (const r of rows) areas[r][col] = 'wall';
+    return { ...testMap, areas };
+  };
+
+  it('returns the bottom edge of the wall column under a point', () => {
+    const grid = new Grid(wallColumn(2, [1, 2, 3]));
+    // bg cell (2,1) spans y 72..96; wall runs through row 3 → bottom 144
+    expect(grid.areaBottomY(60, 84)).toBe(144);
+    expect(grid.areaBottomY(60, 130)).toBe(144); // lands near the base
+  });
+
+  it('stops at the first gap in the column', () => {
+    const grid = new Grid(wallColumn(2, [1, 3])); // row 2 is a gap
+    expect(grid.areaBottomY(60, 84)).toBe(96); // bottom of row 1
+  });
+
+  it('returns null off the object or below it', () => {
+    const grid = new Grid(wallColumn(2, [1, 2, 3]));
+    expect(grid.areaBottomY(60, 150)).toBeNull(); // below the object
+    expect(grid.areaBottomY(100, 84)).toBeNull(); // different column
+    expect(grid.areaBottomY(60, 60)).toBeNull(); // above the object
+  });
+
+  it('returns the tower bottom when the point hits a tower', () => {
+    const grid = new Grid(testMap);
+    grid.placeTowerAtBg(2, 0, 'arrow');
+    // center (60, 60); 48px sprite → bottom edge at 84
+    expect(grid.towerBottomY(60, 60)).toBe(84);
+    expect(grid.towerBottomY(75, 60)).toBe(84); // within the 16px hit radius
+    expect(grid.towerBottomY(100, 60)).toBeNull(); // too far
+    expect(grid.towerBottomY(60, 108)).toBeNull(); // no tower there
+  });
+
+  it('keeps towers and areas separate', () => {
+    const grid = new Grid(wallColumn(2, [1, 2, 3]));
+    expect(grid.towerBottomY(60, 84)).toBeNull(); // wall, no tower
+    grid.placeTowerAtBg(4, 0, 'arrow');
+    expect(grid.areaBottomY(108, 60)).toBeNull(); // tower, no wall
+    expect(grid.towerBottomY(108, 60)).toBe(84);
   });
 });

@@ -79,7 +79,7 @@ export class Enemy {
     // Create animated sprite
     const sprite = scene.add.sprite(this.position.x, this.position.y, spriteInfo.key, 0);
     sprite.play(spriteInfo.anim);
-    // sprite.setDepth(10);
+    sprite.setDepth(14); // over ground/blood/bg tiles (11/10), under fg tiles (20)
     this.sprite = sprite;
 
     // Health bar background
@@ -90,7 +90,7 @@ export class Enemy {
       4,
       0x333333,
     );
-    this.healthBarBg.setDepth(11);
+    this.healthBarBg.setDepth(16);
 
     // Health bar
     this.healthBar = scene.add.rectangle(
@@ -101,7 +101,7 @@ export class Enemy {
       0x4CAF50,
     );
     this.healthBar.setOrigin(0, 0.5);
-    this.healthBar.setDepth(12);
+    this.healthBar.setDepth(17);
 
     // Invisible enemies (Phantoms) pulse from half transparent to fully
     // invisible and back while traveling — the flicker is the only visual

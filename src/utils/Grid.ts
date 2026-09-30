@@ -162,6 +162,44 @@ export class Grid {
     return false;
   }
 
+  /**
+   * World Y of the bottom edge of the wall/tree column this point lands on
+   * — where a blood drip running down the object ends. Null when the point
+   * isn't on a wall/tree (out-of-bounds counts as 'none').
+   */
+  areaBottomY(x: number, y: number): number | null {
+    const { col, row } = this.worldToBgGrid(x, y);
+    const solid = (r: number): boolean => {
+      const area = this.getArea(col, r);
+      return area === 'wall' || area === 'tree';
+    };
+    if (!solid(row)) return null;
+    // Follow the column down while it stays solid — the object ends at
+    // the first gap (or the bottom of the map)
+    let last = row;
+    for (let r = row + 1; r < this.rows * 2 && solid(r); r++) last = r;
+    return GRID_OFFSET_Y + (last + 1) * BG_CELL;
+  }
+
+  /**
+   * World Y of the bottom edge of the nearest tower this point lands on —
+   * same narrow center radius as nearTower() so splatter only runs down
+   * towers it actually hit. Null when there's no tower here.
+   */
+  towerBottomY(x: number, y: number): number | null {
+    const col = Math.floor(x / BG_CELL);
+    const row = Math.floor((y - GRID_OFFSET_Y) / BG_CELL);
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (!this.bgOccupied.has(`${col + dc},${row + dr}`)) continue;
+        const cx = (col + dc) * BG_CELL + BG_CELL / 2;
+        const cy = (row + dr) * BG_CELL + BG_CELL / 2 + GRID_OFFSET_Y;
+        if (Math.hypot(x - cx, y - cy) <= 16) return cy + CELL_SIZE / 2;
+      }
+    }
+    return null;
+  }
+
 
   placeTowerAtBg(bgCol: number, bgRow: number, towerType?: TowerType): boolean {
     if (!this.canPlaceAtBg(bgCol, bgRow, towerType)) return false;
