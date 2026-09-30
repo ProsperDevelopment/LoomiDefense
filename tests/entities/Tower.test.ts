@@ -15,8 +15,9 @@ describe('Tower', () => {
   it('calculates correct world position', () => {
     const tower = new Tower('cannon', 2, 4);
     const pos = tower.getWorldPosition();
-    expect(pos.x).toBe(2 * 48 + 24);
-    expect(pos.y).toBe(4 * 48 + 24 + 48); // +48 for GRID_OFFSET_Y
+    // gridCol/gridRow are background-grid coordinates (24px cells)
+    expect(pos.x).toBe(2 * 24 + 12);
+    expect(pos.y).toBe(4 * 24 + 12 + 48); // +48 for GRID_OFFSET_Y
   });
 
   it('can fire after timer expires', () => {

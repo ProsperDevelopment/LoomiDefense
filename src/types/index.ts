@@ -36,7 +36,7 @@ export interface MapData {
   basePath: { x: number; y: number }[];
   bgTiles?: number[][];  // Background tiles (2x resolution, tile indices)
   tileset?: string;      // Tileset used for bgTiles (e.g. 'TilesetNature')
-  areas?: AreaType[][];  // Area overlay layer (same size as grid)
+  areas?: AreaType[][];  // Area overlay layer (same size as bgTiles, 2x grid; legacy grid-res layers are auto-upgraded)
   fgAreas?: FgAreaType[][]; // Foreground markers (same size as bgTiles, 2x grid)
   difficulty?: Difficulty; // Starting lives come from this (default: easy)
   waves?: WaveData[];    // Custom wave definitions (default: game's built-in waves)

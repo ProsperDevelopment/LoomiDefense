@@ -52,8 +52,10 @@ describe('Pathfinding', () => {
   });
 
   it('path avoids tower cells', () => {
-    grid.placeTower(2, 0);
-    grid.placeTower(2, 1);
+    // Pathfinding works on logical cells; towers now live on the
+    // background grid, so mark the logical cells directly here.
+    grid.setCell(2, 0, 'tower');
+    grid.setCell(2, 1, 'tower');
     const path = pf.findPath(0, 1, 4, 1);
     expect(path).not.toBeNull();
     // Path should go around the towers

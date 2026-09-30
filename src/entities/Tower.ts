@@ -198,17 +198,24 @@ export class Tower {
     this.fireTimer = 1000 / this.fireRate;
   }
 
+  /**
+   * World position of the tower. gridCol/gridRow are BACKGROUND-grid
+   * coordinates (24px cells) — the tower is centered on its cell, so two
+   * towers can be offset by half a logical cell.
+   */
   getWorldPosition(): { x: number; y: number } {
     return {
-      x: this.gridCol * CELL_SIZE + CELL_SIZE / 2,
-      y: this.gridRow * CELL_SIZE + CELL_SIZE / 2 + GRID_OFFSET_Y,
+      x: this.gridCol * (CELL_SIZE / 2) + CELL_SIZE / 4,
+      y: this.gridRow * (CELL_SIZE / 2) + CELL_SIZE / 4 + GRID_OFFSET_Y,
     };
   }
 
+  /** Background-grid column of this tower. */
   getGridCol(): number {
     return this.gridCol;
   }
 
+  /** Background-grid row of this tower. */
   getGridRow(): number {
     return this.gridRow;
   }

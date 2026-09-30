@@ -125,7 +125,7 @@
     },
     "areas": {
       "type": "array",
-      "description": "Area overlay layer (same size as grid): 'none' | 'tree' | 'wall' | 'roof'. Tree/wall block building; roof allows only the sniper."
+      "description": "Area overlay at background-tile resolution (2x grid, same as bgTiles): 'none' | 'tree' | 'wall' | 'roof'. Tree/wall block building; roof is sniper-only. Legacy grid-resolution layers are accepted and upgraded automatically."
     },
     "difficulty": {
       "type": "string",

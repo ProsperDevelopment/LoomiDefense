@@ -228,10 +228,31 @@ async function init() {
   render();
 }
 
+// Parse an imported area layer into background resolution (2x grid).
+// Accepts current (2x) layers and legacy grid-resolution layers.
+function loadAreas(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return makeAreas(gridWidth, gridHeight);
+  const valid = (v) => (['tree', 'wall', 'roof'].includes(v) ? v : 'none');
+  const w = Array.isArray(raw[0]) ? raw[0].length : 0;
+  if (raw.length === gridHeight * 2 && w === gridWidth * 2) {
+    return raw.map((row) => row.map(valid));
+  }
+  if (raw.length === gridHeight && w === gridWidth) {
+    const out = [];
+    for (const row of raw) {
+      const bgRow = row.map(valid).flatMap((a) => [a, a]);
+      out.push([...bgRow], [...bgRow]);
+    }
+    return out;
+  }
+  return makeAreas(gridWidth, gridHeight);
+}
+
+// Areas live at background-tile resolution (2x grid), like bgTiles
 function makeAreas(w, h) {
   const result = [];
-  for (let y = 0; y < h; y++) {
-    result.push(new Array(w).fill('none'));
+  for (let y = 0; y < h * 2; y++) {
+    result.push(new Array(w * 2).fill('none'));
   }
   return result;
 }
@@ -277,10 +298,10 @@ function resizeGrid() {
   }
 
   const newAreas = [];
-  for (let y = 0; y < newH; y++) {
+  for (let y = 0; y < newH * 2; y++) {
     const row = [];
-    for (let x = 0; x < newW; x++) {
-      row.push(y < gridHeight && x < gridWidth ? areas[y][x] : 'none');
+    for (let x = 0; x < newW * 2; x++) {
+      row.push(y < gridHeight * 2 && x < gridWidth * 2 ? areas[y][x] : 'none');
     }
     newAreas.push(row);
   }
@@ -470,43 +491,43 @@ function render() {
   
   // Area overlays are only shown while the Paint Area tool is active
   if (currentTool === 'area') {
-    for (let y = 0; y < gridHeight; y++) {
-      for (let x = 0; x < gridWidth; x++) {
+    for (let y = 0; y < gridHeight * 2; y++) {
+      for (let x = 0; x < gridWidth * 2; x++) {
         const area = areas[y][x];
         if (!area || area === 'none') continue;
-        const px = x * tileSize;
-        const py = y * tileSize;
+        const px = x * bgTileSize;
+        const py = y * bgTileSize;
         
         if (area === 'tree') {
           // trunk
           ctx.fillStyle = '#6b4423';
-          ctx.fillRect(px + tileSize * 0.42, py + tileSize * 0.6, tileSize * 0.16, tileSize * 0.35);
+          ctx.fillRect(px + bgTileSize * 0.42, py + bgTileSize * 0.6, bgTileSize * 0.16, bgTileSize * 0.35);
           // canopy
           ctx.fillStyle = '#2e7d32';
           ctx.beginPath();
-          ctx.arc(px + tileSize / 2, py + tileSize * 0.4, tileSize * 0.28, 0, Math.PI * 2);
+          ctx.arc(px + bgTileSize / 2, py + bgTileSize * 0.4, bgTileSize * 0.28, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#43a047';
           ctx.beginPath();
-          ctx.arc(px + tileSize * 0.42, py + tileSize * 0.3, tileSize * 0.12, 0, Math.PI * 2);
+          ctx.arc(px + bgTileSize * 0.42, py + bgTileSize * 0.3, bgTileSize * 0.12, 0, Math.PI * 2);
           ctx.fill();
         } else if (area === 'wall') {
           ctx.fillStyle = '#9e9e9e';
-          ctx.fillRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+          ctx.fillRect(px + 1, py + 1, bgTileSize - 2, bgTileSize - 2);
           ctx.fillStyle = '#757575';
-          ctx.fillRect(px + 1, py + tileSize / 3, tileSize - 2, 2);
-          ctx.fillRect(px + 1, py + (tileSize * 2) / 3, tileSize - 2, 2);
-          ctx.fillRect(px + tileSize / 2, py + 1, 2, tileSize / 3 - 1);
-          ctx.fillRect(px + tileSize / 4, py + tileSize / 3 + 2, 2, tileSize / 3 - 2);
-          ctx.fillRect(px + (tileSize * 3) / 4, py + tileSize / 3 + 2, 2, tileSize / 3 - 2);
+          ctx.fillRect(px + 1, py + bgTileSize / 3, bgTileSize - 2, 1);
+          ctx.fillRect(px + 1, py + (bgTileSize * 2) / 3, bgTileSize - 2, 1);
+          ctx.fillRect(px + bgTileSize / 2, py + 1, 1, bgTileSize / 3 - 1);
+          ctx.fillRect(px + bgTileSize / 4, py + bgTileSize / 3 + 2, 1, bgTileSize / 3 - 2);
+          ctx.fillRect(px + (bgTileSize * 3) / 4, py + bgTileSize / 3 + 2, 1, bgTileSize / 3 - 2);
         } else if (area === 'roof') {
           ctx.fillStyle = '#c0392b';
-          ctx.fillRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+          ctx.fillRect(px + 1, py + 1, bgTileSize - 2, bgTileSize - 2);
           ctx.fillStyle = '#e74c3c';
-          ctx.fillRect(px + 2, py + tileSize * 0.2, tileSize - 4, tileSize * 0.22);
-          ctx.fillRect(px + 2, py + tileSize * 0.55, tileSize - 4, tileSize * 0.22);
+          ctx.fillRect(px + 2, py + bgTileSize * 0.2, bgTileSize - 4, bgTileSize * 0.22);
+          ctx.fillRect(px + 2, py + bgTileSize * 0.55, bgTileSize - 4, bgTileSize * 0.22);
           ctx.fillStyle = '#96281b';
-          ctx.fillRect(px + 1, py + 1, tileSize - 2, 2);
+          ctx.fillRect(px + 1, py + 1, bgTileSize - 2, 1);
         }
       }
     }
@@ -608,7 +629,7 @@ function setupInput() {
   });
   
   canvas.addEventListener('mousemove', (e) => {
-    if (currentTool === 'paintBg' || currentTool === 'eraseBg' || currentTool === 'paintFg' || currentTool === 'deleteFg') {
+    if (currentTool === 'paintBg' || currentTool === 'eraseBg' || currentTool === 'paintFg' || currentTool === 'deleteFg' || currentTool === 'area') {
       const bgCell = getBgCell(e);
       if (bgCell) {
         document.getElementById('status').textContent = 
@@ -678,7 +699,7 @@ function handleCell(e) {
   const canvas = document.getElementById('editorCanvas');
   const rect = canvas.getBoundingClientRect();
   
-  if (currentTool === 'paintBg' || currentTool === 'eraseBg' || currentTool === 'paintFg' || currentTool === 'deleteFg') {
+  if (currentTool === 'paintBg' || currentTool === 'eraseBg' || currentTool === 'paintFg' || currentTool === 'deleteFg' || currentTool === 'area') {
     // Use background grid coordinates (2x resolution)
     const bgCell = getBgCell(e);
     if (!bgCell) return;
@@ -691,9 +712,11 @@ function handleCell(e) {
       bgGrid[bgCell.y][bgCell.x] = -1;
     } else if (currentTool === 'paintFg') {
       fgAreas[bgCell.y][bgCell.x] = 'fg';
-    } else {
-      // deleteFg
+    } else if (currentTool === 'deleteFg') {
       fgAreas[bgCell.y][bgCell.x] = 'none';
+    } else {
+      // area tool paints at background-tile resolution
+      areas[bgCell.y][bgCell.x] = currentAreaType;
     }
   } else {
     // Use cell coordinates (path / spawn / base tools)
@@ -708,9 +731,6 @@ function handleCell(e) {
         break;
       case 'erasePath':
         removePathPoint(cell.x, cell.y);
-        break;
-      case 'area':
-        areas[cell.y][cell.x] = currentAreaType;
         break;
       case 'spawn':
         spawnPoints = spawnPoints.filter(s => !(s.x === cell.x && s.y === cell.y));
@@ -930,10 +950,9 @@ function handleFileImport(e) {
         }
       }
 
-      // Load area overlay (fall back to an empty layer)
-      areas = (Array.isArray(data.areas) && data.areas.length === gridHeight)
-        ? data.areas.map(row => row.map(a => ['tree', 'wall', 'roof'].includes(a) ? a : 'none'))
-        : makeAreas(gridWidth, gridHeight);
+      // Load area overlay (background resolution; legacy grid-resolution
+      // layers are expanded cell -> 2x2 block)
+      areas = loadAreas(data.areas);
 
       // Load foreground markers (fall back to an empty layer)
       fgAreas = (Array.isArray(data.fgAreas) && data.fgAreas.length === gridHeight * 2)

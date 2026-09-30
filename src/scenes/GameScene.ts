@@ -343,7 +343,7 @@ export class GameScene extends Phaser.Scene {
     this.waveIndicator = new WaveIndicator(this, () => this.startNextWave(), () => this.startWaveEarly());
     this.waveIndicator.setWave(0, this.waveManager.getTotalWaves());
 
-    this.hoverIndicator = this.add.rectangle(0, 0, CELL_SIZE - 2, CELL_SIZE - 2, 0x4CAF50, 0.3);
+    this.hoverIndicator = this.add.rectangle(0, 0, CELL_SIZE / 2 - 2, CELL_SIZE / 2 - 2, 0x4CAF50, 0.3);
     this.hoverIndicator.setStrokeStyle(2, 0x4CAF50);
     this.hoverIndicator.setVisible(false);
     this.hoverIndicator.setDepth(50);
@@ -539,8 +539,8 @@ export class GameScene extends Phaser.Scene {
         tower.createSprite(this);
         tower.showRange(false);
         this.towers.push(tower);
-        if (this.grid.canPlace(s.col, s.row, s.type as TowerType)) {
-          this.grid.placeTower(s.col, s.row, s.type as TowerType);
+        if (this.grid.canPlaceAtBg(s.col, s.row, s.type as TowerType)) {
+          this.grid.placeTowerAtBg(s.col, s.row, s.type as TowerType);
         }
         while (tower.level < s.level) tower.upgrade();
       } else {
@@ -558,7 +558,7 @@ export class GameScene extends Phaser.Scene {
       const tower = this.towers[i];
       if (!seen.has(tower.id)) {
         if (this.selectedTower === tower) this.deselectTower();
-        this.grid.removeTower(tower.getGridCol(), tower.getGridRow());
+        this.grid.removeTowerAtBg(tower.getGridCol(), tower.getGridRow());
         tower.destroy();
         this.towers.splice(i, 1);
       }
@@ -906,12 +906,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
-    const { col, row } = this.grid.worldToGrid(pointer.x, pointer.y);
+    // Hover works on the background grid (half-cell resolution)
+    const { col, row } = this.grid.worldToBgGrid(pointer.x, pointer.y);
     if (col === this.hoverCol && row === this.hoverRow) return;
     this.hoverCol = col;
     this.hoverRow = row;
     if (!this.hoverIndicator) return;
-    if (col < 0 || col >= this.grid.cols || row < 0 || row >= this.grid.rows) {
+    if (col < 0 || col >= this.grid.cols * 2 || row < 0 || row >= this.grid.rows * 2) {
       this.hoverIndicator.setVisible(false);
       this.hoverRangeCircle?.setVisible(false);
       return;
@@ -924,8 +925,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const canPlace = this.grid.canPlace(col, row);
-    const worldPos = this.grid.gridToWorld(col, row);
+    // Highlight only if at least one loadout tower fits this cell
+    const canPlace = this.loadoutTypes.some((t) => this.grid.canPlaceAtBg(col, row, t));
+    const worldPos = this.grid.bgToWorld(col, row);
     this.hoverIndicator.setPosition(worldPos.x, worldPos.y);
     this.hoverIndicator.setVisible(true);
 
@@ -951,7 +953,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const { col, row } = this.grid.worldToGrid(pointer.x, pointer.y);
+    const { col, row } = this.grid.worldToBgGrid(pointer.x, pointer.y);
     const existingTower = this.findTowerAt(col, row);
 
     // Right-click or middle-click to cancel
@@ -988,12 +990,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Left-click on empty cell - freeze target and show build popup
-    const canPlace = this.grid.canPlace(col, row);
-    // Which loadout towers are legal on THIS cell (areas + sniper/roof rules)
-    const allowed = canPlace
-      ? this.loadoutTypes.filter((t) => this.grid.canPlace(col, row, t))
-      : [];
+    // Left-click on empty cell - freeze target and show build popup.
+    // `col`/`row` are background-grid coordinates (half-cell resolution).
+    // Which loadout towers are legal on THIS cell (path/area/tower collision
+    // + sniper/roof rules)
+    const allowed = this.loadoutTypes.filter((t) => this.grid.canPlaceAtBg(col, row, t));
     if (allowed.length > 0) {
       this.pendingBuildPos = { col, row };
       this.showPendingRange(col, row);
@@ -1005,7 +1006,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showPendingRange(col: number, row: number): void {
-    const worldPos = this.grid.gridToWorld(col, row);
+    const worldPos = this.grid.bgToWorld(col, row);
     if (this.pendingRangeCircle) {
       this.pendingRangeCircle.setPosition(worldPos.x, worldPos.y);
       this.pendingRangeCircle.setVisible(true);
@@ -1098,7 +1099,7 @@ export class GameScene extends Phaser.Scene {
     const isRemote = ownerId !== undefined && ownerId !== this.myPlayerId();
     const loadout = isRemote ? this.remoteLoadouts.get(ownerId) : this.loadoutTypes;
     if (loadout && loadout.length > 0 && !loadout.includes(type)) return;
-    if (!this.grid.canPlace(col, row, type)) return;
+    if (!this.grid.canPlaceAtBg(col, row, type)) return;
 
     // Who is paying? Solo/host = self; remote command = its sender.
     const owner = ownerId ?? this.myPlayerId();
@@ -1113,7 +1114,7 @@ export class GameScene extends Phaser.Scene {
 
     // Spend from the ACTING player's own pot — never shared
     if (!this.spendGold(owner, data.cost)) return;
-    this.grid.placeTower(col, row, type);
+    this.grid.placeTowerAtBg(col, row, type);
     const tower = new Tower(type, col, row);
     tower.ownerId = owner;
     tower.setPlayerColor(colorHex ?? userProfile.towerColor);
@@ -1166,7 +1167,7 @@ export class GameScene extends Phaser.Scene {
     if (tower.ownerId && tower.ownerId !== actorId) return; // not yours to sell
     const refund = this.economy.getSellValue(tower.type, tower.level);
     this.addGold(actorId, refund);
-    this.grid.removeTower(tower.getGridCol(), tower.getGridRow());
+    this.grid.removeTowerAtBg(tower.getGridCol(), tower.getGridRow());
     tower.destroy();
     this.towers = this.towers.filter((t) => t !== tower);
     eventBus.emit('tower-sold', { towerType: tower.type, refund });
@@ -1363,9 +1364,13 @@ export class GameScene extends Phaser.Scene {
 
     // Blood landing on a wall/tree runs down instead of just fading
     const dripsHere = (x: number, y: number): boolean => {
-      const { col, row } = this.grid.worldToGrid(x, y);
+      const { col, row } = this.grid.worldToBgGrid(x, y);
       const area = this.grid.getArea(col, row);
-      return area === 'wall' || area === 'tree';
+      // Blood runs down walls and trees it lands on...
+      if (area === 'wall' || area === 'tree') return true;
+      // ...and towers, but only when it hits the tower body itself
+      // (narrower than the full collision footprint)
+      return this.grid.nearTower(x, y, 16);
     };
 
     /**

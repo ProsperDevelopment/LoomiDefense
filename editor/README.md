@@ -36,19 +36,25 @@ npx serve editor
 | Place Base | 4 | Set base/exit location |
 | Paint Background | 5 | Paint background tiles (half-cell grid) |
 | Erase Background | 6 | Remove background tiles |
-| Paint Area | 7 | Paint the selected area type (tree / wall / roof / erase) |
+| Paint Area | 7 | Paint the selected area type (tree / wall / roof / erase) at half-cell resolution |
 | Paint Foreground | 8 | Mark background tiles to render above gameplay |
 | Delete Foreground | 9 | Remove foreground markers (half-cell grid) |
 
 ### Areas
 
-The **Area Type** dropdown picks what the Paint Area tool places:
+Areas are painted at **background-tile resolution** (half-cell grid, the
+same resolution as the background tiles) with the **Area Type** dropdown:
 
 | Area | Game rule |
 |------|-----------|
 | Tree | No towers may be built on it |
 | Wall | No towers may be built on it |
 | Roof | Only the **Sniper** may be built on it — and snipers can't be built anywhere else |
+
+**Towers are placed on the background grid** — they can be offset by
+half a cell, as long as they don't collide with walls, trees, other
+towers, or (for non-snipers) roofs. Legacy grid-resolution area layers
+are upgraded to half-cell resolution automatically on import.
 
 ### Foreground Layer
 
