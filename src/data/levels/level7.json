@@ -3121,26 +3121,26 @@
       "entries": [
         {
           "enemyType": "swarm",
-          "count": 20,
+          "count": 14,
           "spawnDelay": 500,
           "waveDelay": 0
         },
         {
           "enemyType": "healer",
-          "count": 20,
+          "count": 4,
           "spawnDelay": 540,
-          "waveDelay": 600
+          "waveDelay": 3600
         },
         {
           "enemyType": "fast",
-          "count": 30,
-          "spawnDelay": 400,
+          "count": 16,
+          "spawnDelay": 800,
           "waveDelay": 7000
         },
         {
           "enemyType": "boss",
-          "count": 6,
-          "spawnDelay": 400,
+          "count": 4,
+          "spawnDelay": 4000,
           "waveDelay": 2000
         }
       ]
