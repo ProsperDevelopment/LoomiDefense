@@ -1352,7 +1352,14 @@ export class GameScene extends Phaser.Scene {
    * down to the base; on open ground it bounces a little, then fades
    * out over the same 5s the blood takes.
    */
-  private landDebris(piece: Phaser.GameObjects.Image, x: number, y: number, dirX: number, dirY: number): void {
+  private landDebris(
+    piece: Phaser.GameObjects.Image,
+    x: number,
+    y: number,
+    dirX: number,
+    dirY: number,
+    bounceCount: number,
+  ): void {
     const fade = () => {
       if (!piece.active) return;
       this.tweens.add({
@@ -1377,32 +1384,46 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Open ground: bounce and roll in the direction it was already
-    // travelling — it keeps moving the way it came in (a small hop
-    // while rolling forward), then settles and fades like the blood
+    // travelling — it keeps moving the way it came in. Far-flung pieces
+    // skitter with extra, decaying bounces before settling and fading
     const roll = 5 + Math.random() * 8;
-    const hop = 3 + Math.random() * 4;
-    this.tweens.add({
-      targets: piece,
-      x: piece.x + dirX * roll * 0.5,
-      y: piece.y + dirY * roll * 0.5 - hop,
-      angle: piece.angle + (Math.random() - 0.5) * 45,
-      duration: 150,
-      ease: 'Power1.out',
-      onComplete: () => {
-        if (!piece.active) return;
-        this.tweens.add({
-          targets: piece,
-          x: piece.x + dirX * roll * 0.5,
-          y: piece.y + dirY * roll * 0.5 + hop,
-          angle: piece.angle + (Math.random() - 0.5) * 30,
-          duration: 190,
-          ease: 'Power1.in',
-          onComplete: () => {
-            if (piece.active) fade();
-          },
-        });
-      },
-    });
+    const rollPerBounce = roll / bounceCount;
+    let hop = 3 + Math.random() * 4;
+    let bounced = 0;
+
+    const doBounce = () => {
+      if (!piece.active) return;
+      bounced++;
+      this.tweens.add({
+        targets: piece,
+        x: piece.x + dirX * rollPerBounce * 0.5,
+        y: piece.y + dirY * rollPerBounce * 0.5 - hop,
+        angle: piece.angle + (Math.random() - 0.5) * 45,
+        duration: 150,
+        ease: 'Power1.out',
+        onComplete: () => {
+          if (!piece.active) return;
+          this.tweens.add({
+            targets: piece,
+            x: piece.x + dirX * rollPerBounce * 0.5,
+            y: piece.y + dirY * rollPerBounce * 0.5 + hop,
+            angle: piece.angle + (Math.random() - 0.5) * 30,
+            duration: 190,
+            ease: 'Power1.in',
+            onComplete: () => {
+              if (!piece.active) return;
+              if (bounced < bounceCount) {
+                hop *= 0.55; // each extra bounce decays
+                doBounce();
+              } else {
+                fade();
+              }
+            },
+          });
+        },
+      });
+    };
+    doBounce();
   }
 
   private createBloodSplatter(dirX: number, dirY: number, hitPos: Position, enemySize: number, bloodSize: number): void {
@@ -1726,18 +1747,25 @@ export class GameScene extends Phaser.Scene {
           sprite.texture.key,
           shardName,
         );
-        piece.setDepth(sprite.depth);
+        piece.setDepth(16); // above blood (11) and projectiles (15)
         piece.setAlpha(alpha);
 
         // Fling outward with a slight direction tweak and widely varied
-        // speed and length — most pieces barely scatter, some fling far
+        // speed and length — most pieces barely scatter, but occasionally
+        // one flies much further and skitters with extra bounces
+        const longShot = Math.random() < 0.01; // ~1 in 100
         const rx = piece.x - sprite.x;
         const ry = piece.y - sprite.y;
         const ang = Math.atan2(ry, rx) + (Math.random() - 0.5) * 0.7;
         const dirX = Math.cos(ang);
         const dirY = Math.sin(ang);
-        const dist = 10 + Math.random() * Math.random() * 70; // 10-80, skewed short
-        const duration = 400 + Math.random() * 800; // 400-1200ms — speeds vary a lot
+        const dist = longShot
+          ? 90 + Math.random() * 80          // 90-170px: the occasional far fling
+          : 10 + Math.random() * Math.random() * 70; // 10-80, skewed short
+        const duration = longShot
+          ? 900 + Math.random() * 600        // readable flight for the far ones
+          : 400 + Math.random() * 800;
+        const bounces = longShot ? 2 + Math.floor(Math.random() * 2) : 1;
         this.tweens.add({
           targets: piece,
           x: piece.x + dirX * dist,
@@ -1750,7 +1778,7 @@ export class GameScene extends Phaser.Scene {
             // Lands through the shared pipeline: glide/drip down walls,
             // trees and towers like blood; on ground, bounce and roll
             // along the direction it was flying in
-            this.landDebris(piece, piece.x, piece.y, dirX, dirY);
+            this.landDebris(piece, piece.x, piece.y, dirX, dirY, bounces);
           },
         });
       }
