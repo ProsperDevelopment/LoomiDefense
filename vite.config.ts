@@ -12,6 +12,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    host: true, // reachable on the LAN (e.g. 192.168.1.45:3000), not just localhost
     open: true,
     proxy: {
       '/api': {
