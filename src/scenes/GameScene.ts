@@ -25,6 +25,9 @@ import { eventBus } from '../utils/EventBus';
 import { isWaveResolved } from '../utils/waveCompletion';
 import { canDamageEnemy } from '../utils/damageRules';
 
+/** Bodies that share the blood landing pipeline (blood arcs, death debris images). */
+type SplatterBody = Phaser.GameObjects.Arc | Phaser.GameObjects.Image;
+
 export class GameScene extends Phaser.Scene {
   private grid!: Grid;
   private pathfinding!: Pathfinding;
@@ -1318,18 +1321,96 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Where a drip running down an object ends: the bottom edge of the
+   * wall/tree column or tower under this point, or null on open ground.
+   * Shared by blood splatter and death debris.
+   */
+  private dripEndY(x: number, y: number): number | null {
+    return this.grid.areaBottomY(x, y) ?? this.grid.towerBottomY(x, y);
+  }
+
+  /**
+   * The vertical drip — shared by blood and debris: hang straight down,
+   * stretch, accelerate toward the foot, then continue.
+   */
+  private dripDown(target: SplatterBody, targetY: number, distance: number, then: () => void): void {
+    this.tweens.add({
+      targets: target,
+      y: targetY,
+      rotation: 0,
+      scaleX: 0.75,
+      scaleY: 1.6,
+      duration: Math.min(3500, 400 + distance * 6),
+      ease: 'Power1.in',
+      onComplete: then,
+    });
+  }
+
+  /**
+   * Death debris landing: on walls/trees/towers it shares blood's drip
+   * down to the base; on open ground it bounces a little, then fades
+   * out over the same 5s the blood takes.
+   */
+  private landDebris(piece: Phaser.GameObjects.Image, x: number, y: number, dirX: number, dirY: number): void {
+    const fade = () => {
+      if (!piece.active) return;
+      this.tweens.add({
+        targets: piece,
+        alpha: 0,
+        duration: 5000,
+        onComplete: () => {
+          if (piece.active) piece.destroy();
+        },
+      });
+    };
+
+    const endY = this.dripEndY(x, y);
+    if (endY !== null) {
+      const distance = endY - y;
+      if (distance >= 4) {
+        this.dripDown(piece, endY, distance, fade);
+      } else {
+        fade();
+      }
+      return;
+    }
+
+    // Open ground: bounce and roll in the direction it was already
+    // travelling — it keeps moving the way it came in (a small hop
+    // while rolling forward), then settles and fades like the blood
+    const roll = 5 + Math.random() * 8;
+    const hop = 3 + Math.random() * 4;
+    this.tweens.add({
+      targets: piece,
+      x: piece.x + dirX * roll * 0.5,
+      y: piece.y + dirY * roll * 0.5 - hop,
+      angle: piece.angle + (Math.random() - 0.5) * 45,
+      duration: 150,
+      ease: 'Power1.out',
+      onComplete: () => {
+        if (!piece.active) return;
+        this.tweens.add({
+          targets: piece,
+          x: piece.x + dirX * roll * 0.5,
+          y: piece.y + dirY * roll * 0.5 + hop,
+          angle: piece.angle + (Math.random() - 0.5) * 30,
+          duration: 190,
+          ease: 'Power1.in',
+          onComplete: () => {
+            if (piece.active) fade();
+          },
+        });
+      },
+    });
+  }
+
   private createBloodSplatter(dirX: number, dirY: number, hitPos: Position, enemySize: number, bloodSize: number): void {
     // Base angle of the projectile's travel direction
     const hitAngle = Math.atan2(dirY, dirX);
 
     // Number of particles
     const particleCount = 6 + (bloodSize * 4);
-
-    // Blood landing on a wall/tree/tower runs down instead of just fading.
-    // The drip ends at the object's bottom edge — wherever that falls for
-    // the column the particle landed on.
-    const dripEndY = (x: number, y: number): number | null =>
-      this.grid.areaBottomY(x, y) ?? this.grid.towerBottomY(x, y);
 
     /**
      * Landing sequence: on an object, run down to its base → spread into
@@ -1417,28 +1498,12 @@ export class GameScene extends Phaser.Scene {
         });
       };
 
-      // The vertical drip — shared by wall/tower runs and open ground:
-      // hang the streak straight down, stretch it, accelerate toward the
-      // foot, then continue to the pool when it gets there
-      const dripDown = (targetY: number, distance: number, then: () => void): void => {
-        this.tweens.add({
-          targets: particle,
-          y: targetY,
-          rotation: 0,
-          scaleX: 0.75,
-          scaleY: 1.6,
-          duration: Math.min(3500, 400 + distance * 6),
-          ease: 'Power1.in',
-          onComplete: then,
-        });
-      };
-
-      const endY = dripEndY(x, y);
+      const endY = this.dripEndY(x, y);
       if (endY === null) {
         // Open ground: drip vertical for a moment just before landing,
         // then end in a pool where it stops
         const run = 10 + Math.random() * 26;
-        dripDown(y + run, run, () => {
+        this.dripDown(particle, y + run, run, () => {
           if (particle.active) formPool(x, y + run);
         });
         return;
@@ -1486,7 +1551,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Run down the whole object, then pool at the foot
-      dripDown(endY, distance, () => formPool(x, endY + 2));
+      this.dripDown(particle, endY, distance, () => formPool(x, endY + 2));
     };
 
     for (let i = 0; i < particleCount; i++) {
@@ -1610,6 +1675,8 @@ export class GameScene extends Phaser.Scene {
     const reward = enemy.data.reward;
     const { x, y } = enemy.position;
     this.createDeathEffect(x, y, enemy.data.color);
+    // The sprite bursts into shards alongside the blood splatter
+    this.explodeEnemySprite(enemy);
     // Remove BEFORE notifying: wave completion checks the live enemy list
     this.removeEnemy(enemy);
     eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x, y, ownerId: ownerId ?? undefined });
@@ -1618,6 +1685,76 @@ export class GameScene extends Phaser.Scene {
   private onEnemyKilledById(id: string, ownerId?: string | null): void {
     const enemy = this.enemies.find(e => e.id === id && e.alive);
     if (enemy) this.onEnemyKilled(enemy, ownerId);
+  }
+
+  /**
+   * Death explosion: cut the enemy's current sprite frame into a 3x3
+   * grid of shards (added as sub-frames of its texture) and fling them
+   * outward with spin — the sprite bursts apart where it stood.
+   */
+  private explodeEnemySprite(enemy: Enemy): void {
+    const sprite = enemy.sprite;
+    if (!sprite || !sprite.active) return;
+    const tex = this.textures.get(sprite.texture.key);
+    if (!tex) return;
+
+    const src = sprite.frame;
+    const COLS = 3;
+    const ROWS = 3;
+    const pw = Math.max(2, Math.floor(src.width / COLS));
+    const ph = Math.max(2, Math.floor(src.height / ROWS));
+    const dispScaleX = sprite.displayWidth / src.width;
+    const dispScaleY = sprite.displayHeight / src.height;
+    const left = sprite.x - sprite.displayWidth / 2;
+    const top = sprite.y - sprite.displayHeight / 2;
+    const alpha = Math.max(sprite.alpha, 0.5); // phantoms still show their burst
+
+    for (let gy = 0; gy < ROWS; gy++) {
+      for (let gx = 0; gx < COLS; gx++) {
+        const w = gx === COLS - 1 ? src.width - pw * gx : pw;
+        const h = gy === ROWS - 1 ? src.height - ph * gy : ph;
+        const sx = src.cutX + gx * pw;
+        const sy = src.cutY + gy * ph;
+        const shardName = `shard_${sx}_${sy}_${w}_${h}`;
+        if (!tex.has(shardName)) {
+          tex.add(shardName, src.sourceIndex, sx, sy, w, h);
+        }
+
+        const piece = this.add.image(
+          left + (gx * pw + w / 2) * dispScaleX,
+          top + (gy * ph + h / 2) * dispScaleY,
+          sprite.texture.key,
+          shardName,
+        );
+        piece.setDepth(sprite.depth);
+        piece.setAlpha(alpha);
+
+        // Fling outward with a slight direction tweak and widely varied
+        // speed and length — most pieces barely scatter, some fling far
+        const rx = piece.x - sprite.x;
+        const ry = piece.y - sprite.y;
+        const ang = Math.atan2(ry, rx) + (Math.random() - 0.5) * 0.7;
+        const dirX = Math.cos(ang);
+        const dirY = Math.sin(ang);
+        const dist = 10 + Math.random() * Math.random() * 70; // 10-80, skewed short
+        const duration = 400 + Math.random() * 800; // 400-1200ms — speeds vary a lot
+        this.tweens.add({
+          targets: piece,
+          x: piece.x + dirX * dist,
+          y: piece.y + dirY * dist + 8 + Math.random() * 14,
+          angle: (Math.random() - 0.5) * 720,
+          duration,
+          ease: 'Power2.out',
+          onComplete: () => {
+            if (!piece.active) return;
+            // Lands through the shared pipeline: glide/drip down walls,
+            // trees and towers like blood; on ground, bounce and roll
+            // along the direction it was flying in
+            this.landDebris(piece, piece.x, piece.y, dirX, dirY);
+          },
+        });
+      }
+    }
   }
 
   private createDeathEffect(x: number, y: number, color: string): void {
