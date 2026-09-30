@@ -2,7 +2,6 @@ node_modules/
 dist/
 *.zip
 *.gif
-*.html
 public/assets/images/kenney-td-topdown/
 public/assets/images/hand-drawn-chars/
 public/assets/images/kenney-td-iso/

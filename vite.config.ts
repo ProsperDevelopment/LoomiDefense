@@ -2,6 +2,9 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
 export default defineConfig({
+  // Deployed under a subpath on GitHub Pages (CI sets VITE_BASE);
+  // local dev and default builds stay at '/'.
+  base: process.env.VITE_BASE ?? '/',
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
