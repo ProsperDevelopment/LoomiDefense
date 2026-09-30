@@ -83,7 +83,7 @@ export class Enemy {
     // Create animated sprite
     const sprite = scene.add.sprite(this.position.x, this.position.y, spriteInfo.key, 0);
     sprite.play(spriteInfo.anim);
-    sprite.setDepth(14); // over ground/blood/bg tiles (11/10), under fg tiles (20)
+    sprite.setDepth(0); // ground layer — blood, tiles and towers draw over it
     this.sprite = sprite;
 
     // Health bar background
