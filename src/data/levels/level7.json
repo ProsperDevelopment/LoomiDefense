@@ -16,7 +16,7 @@
       10,
       11,
       -1,
-      -1,
+      298,
       -1,
       -1,
       322,
@@ -55,9 +55,9 @@
       -1,
       -1,
       -1,
-      -1,
-      125,
-      126,
+      438,
+      439,
+      440,
       -1,
       -1,
       -1,
@@ -84,15 +84,15 @@
       -1,
       -1,
       -1,
+      297,
       -1,
       -1,
       -1,
       -1,
+      462,
+      463,
+      464,
       -1,
-      148,
-      149,
-      150,
-      151,
       -1,
       290,
       291,
@@ -123,10 +123,10 @@
       -1,
       -1,
       -1,
-      172,
-      173,
-      174,
-      175,
+      486,
+      487,
+      488,
+      -1,
       -1,
       314,
       315,
@@ -159,7 +159,7 @@
       -1,
       -1,
       -1,
-      -1,
+      293,
       -1,
       -1,
       -1,
@@ -195,7 +195,7 @@
       -1,
       -1,
       -1,
-      -1,
+      298,
       -1,
       -1,
       322,
@@ -214,7 +214,7 @@
       125,
       126,
       -1,
-      -1,
+      298,
       -1,
       -1,
       -1,
@@ -283,7 +283,7 @@
       174,
       175,
       -1,
-      -1,
+      292,
       148,
       149,
       150,
@@ -308,7 +308,7 @@
       151,
       -1,
       -1,
-      -1,
+      292,
       -1
     ],
     [
@@ -450,7 +450,7 @@
     [
       34,
       35,
-      -1,
+      364,
       -1,
       -1,
       321,
@@ -591,7 +591,7 @@
       -1,
       -1,
       -1,
-      -1,
+      297,
       -1,
       -1,
       -1,
@@ -744,14 +744,14 @@
       -1,
       -1,
       -1,
-      -1,
+      292,
       -1,
       -1,
       34,
       35,
       -1,
       -1,
-      -1
+      298
     ],
     [
       -1,
@@ -767,7 +767,7 @@
       321,
       -1,
       -1,
-      -1,
+      298,
       -1,
       -1,
       -1,
@@ -792,9 +792,9 @@
       -1,
       -1,
       -1,
-      -1,
-      -1,
-      -1,
+      438,
+      439,
+      440,
       -1,
       -1,
       -1,
@@ -826,9 +826,9 @@
       290,
       291,
       -1,
-      -1,
-      -1,
-      -1,
+      462,
+      463,
+      464,
       10,
       11,
       -1,
@@ -860,9 +860,9 @@
       314,
       315,
       297,
-      -1,
-      -1,
-      -1,
+      486,
+      487,
+      488,
       34,
       35,
       -1,
@@ -1009,7 +1009,7 @@
       "none",
       "none",
       "none",
-      "none",
+      "tree",
       "tree",
       "tree",
       "none",
@@ -1046,7 +1046,7 @@
       "tree",
       "tree",
       "tree",
-      "tree",
+      "none",
       "none",
       "roof",
       "roof",
@@ -1077,10 +1077,10 @@
       "none",
       "none",
       "none",
+      "none",
       "tree",
-      "tree",
-      "tree",
-      "tree",
+      "none",
+      "none",
       "none",
       "wall",
       "wall",
@@ -1746,9 +1746,9 @@
       "none",
       "none",
       "none",
-      "none",
-      "none",
-      "none",
+      "tree",
+      "tree",
+      "tree",
       "none",
       "none",
       "none",
@@ -1780,9 +1780,9 @@
       "roof",
       "roof",
       "none",
-      "none",
-      "none",
-      "none",
+      "tree",
+      "tree",
+      "tree",
       "tree",
       "tree",
       "none",
@@ -1815,7 +1815,7 @@
       "wall",
       "none",
       "none",
-      "none",
+      "tree",
       "none",
       "tree",
       "tree",
@@ -3025,6 +3025,122 @@
           "count": 20,
           "spawnDelay": 500,
           "waveDelay": 0
+        },
+        {
+          "enemyType": "basic",
+          "count": 20,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        }
+      ]
+    },
+    {
+      "waveNumber": 9,
+      "entries": [
+        {
+          "enemyType": "sprinter",
+          "count": 14,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        },
+        {
+          "enemyType": "basic",
+          "count": 25,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        },
+        {
+          "enemyType": "elite",
+          "count": 4,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        }
+      ]
+    },
+    {
+      "waveNumber": 10,
+      "entries": [
+        {
+          "enemyType": "armored",
+          "count": 20,
+          "spawnDelay": 1000,
+          "waveDelay": 0
+        },
+        {
+          "enemyType": "healer",
+          "count": 8,
+          "spawnDelay": 750,
+          "waveDelay": 0
+        },
+        {
+          "enemyType": "boss",
+          "count": 2,
+          "spawnDelay": 6000,
+          "waveDelay": 1000
+        },
+        {
+          "enemyType": "phantom",
+          "count": 2,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        }
+      ]
+    },
+    {
+      "waveNumber": 11,
+      "entries": [
+        {
+          "enemyType": "swarm",
+          "count": 10,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        },
+        {
+          "enemyType": "phantom",
+          "count": 5,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        },
+        {
+          "enemyType": "basic",
+          "count": 40,
+          "spawnDelay": 500,
+          "waveDelay": 1000
+        },
+        {
+          "enemyType": "boss",
+          "count": 4,
+          "spawnDelay": 2000,
+          "waveDelay": 12000
+        }
+      ]
+    },
+    {
+      "waveNumber": 12,
+      "entries": [
+        {
+          "enemyType": "swarm",
+          "count": 20,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        },
+        {
+          "enemyType": "healer",
+          "count": 20,
+          "spawnDelay": 540,
+          "waveDelay": 600
+        },
+        {
+          "enemyType": "fast",
+          "count": 30,
+          "spawnDelay": 400,
+          "waveDelay": 7000
+        },
+        {
+          "enemyType": "boss",
+          "count": 6,
+          "spawnDelay": 400,
+          "waveDelay": 2000
         }
       ]
     }
@@ -3165,26 +3281,6 @@
     {
       "x": 3,
       "y": 10
-    },
-    {
-      "x": 3,
-      "y": 11
-    },
-    {
-      "x": 5,
-      "y": 12
-    },
-    {
-      "x": 6,
-      "y": 12
-    },
-    {
-      "x": 7,
-      "y": 12
-    },
-    {
-      "x": 8,
-      "y": 12
     }
   ],
   "spawnPoints": [
