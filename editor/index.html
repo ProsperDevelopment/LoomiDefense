@@ -34,6 +34,12 @@
   .tile-palette img:hover { border-color: #e94560; }
   .tile-palette img.selected { border-color: #FFD700; background: rgba(255,215,0,0.2); }
   
+  /* Tile palette tabs (tilesets) */
+  .palette-tabs { display: flex; gap: 4px; margin-bottom: 6px; flex-wrap: wrap; }
+  .palette-tab { flex: 1; padding: 5px; min-width: 42px; background: #2a2a4e; border: 1px solid #4a4a6a; color: #aaa; border-radius: 4px; cursor: pointer; font-size: 11px; text-align: center; }
+  .palette-tab:hover { background: #3a3a5e; color: #ddd; }
+  .palette-tab.active { background: #e94560; border-color: #e94560; color: #fff; }
+
   /* Canvas area */
   #canvas-area { flex: 1; display: flex; flex-direction: column; }
   #toolbar { background: #16213e; padding: 8px 12px; display: flex; gap: 8px; align-items: center; border-bottom: 2px solid #0f3460; }
@@ -125,17 +131,8 @@
     <input type="color" id="roadColor" value="#7a7a7a" onchange="updateRoadColor()">
     <label>Road Dark:</label>
     <input type="color" id="roadColorDark" value="#4a4a4a" onchange="updateRoadColorDark()">
-    
-    <h3>Tileset</h3>
-    <select id="tilesetSelect" onchange="loadTileset(this.value)">
-      <option value="TilesetNature">Nature</option>
-      <option value="TilesetField">Field</option>
-      <option value="TilesetDesert">Desert</option>
-      <option value="TilesetFloor">Floor</option>
-      <option value="TilesetWater">Water</option>
-    </select>
-    
-    <h3>Tiles</h3>
+<h3>Tiles</h3>
+    <div class="palette-tabs" id="paletteTabs"></div>
     <div class="tile-palette" id="tilePalette"></div>
     
     <h3>Actions</h3>
@@ -206,8 +203,24 @@ let pathPoints = [];
 let spawnPoints = [];
 let basePoints = [];
 let currentTool = 'path';
-let currentTileset = 'TilesetNature';
-let selectedTileIndex = 0;
+// Tilesets as GLOBAL id ranges — keep in sync with src/utils/tileRanges.ts
+const TILESETS = [
+  { name: 'Nature', folder: 'TilesetNature', base: 0, count: 504 },
+  { name: 'Field', folder: 'TilesetField', base: 504, count: 75 },
+  { name: 'Desert', folder: 'TilesetDesert', base: 579, count: 240 },
+  { name: 'Floor', folder: 'TilesetFloor', base: 819, count: 594 },
+  { name: 'Water', folder: 'TilesetWater', base: 1413, count: 476 },
+];
+// Legacy level `tileset` values -> asset folder (importing old exports)
+const LEGACY_FOLDERS = {
+  TilesetNature: 'TilesetNature', nature_tile: 'TilesetNature',
+  TilesetDesert: 'TilesetDesert', desert_tile: 'TilesetDesert',
+  TilesetField: 'TilesetField', field_tile: 'TilesetField',
+  TilesetFloor: 'TilesetFloor', floor_tile: 'TilesetFloor',
+  TilesetWater: 'TilesetWater', water_tile: 'TilesetWater',
+};
+let currentPalette = TILESETS[0];
+let selectedTileIndex = 0;   // GLOBAL tile id
 let tileImages = {};
 let zoom = 3;
 let isMouseDown = false;
@@ -223,7 +236,7 @@ let roadColorDark = '#4a4a4a';
 async function init() {
   await loadTilesetData();
   clearGrid();
-  loadTileset('TilesetNature');
+  await loadPaletteSet(TILESETS[0]);
   updateWavesSummary();
   render();
 }
@@ -373,50 +386,94 @@ async function loadTilesetData() {
   }
 }
 
-async function loadTileset(name) {
-  currentTileset = name;
+// Load every image of a tileset into tileImages keyed by GLOBAL id.
+// Images persist across tabs so painting/rendering works for all sets.
+async function loadSetImages(ts) {
+  if (!tileData) await loadTilesetData();
+  const files = (tileData?.[ts.folder]?.tiles || []).map(t => t.file);
+  const pending = [];
+  for (let i = 0; i < ts.count; i++) {
+    const gid = ts.base + i;
+    if (tileImages[gid]) continue;
+    const img = new Image();
+    const file = files[i] || `tile_${String(i).padStart(3, '0')}.png`;
+    img.src = `assets/${ts.folder}/${file}`;
+    tileImages[gid] = img;
+    pending.push(new Promise(res => { img.onload = res; img.onerror = res; }));
+  }
+  await Promise.all(pending);
+}
+
+function buildPaletteTabs() {
+  const wrap = document.getElementById('paletteTabs');
+  wrap.innerHTML = '';
+  for (const ts of TILESETS) {
+    const btn = document.createElement('button');
+    btn.className = 'palette-tab' + (ts === currentPalette ? ' active' : '');
+    btn.textContent = ts.name;
+    btn.onclick = () => loadPaletteSet(ts);
+    wrap.appendChild(btn);
+  }
+}
+
+async function loadPaletteSet(ts) {
+  currentPalette = ts;
+  buildPaletteTabs();
+  await loadSetImages(ts);
+
   const palette = document.getElementById('tilePalette');
   palette.innerHTML = '';
-  tileImages = {};
-
-  if (!tileData) {
-    await loadTilesetData();
-  }
-
-  const tileset = tileData?.[name];
-  if (!tileset) {
-    console.error('Tileset not found:', name);
-    return;
-  }
-
-  const tiles = tileset.tiles || [];
-
-  for (let i = 0; i < tiles.length; i++) {
-    const tile = tiles[i];
-    const file = tile.file;
-    const img = new Image();
-    img.src = `assets/${name}/${file}`;
-    await new Promise(resolve => { img.onload = resolve; });
-    
-    tileImages[i] = img;
-    
+  for (let i = 0; i < ts.count; i++) {
+    const gid = ts.base + i;
+    const img = tileImages[gid];
+    if (!img || !img.complete || img.naturalWidth === 0) continue; // failed download
     const tileImg = document.createElement('img');
     tileImg.src = img.src;
-    tileImg.dataset.index = i;
-    tileImg.onclick = () => selectTile(i);
-    if (i === 0) tileImg.classList.add('selected');
+    tileImg.dataset.index = gid;
+    tileImg.onclick = () => selectTile(gid);
+    if (gid === selectedTileIndex) tileImg.classList.add('selected');
     palette.appendChild(tileImg);
   }
-  
-  selectedTileIndex = 0;
   updatePreview();
   render();
 }
 
+// Load images for every tileset a background layer uses (import path)
+async function ensureTilesLoaded(bg) {
+  const folderOf = (gid) => TILESETS.find(ts => gid >= ts.base && gid < ts.base + ts.count) || null;
+  const needed = new Set();
+  for (const row of bg) {
+    for (const v of row) {
+      if (!Number.isInteger(v) || v < 0) continue;
+      const ts = folderOf(v);
+      if (ts) needed.add(ts);
+    }
+  }
+  for (const ts of needed) await loadSetImages(ts);
+}
+
+// Convert an imported background layer to global ids. Legacy exports
+// declared a `tileset` with local indices; newer files are already global.
+function convertLegacyBgGrid(bg, tileset) {
+  const empty = () => Array.from({ length: gridHeight * 2 }, () => new Array(gridWidth * 2).fill(-1));
+  if (!Array.isArray(bg) || bg.length !== gridHeight * 2) return empty();
+  const ts = tileset ? TILESETS.find(t => t.folder === LEGACY_FOLDERS[tileset]) : null;
+  return bg.map(row => {
+    if (!Array.isArray(row) || row.length !== gridWidth * 2) return new Array(gridWidth * 2).fill(-1);
+    return row.map(v => {
+      if (!Number.isFinite(Number(v))) return -1;
+      const n = Math.floor(Number(v));
+      if (n < 0) return -1;
+      if (ts) return ts.base + n;   // legacy local id -> global
+      return n;                     // already global
+    });
+  });
+}
+
 function selectTile(index) {
   selectedTileIndex = index;
-  document.querySelectorAll('.tile-palette img').forEach((img, i) => {
-    img.classList.toggle('selected', i === index);
+  document.querySelectorAll('.tile-palette img').forEach((img) => {
+    img.classList.toggle('selected', Number(img.dataset.index) === index);
   });
   updatePreview();
 }
@@ -633,7 +690,7 @@ function setupInput() {
       const bgCell = getBgCell(e);
       if (bgCell) {
         document.getElementById('status').textContent = 
-          `BG Tile: (${bgCell.x}, ${bgCell.y}) | Tool: ${toolLabel()} | Tileset: ${currentTileset}[${selectedTileIndex}]`;
+          `BG Tile: (${bgCell.x}, ${bgCell.y}) | Tool: ${toolLabel()} | Tile ${selectedTileIndex} (${currentPalette.name})`;
       }
       if (isMouseDown) {
         handleCell(e);
@@ -642,7 +699,7 @@ function setupInput() {
       const cell = getCell(e);
       if (cell) {
         document.getElementById('status').textContent = 
-          `Cell: (${cell.x}, ${cell.y}) | Tool: ${toolLabel()} | Tileset: ${currentTileset}[${selectedTileIndex}]`;
+          `Cell: (${cell.x}, ${cell.y}) | Tool: ${toolLabel()} | Tile ${selectedTileIndex} (${currentPalette.name})`;
       }
       // Drag while the erase-path or paint-area tool is held down
       if (isMouseDown && (currentTool === 'erasePath' || currentTool === 'area')) {
@@ -898,7 +955,6 @@ function exportJSON() {
     description: '',
     width: gridWidth,
     height: gridHeight,
-    tileset: currentTileset,
     bgTiles: bgGrid,
     areas: areas,
     fgAreas: fgAreas,
@@ -934,21 +990,15 @@ function handleFileImport(e) {
   if (!file) return;
   
   const reader = new FileReader();
-  reader.onload = (event) => {
+  reader.onload = async (event) => {
     try {
       const data = JSON.parse(event.target.result);
       gridWidth = data.width;
       gridHeight = data.height;
-      // Legacy 'tiles' (foreground) are ignored — only backgrounds are kept
-      bgGrid = data.bgTiles || [];
-      
-      // Initialize bgGrid if not provided
-      if (!bgGrid.length) {
-        bgGrid = [];
-        for (let y = 0; y < gridHeight * 2; y++) {
-          bgGrid.push(new Array(gridWidth * 2).fill(-1));
-        }
-      }
+      // Background tiles use GLOBAL ids; legacy exports (declared a
+      // tileset with local indices) are converted here. Foreground
+      // 'tiles' from old files are ignored.
+      bgGrid = convertLegacyBgGrid(data.bgTiles, data.tileset);
 
       // Load area overlay (background resolution; legacy grid-resolution
       // layers are expanded cell -> 2x2 block)
@@ -976,11 +1026,6 @@ function handleFileImport(e) {
       document.getElementById('gridWidth').value = gridWidth;
       document.getElementById('gridHeight').value = gridHeight;
       
-      if (data.tileset) {
-        document.getElementById('tilesetSelect').value = data.tileset;
-        loadTileset(data.tileset);
-      }
-      
       // Load colors (native numbers or "#rrggbb" strings)
       const toHex = (v, def) => {
         if (typeof v === 'number' && isFinite(v)) return '#' + (v >>> 0).toString(16).padStart(6, '0');
@@ -998,6 +1043,7 @@ function handleFileImport(e) {
       document.getElementById('roadColor').value = roadColor;
       document.getElementById('roadColorDark').value = roadColorDark;
       
+      await ensureTilesLoaded(bgGrid);
       render();
     } catch (err) {
       alert('Error loading file: ' + err.message);

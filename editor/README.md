@@ -4,7 +4,7 @@ A standalone level editor for creating and editing tower defense maps.
 
 ## Features
 
-- **Paint/erase background tiles** from multiple tilesets (Nature, Field, Desert, Floor, Water)
+- **Paint/erase background tiles** from **all tilesets at once** (Nature, Field, Desert, Floor, Water — switch with the palette tabs)
 - **Paint areas**: tree, wall (no building) and roof (sniper-only building)
 - **Foreground markers**: mark background tiles to render above gameplay (depth 20)
 - **Difficulty**: easy / medium / hard — decides starting lives
@@ -97,14 +97,19 @@ Levels without a difficulty default to easy.
 Custom waves replace the game's built-in waves for this level. Leave the
 list empty (the default) to keep the game's built-in waves.
 
-### Tilesets
+### Tile Palette
 
-Select from the dropdown to switch between tilesets (used by the background painting tools):
+Tiles from **all tilesets** live in one global id space (0…1888), so a
+single level can mix tiles from every set. Use the palette tabs to pick
+which sheet to paint from:
+
 - **Nature** - Trees, grass, flowers
 - **Field** - Farm tiles
 - **Desert** - Sand, rocks
 - **Floor** - Indoor floors
 - **Water** - Water tiles
+
+The status bar shows the **global tile id** of the selected tile.
 
 ### Import/Export
 
@@ -121,7 +126,6 @@ Select from the dropdown to switch between tilesets (used by the background pain
   "description": "A fun level",
   "width": 20,
   "height": 15,
-  "tileset": "TilesetNature",
   "bgTiles": [[0, 0, ...], ...],
   "areas": [["tree", "none", "roof", ...], ...],
   "fgAreas": [["fg", "none", ...], ...],
@@ -137,7 +141,9 @@ Select from the dropdown to switch between tilesets (used by the background pain
 ### Background Tile Index Reference
 
 Background tiles are painted on a 2x-resolution grid (half-cell size).
-Each tileset has tiles numbered starting from 0. Empty cells use -1.
+Values are **global tile ids** across all tilesets; empty cells are -1.
+Legacy exports that declared a `tileset` with local ids are converted
+automatically on import.
 
 ## Integration with Game
 

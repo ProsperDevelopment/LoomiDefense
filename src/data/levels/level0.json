@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "name": "Dev Demo",
+  "description": "Test all enemy types",
+  "width": 16,
+  "height": 10,
+  "path": [
+    {
+      "x": 1,
+      "y": 1
+    },
+    {
+      "x": 2,
+      "y": 1
+    },
+    {
+      "x": 3,
+      "y": 1
+    },
+    {
+      "x": 4,
+      "y": 1
+    },
+    {
+      "x": 4,
+      "y": 2
+    },
+    {
+      "x": 3,
+      "y": 2
+    },
+    {
+      "x": 3,
+      "y": 3
+    },
+    {
+      "x": 5,
+      "y": 3
+    },
+    {
+      "x": 5,
+      "y": 4
+    },
+    {
+      "x": 5,
+      "y": 5
+    },
+    {
+      "x": 6,
+      "y": 5
+    },
+    {
+      "x": 6,
+      "y": 4
+    },
+    {
+      "x": 7,
+      "y": 4
+    },
+    {
+      "x": 7,
+      "y": 5
+    },
+    {
+      "x": 8,
+      "y": 5
+    },
+    {
+      "x": 9,
+      "y": 5
+    },
+    {
+      "x": 10,
+      "y": 5
+    },
+    {
+      "x": 11,
+      "y": 5
+    },
+    {
+      "x": 12,
+      "y": 5
+    },
+    {
+      "x": 13,
+      "y": 5
+    },
+    {
+      "x": 14,
+      "y": 5
+    }
+  ],
+  "spawnPoints": [
+    {
+      "x": 0,
+      "y": 1
+    }
+  ],
+  "basePoints": [
+    {
+      "x": 14,
+      "y": 5
+    }
+  ],
+  "waves": [
+    {
+      "waveNumber": 1,
+      "entries": [
+        {
+          "enemyType": "basic",
+          "count": 3,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        },
+        {
+          "enemyType": "fast",
+          "count": 3,
+          "spawnDelay": 500,
+          "waveDelay": 2000
+        },
+        {
+          "enemyType": "armored",
+          "count": 2,
+          "spawnDelay": 800,
+          "waveDelay": 4000
+        },
+        {
+          "enemyType": "healer",
+          "count": 2,
+          "spawnDelay": 800,
+          "waveDelay": 6000
+        },
+        {
+          "enemyType": "swarm",
+          "count": 5,
+          "spawnDelay": 300,
+          "waveDelay": 8000
+        },
+        {
+          "enemyType": "tank",
+          "count": 1,
+          "spawnDelay": 1500,
+          "waveDelay": 10000
+        },
+        {
+          "enemyType": "elite",
+          "count": 1,
+          "spawnDelay": 1000,
+          "waveDelay": 12000
+        },
+        {
+          "enemyType": "boss",
+          "count": 1,
+          "spawnDelay": 0,
+          "waveDelay": 15000
+        }
+      ]
+    },
+    {
+      "waveNumber": 2,
+      "entries": [
+        {
+          "enemyType": "basic",
+          "count": 5,
+          "spawnDelay": 400,
+          "waveDelay": 0
+        },
+        {
+          "enemyType": "fast",
+          "count": 5,
+          "spawnDelay": 400,
+          "waveDelay": 1000
+        },
+        {
+          "enemyType": "armored",
+          "count": 3,
+          "spawnDelay": 600,
+          "waveDelay": 2000
+        },
+        {
+          "enemyType": "healer",
+          "count": 3,
+          "spawnDelay": 600,
+          "waveDelay": 3000
+        },
+        {
+          "enemyType": "swarm",
+          "count": 10,
+          "spawnDelay": 200,
+          "waveDelay": 4000
+        },
+        {
+          "enemyType": "tank",
+          "count": 2,
+          "spawnDelay": 1200,
+          "waveDelay": 6000
+        },
+        {
+          "enemyType": "elite",
+          "count": 2,
+          "spawnDelay": 800,
+          "waveDelay": 8000
+        },
+        {
+          "enemyType": "boss",
+          "count": 2,
+          "spawnDelay": 2000,
+          "waveDelay": 10000
+        }
+      ]
+    }
+  ]
+}

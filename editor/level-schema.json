@@ -32,24 +32,6 @@
       "maximum": 50,
       "description": "Grid height in tiles"
     },
-    "tileSize": {
-      "type": "number",
-      "description": "Size of each tile in pixels"
-    },
-    "tileset": {
-      "type": "string",
-      "description": "Name of the tileset to use"
-    },
-    "tiles": {
-      "type": "array",
-      "items": {
-        "type": "array",
-        "items": {
-          "type": "number"
-        }
-      },
-      "description": "Legacy foreground tile grid (no longer produced by the editor; ignored by the game)"
-    },
     "path": {
       "type": "array",
       "items": {
@@ -107,25 +89,17 @@
       },
       "description": "Base/exit locations"
     },
-    "grassColor": {
-      "type": "number",
-      "description": "Tint for light grass chessboard squares (0xRRGGBB)"
-    },
-    "grassColorDark": {
-      "type": "number",
-      "description": "Tint for dark grass chessboard squares (0xRRGGBB)"
-    },
-    "roadColor": {
-      "type": "number",
-      "description": "Tint for road fill (0xRRGGBB)"
-    },
-    "roadColorDark": {
-      "type": "number",
-      "description": "Tint for road outline (0xRRGGBB)"
+    "bgTiles": {
+      "type": "array",
+      "description": "Background tiles at 2x grid resolution. Values are GLOBAL tile ids spanning all tilesets (see src/utils/tileRanges.ts); -1 = empty cell."
     },
     "areas": {
       "type": "array",
       "description": "Area overlay at background-tile resolution (2x grid, same as bgTiles): 'none' | 'tree' | 'wall' | 'roof'. Tree/wall block building; roof is sniper-only. Legacy grid-resolution layers are accepted and upgraded automatically."
+    },
+    "fgAreas": {
+      "type": "array",
+      "description": "Foreground markers at background-tile resolution (2x grid, same as bgTiles): 'fg' marks tiles that render above gameplay (depth 20); others render at depth 10. Invisible layer."
     },
     "difficulty": {
       "type": "string",
@@ -188,9 +162,35 @@
         }
       }
     },
-    "fgAreas": {
+    "grassColor": {
+      "type": "number",
+      "description": "Tint for light grass chessboard squares (0xRRGGBB)"
+    },
+    "grassColorDark": {
+      "type": "number",
+      "description": "Tint for dark grass chessboard squares (0xRRGGBB)"
+    },
+    "roadColor": {
+      "type": "number",
+      "description": "Tint for road fill (0xRRGGBB)"
+    },
+    "roadColorDark": {
+      "type": "number",
+      "description": "Tint for road outline (0xRRGGBB)"
+    },
+    "tileSize": {
+      "type": "number",
+      "description": "Size of each tile in pixels"
+    },
+    "tiles": {
       "type": "array",
-      "description": "Foreground markers at background-tile resolution (2x grid, same as bgTiles): 'fg' marks tiles that render above gameplay (depth 20); others render at depth 10. Invisible layer."
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        }
+      },
+      "description": "Legacy foreground tile grid (no longer produced by the editor; ignored by the game)"
     }
   }
 }

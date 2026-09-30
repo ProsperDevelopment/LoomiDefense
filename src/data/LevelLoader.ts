@@ -1,4 +1,5 @@
 import type { MapData, CellType, Difficulty, WaveData, WaveEntry, FgAreaType } from '../types';
+import { convertLegacyBgTiles } from '../utils/backgroundTiles';
 import { ENEMY_DEFINITIONS } from './enemies';
 
 /**
@@ -103,8 +104,9 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
     grid,
     spawnPoints,
     basePath,
-    bgTiles: jsonData.bgTiles,
-    tileset: jsonData.tileset,
+    // Legacy levels declared a tileset with local indices — convert to
+    // global tile ids; newer levels are already global.
+    bgTiles: convertLegacyBgTiles(jsonData.bgTiles, jsonData.tileset),
     areas: Array.isArray(jsonData.areas) ? jsonData.areas : undefined,
     fgAreas: parseFgAreas(jsonData.fgAreas),
     difficulty: parseDifficulty(jsonData.difficulty),
@@ -117,12 +119,24 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
 }
 
 // Import level JSON files
+
+import level0Data from './levels/level0.json';
+
+export const LEVEL_0 = loadLevelFromJSON(level0Data, 0);
+
+import level1Data from './levels/level1.json';
+
+export const LEVEL_1 = loadLevelFromJSON(level1Data, 1);
+
+import level2Data from './levels/level2.json';
+
+export const LEVEL_2 = loadLevelFromJSON(level2Data, 2);
+
 import level3Data from './levels/level3.json';
 
 export const LEVEL_3 = loadLevelFromJSON(level3Data, 3);
 
 import level4Data from './levels/level4.json';
-
 
 export const LEVEL_4 = loadLevelFromJSON(level4Data, 4);
 
@@ -130,11 +144,82 @@ import level5Data from './levels/level5.json';
 
 export const LEVEL_5 = loadLevelFromJSON(level5Data, 5);
 
+import level6Data from './levels/level6.json';
+
+export const LEVEL_6 = loadLevelFromJSON(level6Data, 6);
+
+import level7Data from './levels/level7.json';
+
+export const LEVEL_7 = loadLevelFromJSON(level7Data, 7);
+
 import level8Data from './levels/level8.json';
 
 export const LEVEL_8 = loadLevelFromJSON(level8Data, 8);
 
-
 import level9Data from './levels/level9.json';
 
 export const LEVEL_9 = loadLevelFromJSON(level9Data, 9);
+
+import level10Data from './levels/level10.json';
+
+export const LEVEL_10 = loadLevelFromJSON(level10Data, 10);
+
+import level11Data from './levels/level11.json';
+
+export const LEVEL_11 = loadLevelFromJSON(level11Data, 11);
+
+import level12Data from './levels/level12.json';
+
+export const LEVEL_12 = loadLevelFromJSON(level12Data, 12);
+
+import level13Data from './levels/level13.json';
+
+export const LEVEL_13 = loadLevelFromJSON(level13Data, 13);
+
+import level14Data from './levels/level14.json';
+
+export const LEVEL_14 = loadLevelFromJSON(level14Data, 14);
+
+import level15Data from './levels/level15.json';
+
+export const LEVEL_15 = loadLevelFromJSON(level15Data, 15);
+
+import level16Data from './levels/level16.json';
+
+export const LEVEL_16 = loadLevelFromJSON(level16Data, 16);
+
+import level17Data from './levels/level17.json';
+
+export const LEVEL_17 = loadLevelFromJSON(level17Data, 17);
+
+import level18Data from './levels/level18.json';
+
+export const LEVEL_18 = loadLevelFromJSON(level18Data, 18);
+
+import level19Data from './levels/level19.json';
+
+export const LEVEL_19 = loadLevelFromJSON(level19Data, 19);
+
+import level20Data from './levels/level20.json';
+
+export const LEVEL_20 = loadLevelFromJSON(level20Data, 20);
+
+import level21Data from './levels/level21.json';
+
+export const LEVEL_21 = loadLevelFromJSON(level21Data, 21);
+
+import level22Data from './levels/level22.json';
+
+export const LEVEL_22 = loadLevelFromJSON(level22Data, 22);
+
+import level23Data from './levels/level23.json';
+
+export const LEVEL_23 = loadLevelFromJSON(level23Data, 23);
+
+import level24Data from './levels/level24.json';
+
+export const LEVEL_24 = loadLevelFromJSON(level24Data, 24);
+
+import level25Data from './levels/level25.json';
+
+export const LEVEL_25 = loadLevelFromJSON(level25Data, 25);

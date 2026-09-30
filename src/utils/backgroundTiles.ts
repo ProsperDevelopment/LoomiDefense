@@ -1,66 +1,68 @@
 // ============================================================
 // On-demand background tile loading.
 //
-// Background tiles (504 nature / 239 desert / ...) are NOT loaded at
-// boot — only the tiles a level actually uses are fetched when the
-// level starts (see GameScene.drawBackgroundTiles).
+// Background tiles are NOT loaded at boot — only the tiles a level
+// actually uses are fetched when the level starts (see
+// GameScene.drawBackgroundTiles). Tile ids are global across all
+// tilesets (see tileRanges.ts).
 // ============================================================
-
-export interface TilesetAssets {
-  /** Texture key prefix, e.g. 'nature_tile' → nature_tile_042 */
-  prefix: string;
-  /** Folder under public/assets/tilesets/, e.g. 'TilesetNature' */
-  folder: string;
-}
-
-/**
- * Map a level's `tileset` value to the texture prefix + asset folder.
- * Older levels use texture prefixes ('nature_tile'), the editor exports
- * folder names ('TilesetNature') — both resolve to the same assets.
- * Unknown tilesets fall back to nature.
- */
-export function resolveTilesetAssets(tileset?: string): TilesetAssets {
-  switch (tileset) {
-    case 'nature_tile':
-    case 'TilesetNature':
-      return { prefix: 'nature_tile', folder: 'TilesetNature' };
-    case 'desert_tile':
-    case 'TilesetDesert':
-      return { prefix: 'desert_tile', folder: 'TilesetDesert' };
-    case 'TilesetField':
-      return { prefix: 'field_tile', folder: 'TilesetField' };
-    case 'TilesetFloor':
-      return { prefix: 'floor_tile', folder: 'TilesetFloor' };
-    case 'TilesetWater':
-      return { prefix: 'water_tile', folder: 'TilesetWater' };
-    default:
-      return { prefix: 'nature_tile', folder: 'TilesetNature' };
-  }
-}
+import { tileInfo, folderForTilesetName, globalIdFor } from './tileRanges';
 
 /**
  * All unique texture loads a level's background layer needs.
- * Empty cells (-1) are skipped.
+ * Empty cells (-1) and unknown ids are skipped.
  */
-export function collectBgTileLoads(mapData: {
-  bgTiles?: number[][];
-  tileset?: string;
-}): Array<{ key: string; url: string }> {
-  const { prefix, folder } = resolveTilesetAssets(mapData.tileset);
-  const seen = new Set<string>();
+export function collectBgTileLoads(bgTiles?: number[][]): Array<{ key: string; url: string }> {
+  const seen = new Set<number>();
   const loads: Array<{ key: string; url: string }> = [];
 
-  for (const row of mapData.bgTiles ?? []) {
+  for (const row of bgTiles ?? []) {
     for (const raw of row) {
       if (!Number.isFinite(raw)) continue;
-      const idx = Math.floor(raw as number);
-      if (idx < 0) continue;
-      const n = idx.toString().padStart(3, '0');
-      const key = `${prefix}_${n}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      loads.push({ key, url: `assets/tilesets/${folder}/tile_${n}.png` });
+      const info = tileInfo(Math.floor(raw as number));
+      if (!info || seen.has(info.globalId)) continue;
+      seen.add(info.globalId);
+      loads.push({ key: info.key, url: info.url });
     }
   }
   return loads;
+}
+
+/** Texture key of a global tile id ('' when the id is unknown). */
+export function bgTileKey(globalId: number): string {
+  return tileInfo(globalId)?.key ?? '';
+}
+
+/**
+ * Convert a legacy level's background layer (local indices into a single
+ * declared `tileset`) to global tile ids. Levels without a `tileset`
+ * already use global ids and are passed through unchanged.
+ * Returns undefined when the layer is missing or malformed.
+ */
+export function convertLegacyBgTiles(
+  bgTiles: unknown,
+  tileset?: string,
+): number[][] | undefined {
+  if (!Array.isArray(bgTiles) || bgTiles.length === 0) return undefined;
+  if (!bgTiles.every((row) => Array.isArray(row))) return undefined;
+
+  const folder = folderForTilesetName(tileset);
+  if (folder === null) {
+    // No legacy tileset declaration: ids are already global
+    return bgTiles.map((row) =>
+      row.map((v) => {
+        const n = Math.floor(Number(v));
+        return Number.isFinite(n) && n >= 0 ? n : -1;
+      }),
+    );
+  }
+
+  return bgTiles.map((row) =>
+    row.map((v) => {
+      const local = Math.floor(Number(v));
+      if (!Number.isFinite(local) || local < 0) return -1;
+      const global = globalIdFor(folder, local);
+      return global !== null ? global : -1;
+    }),
+  );
 }

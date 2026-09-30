@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { TowerType, EnemyType, TargetMode, MapData } from '../types';
 import { Grid } from '../utils/Grid';
 import { Pathfinding } from '../utils/Pathfinding';
-import { collectBgTileLoads, resolveTilesetAssets } from '../utils/backgroundTiles';
+import { collectBgTileLoads, bgTileKey } from '../utils/backgroundTiles';
 import { WaveManager } from '../systems/WaveManager';
 import { EconomySystem } from '../systems/EconomySystem';
 import { PlayerEconomy } from '../systems/PlayerEconomy';
@@ -23,37 +23,6 @@ import type { NetSnapshot, NetCommand, NetStatus } from '../../shared/protocol';
 import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, LEVEL_STARTING_GOLD, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN, livesForDifficulty } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
 import { isWaveResolved } from '../utils/waveCompletion';
-import type { WaveData } from '../types';
-
-// Special waves for dev demo level
-const DEV_DEMO_WAVES: WaveData[] = [
-  {
-    waveNumber: 1,
-    entries: [
-      { enemyType: 'basic', count: 3, spawnDelay: 500, waveDelay: 0 },
-      { enemyType: 'fast', count: 3, spawnDelay: 500, waveDelay: 2000 },
-      { enemyType: 'armored', count: 2, spawnDelay: 800, waveDelay: 4000 },
-      { enemyType: 'healer', count: 2, spawnDelay: 800, waveDelay: 6000 },
-      { enemyType: 'swarm', count: 5, spawnDelay: 300, waveDelay: 8000 },
-      { enemyType: 'tank', count: 1, spawnDelay: 1500, waveDelay: 10000 },
-      { enemyType: 'elite', count: 1, spawnDelay: 1000, waveDelay: 12000 },
-      { enemyType: 'boss', count: 1, spawnDelay: 0, waveDelay: 15000 },
-    ],
-  },
-  {
-    waveNumber: 2,
-    entries: [
-      { enemyType: 'basic', count: 5, spawnDelay: 400, waveDelay: 0 },
-      { enemyType: 'fast', count: 5, spawnDelay: 400, waveDelay: 1000 },
-      { enemyType: 'armored', count: 3, spawnDelay: 600, waveDelay: 2000 },
-      { enemyType: 'healer', count: 3, spawnDelay: 600, waveDelay: 3000 },
-      { enemyType: 'swarm', count: 10, spawnDelay: 200, waveDelay: 4000 },
-      { enemyType: 'tank', count: 2, spawnDelay: 1200, waveDelay: 6000 },
-      { enemyType: 'elite', count: 2, spawnDelay: 800, waveDelay: 8000 },
-      { enemyType: 'boss', count: 2, spawnDelay: 2000, waveDelay: 10000 },
-    ],
-  },
-];
 
 /**
  * Terrain tiles - individual textures generated in BootScene
@@ -190,7 +159,7 @@ export class GameScene extends Phaser.Scene {
     this.pathfinding = new Pathfinding(this.grid);
 
     // Level-defined waves first; dev demo keeps its special set
-    const waves = mapData.waves ?? (levelId === 0 ? DEV_DEMO_WAVES : undefined);
+    const waves = mapData.waves;
     this.waveManager = new WaveManager(waves);
 
     // Use level-specific starting gold
@@ -739,7 +708,7 @@ export class GameScene extends Phaser.Scene {
   private drawBackgroundTiles(mapData: MapData): void {
     if (!mapData.bgTiles || mapData.bgTiles.length === 0) return;
 
-    const loads = collectBgTileLoads(mapData);
+    const loads = collectBgTileLoads(mapData.bgTiles);
     // Tiles we still need to fetch (skip ones already attempted this visit —
     // a failed download must not cause an endless retry loop)
     const pending = loads.filter(
@@ -765,13 +734,12 @@ export class GameScene extends Phaser.Scene {
 
     // Everything available — draw the layer (missing/failed tiles are skipped)
     const bgCellSize = CELL_SIZE / 2;
-    const { prefix } = resolveTilesetAssets(mapData.tileset);
     for (let row = 0; row < mapData.bgTiles.length; row++) {
       for (let col = 0; col < mapData.bgTiles[row].length; col++) {
         const tileIdx = mapData.bgTiles[row][col];
         if (tileIdx < 0) continue;
-        const tileKey = `${prefix}_${Math.floor(tileIdx).toString().padStart(3, '0')}`;
-        if (this.textures.exists(tileKey)) {
+        const tileKey = bgTileKey(tileIdx);
+        if (tileKey && this.textures.exists(tileKey)) {
           // Foreground-marked tiles draw above gameplay (20);
           // regular background tiles sit below health bars etc. (10).
           const isFg = mapData.fgAreas?.[row]?.[col] === 'fg';

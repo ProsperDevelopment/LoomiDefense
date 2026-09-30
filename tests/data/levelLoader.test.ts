@@ -107,3 +107,37 @@ describe('LevelLoader foreground markers (fgAreas)', () => {
     expect(loadLevelFromJSON({ ...baseLevel }, 1).fgAreas).toBeUndefined();
   });
 });
+
+describe('LevelLoader background tile ids', () => {
+  const base = {
+    name: 'Tiles', description: '', width: 4, height: 3,
+    path: [{ x: 0, y: 1 }], spawnPoints: [{ x: 0, y: 1 }], basePoints: [{ x: 3, y: 1 }],
+  };
+
+  it('passes global ids through when no tileset is declared', () => {
+    const level = loadLevelFromJSON({ ...base, bgTiles: [[0, 700, -1]] }, 1);
+    expect(level.bgTiles).toEqual([[0, 700, -1]]);
+  });
+
+  it('converts legacy tileset-local ids to global ids', () => {
+    const level = loadLevelFromJSON(
+      { ...base, tileset: 'desert_tile', bgTiles: [[0, 10]] },
+      1,
+    );
+    // Desert starts at base 579 (TilesetDesert)
+    expect(level.bgTiles).toEqual([[579, 589]]);
+  });
+
+  it('drops the tileset field entirely', () => {
+    const level = loadLevelFromJSON(
+      { ...base, tileset: 'TilesetNature', bgTiles: [[3]] },
+      1,
+    ) as unknown as Record<string, unknown>;
+    expect('tileset' in level).toBe(false);
+    expect(level.bgTiles).toEqual([[3]]);
+  });
+
+  it('handles missing background layers', () => {
+    expect(loadLevelFromJSON({ ...base }, 1).bgTiles).toBeUndefined();
+  });
+});
