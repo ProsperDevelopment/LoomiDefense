@@ -51,6 +51,8 @@ export class Enemy {
 
   // Animation
   private pulseTimer: number = 0;
+  /** Visibility pulse tween for invisible enemies (phantoms). */
+  private invisibilityTween: Phaser.Tweens.Tween | null = null;
   /** Last movement delta (set by refresh() during multiplayer sync). */
   private netFacing: { dx: number; dy: number } | null = null;
 
@@ -101,16 +103,18 @@ export class Enemy {
     this.healthBar.setOrigin(0, 0.5);
     this.healthBar.setDepth(12);
 
-    // Invisible enemies (Phantoms) start half transparent and animate
-    // down to fully invisible — blood splatter from hits is the only
-    // giveaway of their position once they're gone
+    // Invisible enemies (Phantoms) pulse from half transparent to fully
+    // invisible and back while traveling — the flicker is the only visual
+    // giveaway; blood splatter reveals their exact position on hits
     if (this.data.invisible) {
       sprite.setAlpha(0.5);
-      scene.tweens.add({
+      this.invisibilityTween = scene.tweens.add({
         targets: sprite,
         alpha: 0,
         duration: 2000,
         ease: 'Linear',
+        yoyo: true,
+        repeat: -1,
       });
       this.healthBarBg.setVisible(false);
       this.healthBar.setVisible(false);
@@ -244,6 +248,9 @@ export class Enemy {
   }
 
   destroy(): void {
+    // The pulse tween repeats forever — stop it or it outlives the sprite
+    this.invisibilityTween?.stop();
+    this.invisibilityTween = null;
     this.sprite?.destroy();
     this.healthBar?.destroy();
     this.healthBarBg?.destroy();
@@ -267,6 +274,7 @@ export class Enemy {
     this.alive = true;
     this.reachedBase = false;
     this.pulseTimer = 0;
+    this.invisibilityTween = null;
     this.netFacing = null;
   }
 }
