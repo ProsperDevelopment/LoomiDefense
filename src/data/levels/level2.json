@@ -4,6 +4,7 @@
   "description": "A winding path through the forest",
   "width": 16,
   "height": 12,
+  "startGold": 500,
   "tileSize": 16,
   "tiles": [
     [

@@ -141,3 +141,38 @@ describe('LevelLoader background tile ids', () => {
     expect(loadLevelFromJSON({ ...base }, 1).bgTiles).toBeUndefined();
   });
 });
+
+// ============================================================
+// LevelLoader: start gold.
+// ============================================================
+import { MAP_DEFINITIONS } from '../../src/data/maps';
+import { STARTING_GOLD } from '../../src/config/constants';
+
+describe('LevelLoader start gold', () => {
+  it('loads startGold from the level JSON', () => {
+    expect(loadLevelFromJSON({ ...baseLevel, startGold: 750 }, 1).startGold).toBe(750);
+    expect(loadLevelFromJSON({ ...baseLevel, startGold: 0 }, 1).startGold).toBe(0);
+    expect(loadLevelFromJSON({ ...baseLevel, startGold: 600.9 }, 1).startGold).toBe(600);
+  });
+
+  it('falls back to the game default when missing or invalid', () => {
+    expect(loadLevelFromJSON({ ...baseLevel }, 1).startGold).toBeUndefined();
+    expect(loadLevelFromJSON({ ...baseLevel, startGold: 'lots' }, 1).startGold).toBeUndefined();
+    expect(loadLevelFromJSON({ ...baseLevel, startGold: -5 }, 1).startGold).toBeUndefined();
+    expect(loadLevelFromJSON({ ...baseLevel, startGold: NaN }, 1).startGold).toBeUndefined();
+  });
+
+  it('defaults to 500 gold when the level does not set it', () => {
+    expect(STARTING_GOLD).toBe(500);
+    const level = loadLevelFromJSON({ ...baseLevel }, 1);
+    expect(level.startGold ?? STARTING_GOLD).toBe(500);
+  });
+
+  it('every shipped level declares a non-negative startGold', () => {
+    for (const level of MAP_DEFINITIONS) {
+      expect(level.startGold, `level ${level.id}`).toBeTypeOf('number');
+      expect(level.startGold!, `level ${level.id}`).toBeGreaterThanOrEqual(0);
+    }
+    expect(MAP_DEFINITIONS.find(l => l.id === 0)!.startGold).toBe(9999); // dev demo
+  });
+});

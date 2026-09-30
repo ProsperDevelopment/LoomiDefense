@@ -4,6 +4,7 @@
   "description": "Cross the bridge at an angle",
   "width": 16,
   "height": 10,
+  "startGold": 500,
   "path": [
     {
       "x": 1,

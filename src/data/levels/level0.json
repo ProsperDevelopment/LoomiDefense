@@ -4,6 +4,7 @@
   "description": "Test all enemy types",
   "width": 16,
   "height": 10,
+  "startGold": 9999,
   "path": [
     {
       "x": 1,

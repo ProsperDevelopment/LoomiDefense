@@ -110,6 +110,10 @@
       ],
       "description": "Starting lives: easy=20, medium=5, hard=1 (default easy)"
     },
+    "startGold": {
+      "type": "number",
+      "description": "Gold the player starts the level with (default 500)"
+    },
     "waves": {
       "type": "array",
       "description": "Custom wave definitions for this level. Each wave: { waveNumber, entries: [{ enemyType, count, spawnDelay, waveDelay }] }. Omit to use the game defaults.",

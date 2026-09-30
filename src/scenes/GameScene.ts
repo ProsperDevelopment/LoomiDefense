@@ -20,7 +20,7 @@ import { TOWER_DEFINITIONS, MAX_TOWER_LEVEL } from '../data/towers';
 import { userProfile } from '../state/UserProfile';
 import { lobby } from '../ui/overlay/lobbyScreen';
 import type { NetSnapshot, NetCommand, NetStatus } from '../../shared/protocol';
-import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, LEVEL_STARTING_GOLD, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN, livesForDifficulty } from '../config/constants';
+import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN, livesForDifficulty } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
 import { isWaveResolved } from '../utils/waveCompletion';
 import { canDamageEnemy } from '../utils/damageRules';
@@ -130,8 +130,8 @@ export class GameScene extends Phaser.Scene {
     const waves = mapData.waves;
     this.waveManager = new WaveManager(waves);
 
-    // Use level-specific starting gold
-    const startingGold = LEVEL_STARTING_GOLD[levelId] ?? STARTING_GOLD;
+    // Starting gold comes from the level JSON (default 500)
+    const startingGold = mapData.startGold ?? STARTING_GOLD;
     this.economy = new EconomySystem(startingGold);
 
     // Multiplayer: every player starts with their own gold pot.

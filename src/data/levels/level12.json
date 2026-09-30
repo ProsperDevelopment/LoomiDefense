@@ -4,6 +4,7 @@
   "description": "Find your way through",
   "width": 16,
   "height": 14,
+  "startGold": 500,
   "path": [
     {
       "x": 1,

@@ -4,6 +4,7 @@
   "description": "",
   "width": 16,
   "height": 14,
+  "startGold": 500,
   "bgTiles": [
     [
       -1,

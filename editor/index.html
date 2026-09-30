@@ -112,6 +112,9 @@
       <option value="hard">Hard — 1 life</option>
     </select>
 
+    <h3>Start Gold</h3>
+    <input type="number" id="startGold" value="500" min="0" step="25" onchange="setStartGold(this.value)">
+
     <h3>Waves</h3>
     <div class="waves-row">
       <button class="btn" onclick="openWavesDialog()">Edit Waves…</button>
@@ -242,6 +245,7 @@ let areas = [];  // Area overlay ('none' | 'tree' | 'wall' | 'roof')
 let fgAreas = []; // Foreground markers at background-tile resolution ('none' | 'fg')
 let currentAreaType = 'tree';
 let difficulty = 'easy';
+let startGold = 500;
 let pathPoints = [];
 let spawnPoints = [];
 let basePoints = [];
@@ -421,6 +425,13 @@ function setDifficulty(value) {
   const lives = value === 'easy' ? 20 : value === 'medium' ? 5 : 1;
   document.getElementById('status').textContent =
     `Difficulty: ${value} — ${lives} ${lives === 1 ? 'life' : 'lives'}`;
+}
+
+function setStartGold(value) {
+  const n = Math.floor(Number(value));
+  startGold = Number.isFinite(n) && n >= 0 ? n : 500;
+  document.getElementById('startGold').value = startGold;
+  document.getElementById('status').textContent = `Start gold: ${startGold}`;
 }
 
 function toolLabel() {
@@ -1348,6 +1359,7 @@ function exportJSON() {
     areas: areas,
     fgAreas: fgAreas,
     difficulty: difficulty,
+    startGold: startGold,
     ...(waves.length > 0 && {
       waves: waves.map((w, i) => ({ waveNumber: i + 1, entries: w.entries })),
     }),
@@ -1403,6 +1415,11 @@ function handleFileImport(e) {
       // Load difficulty (unknown values fall back to easy)
       difficulty = ['easy', 'medium', 'hard'].includes(data.difficulty) ? data.difficulty : 'easy';
       document.getElementById('difficulty').value = difficulty;
+
+      // Load start gold (missing/invalid falls back to 500)
+      const importedGold = Math.floor(Number(data.startGold));
+      startGold = Number.isFinite(importedGold) && importedGold >= 0 ? importedGold : 500;
+      document.getElementById('startGold').value = startGold;
 
       // Load custom wave definitions (invalid data falls back to defaults)
       waves = normalizeWaves(data.waves);

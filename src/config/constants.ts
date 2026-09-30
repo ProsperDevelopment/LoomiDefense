@@ -15,7 +15,7 @@ export const CELL_SIZE = 48;
 export const GRID_OFFSET_Y = 48; // Height of top HUD bar
 
 // --- Economy ---
-export const STARTING_GOLD = 200;
+export const STARTING_GOLD = 500;
 export const SELL_REFUND_RATIO = 0.6;
 export const WAVE_CLEAR_BONUS = 25;
 
@@ -33,36 +33,6 @@ export const DIFFICULTY_LIVES: Record<Difficulty, number> = {
 export function livesForDifficulty(difficulty?: Difficulty): number {
   return DIFFICULTY_LIVES[difficulty ?? 'easy'];
 }
-
-// --- Starting Gold per Level ---
-export const LEVEL_STARTING_GOLD: Record<number, number> = {
-  0: 9999,   // Dev demo - unlimited
-  1: 150,    // Winding Path - easy start
-  2: 150,    // Zigzag Canyon
-  3: 200,    // Crossroads
-  4: 180,    // Spiral Fortress
-  5: 200,    // Twin Peaks
-  6: 200,    // The Maze
-  7: 175,    // Spiral
-  8: 200,    // Fork
-  9: 225,    // Castle
-  10: 150,   // Bridge - tight economy
-  11: 175,   // Serpentine
-  12: 200,   // Labyrinth
-  13: 200,   // Dual
-  14: 175,   // Zigzag II
-  15: 250,   // Fortress
-  16: 200,   // Gauntlet
-  17: 225,   // Fortress II
-  18: 200,   // Gauntlet II
-  19: 250,   // Fortress III
-  20: 200,   // Gauntlet III
-  21: 225,   // Crossroads II
-  22: 200,   // Gauntlet IV
-  23: 250,   // Fortress IV
-  24: 225,   // Gauntlet V
-  25: 300,   // Final Boss
-};
 
 // --- Gameplay ---
 export const STARTING_LIVES = 20;

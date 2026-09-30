@@ -4,6 +4,7 @@
   "description": "Two paths converge",
   "width": 16,
   "height": 12,
+  "startGold": 500,
   "path": [
     {
       "x": 1,

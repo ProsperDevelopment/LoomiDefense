@@ -4,6 +4,7 @@
   "description": "The fourth fortress",
   "width": 14,
   "height": 12,
+  "startGold": 500,
   "path": [
     {
       "x": 1,

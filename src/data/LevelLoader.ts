@@ -20,6 +20,13 @@ function parseDifficulty(value: unknown): Difficulty | undefined {
   return value === 'easy' || value === 'medium' || value === 'hard' ? value : undefined;
 }
 
+/** Validate a start-gold value; unknown/invalid falls back to undefined (default 500). */
+function parseStartGold(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !isFinite(value)) return undefined;
+  const n = Math.floor(value);
+  return n >= 0 ? n : undefined;
+}
+
 /**
  * Parse the foreground-marker layer (background-tile resolution).
  * Anything that isn't a proper 2D array of 'fg'/other values becomes undefined.
@@ -110,6 +117,7 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
     areas: Array.isArray(jsonData.areas) ? jsonData.areas : undefined,
     fgAreas: parseFgAreas(jsonData.fgAreas),
     difficulty: parseDifficulty(jsonData.difficulty),
+    startGold: parseStartGold(jsonData.startGold),
     waves: parseWaves(jsonData.waves),
     // Legacy exports used `grassColor` — fall back so old files keep their colors
     groundColor: parseColor(jsonData.groundColor ?? jsonData.grassColor),
