@@ -73,6 +73,8 @@ export class GameScene extends Phaser.Scene {
   private pendingSnaps: NetSnapshot[] = [];
   private snapshotTimer: number = 0;
   private guestWaveNumber: number = 0;
+  /** Recent splatter timestamps — thins the fine spray in busy fights. */
+  private recentSplats: number[] = [];
   /** Per-level background tile loading (see drawBackgroundTiles). */
   private bgTileEpoch: number = 0;
   private bgTileLoadActive: boolean = false;
@@ -1286,11 +1288,15 @@ export class GameScene extends Phaser.Scene {
       return;
     }
    
-    // Splatter in the direction the projectile was travelling
+    // Splatter in the direction the projectile was travelling — how
+    // much depends on the chunk of health this hit takes off, not just
+    // whether it was the killing blow
     const dir = proj.getTravelDirection();
-    this.createBloodSplatter(dir.x, dir.y, primaryTarget.position, primaryTarget.data.size, 0);
-
     const dmg = proj.damage;
+    const hpFrac = dmg.baseDamage / Math.max(1, primaryTarget.health.max);
+    const bloodSize = hpFrac >= 0.5 ? 2 : hpFrac >= 0.25 ? 1 : 0;
+    this.createBloodSplatter(dir.x, dir.y, primaryTarget.position, primaryTarget.data.size, bloodSize);
+
     // The hit staggers the enemy briefly
     primaryTarget.applyImpact();
     const killed = this.healthSystem.applyDamage(
@@ -1431,8 +1437,14 @@ export class GameScene extends Phaser.Scene {
     // Base angle of the projectile's travel direction
     const hitAngle = Math.atan2(dirY, dirX);
 
+    // Lots of blood already on screen? Then no fine spray this time
+    const now = this.time.now;
+    this.recentSplats = this.recentSplats.filter((t) => now - t < 900);
+    const heavySplatter = this.recentSplats.length >= 4;
+    this.recentSplats.push(now);
+
     // Number of particles
-    const particleCount = 6 + (bloodSize * 4);
+    const particleCount = 3 + bloodSize * 3;
 
     /**
      * Landing sequence: on an object, run down to its base → spread into
@@ -1610,7 +1622,7 @@ export class GameScene extends Phaser.Scene {
       });
 
       // Also spawn exit blood (opposite direction, fewer particles)
-      if (i < 4) {
+      if (bloodSize > 0 && i < 2) {
         const exitAngle = angle + Math.PI + (Math.random() - 0.5) * 0.6;
         const exitSpeed = 18 + Math.random() * 32;
         const exitTargetX = hitPos.x + Math.cos(exitAngle) * exitSpeed;
@@ -1642,8 +1654,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Fine spray: pixel-sized particles from the very start of the
-    // lifecycle — born at the hit, they fly, drip and pool like the rest
-    const speckCount = 4 + Math.floor(Math.random() * 3);
+    // lifecycle — born at the hit, they fly, drip and pool like the
+    // rest, but only when the screen isn't already full of blood
+    const speckCount = heavySplatter ? 0 : 2 + Math.floor(Math.random() * 2);
     for (let i = 0; i < speckCount; i++) {
       const angle = hitAngle + (Math.random() - 0.5) * 2.4; // wider spread
       const speed = 25 + Math.random() * 60;
@@ -1705,15 +1718,25 @@ export class GameScene extends Phaser.Scene {
     enemy.healthBarBg?.setVisible(false);
 
     // Three death animations, picked at random: bleed out, tip over
-    // and explode, or the plain sprite burst
-    const roll = Math.random();
-    if (roll < 1 / 3) {
-      this.deathBleedOut(enemy);
-    } else if (roll < 2 / 3) {
-      this.deathTipOver(enemy);
+    // and explode, or the plain sprite burst. Phantoms never bleed out
+    // — they only tip over or burst.
+    if (enemy.data.invisible) {
+      if (Math.random() < 0.5) {
+        this.deathTipOver(enemy);
+      } else {
+        this.explodeEnemySprite(enemy);
+        enemy.destroy();
+      }
     } else {
-      this.explodeEnemySprite(enemy);
-      enemy.destroy();
+      const roll = Math.random();
+      if (roll < 1 / 3) {
+        this.deathBleedOut(enemy);
+      } else if (roll < 2 / 3) {
+        this.deathTipOver(enemy);
+      } else {
+        this.explodeEnemySprite(enemy);
+        enemy.destroy();
+      }
     }
 
     eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x, y, ownerId: ownerId ?? undefined });
@@ -1760,7 +1783,7 @@ export class GameScene extends Phaser.Scene {
    * contact pushes it away, the skid bounces off anything that isn't
    * ground, and friction brings it to a stop. Stops when the fade begins.
    */
-  private enableCorpsePush(enemy: Enemy, sprite: Phaser.GameObjects.Image): void {
+  private enableCorpsePush(enemy: Enemy, sprite: Phaser.GameObjects.Image, onMove?: () => void): void {
     const size = enemy.data.size;
     const vel = { x: 0, y: 0 };
     let stopping = false;
@@ -1773,6 +1796,7 @@ export class GameScene extends Phaser.Scene {
           event.remove();
           return;
         }
+        let moved = false;
 
         // Running enemies shove the corpse out of their way
         for (const e of this.enemies) {
@@ -1787,6 +1811,7 @@ export class GameScene extends Phaser.Scene {
             const depth = Math.min(reach - dist, 3);
             sprite.x += nx * depth;
             sprite.y += ny * depth;
+            moved = true;
             vel.x += nx * depth * 0.7;
             vel.y += ny * depth * 0.7;
           }
@@ -1815,11 +1840,13 @@ export class GameScene extends Phaser.Scene {
           } else {
             sprite.x = nx;
             sprite.y = ny;
+            moved = true;
           }
           // Friction — the skid dies out on its own
           vel.x *= 0.9;
           vel.y *= 0.9;
         }
+        if (moved) onMove?.();
       },
     });
 
@@ -2017,13 +2044,20 @@ export class GameScene extends Phaser.Scene {
         // The animation has stopped: after lying still for a second it
         // bleeds into a blood pool — no splatter, just drips and a pool
         sprite.anims.stop();
+        let bloodPool: Phaser.GameObjects.Arc | null = null;
         this.time.delayedCall(1000, () => {
           if (sprite.active) {
-            this.bleedOutPool(sprite.x, sprite.y, enemy.data.size);
+            bloodPool = this.bleedOutPool(sprite.x, sprite.y, enemy.data.size);
           }
         });
-        // From here running enemies can shove the corpse around
-        this.enableCorpsePush(enemy, sprite);
+        // From here running enemies can shove the corpse around — and
+        // the pool keeps sliding under it while it's pushed
+        this.enableCorpsePush(enemy, sprite, () => {
+          if (bloodPool?.active) {
+            bloodPool.x = sprite.x;
+            bloodPool.y = sprite.y + enemy.data.size * 0.5;
+          }
+        });
         // The corpse fades out alongside the blood — the same
         // 5s fade, starting as the pool begins to dry
         this.tweens.add({
@@ -2074,9 +2108,9 @@ export class GameScene extends Phaser.Scene {
 
 
   /** Blood drips out from under the corpse into a spreading pool that dries. */
-  private bleedOutPool(x: number, y: number, corpseSize: number): void {
+  private bleedOutPool(x: number, y: number, corpseSize: number): Phaser.GameObjects.Arc {
     const poolY = y + corpseSize * 0.5;
-    const pool = this.add.circle(x, poolY, 10 + Math.random() * 6, 0xcc0000, 1);
+    const pool = this.add.circle(x, poolY, 10 + Math.random() * 6, 0x8a0000, 1); // deep red from the start
     pool.setDepth(11);
     pool.setScale(0.1);
 
@@ -2126,6 +2160,7 @@ export class GameScene extends Phaser.Scene {
         });
       },
     });
+    return pool;
   }
 
   /**
@@ -2191,10 +2226,30 @@ export class GameScene extends Phaser.Scene {
     if (!tex) return;
 
     const src = sprite.frame;
-    const COLS = 3;
-    const ROWS = 3;
-    const pw = Math.max(2, Math.floor(src.width / COLS));
-    const ph = Math.max(2, Math.floor(src.height / ROWS));
+    // Random split: a different number of pieces every death, cut into
+    // random-sized chunks rather than an even grid
+    const COLS = 2 + Math.floor(Math.random() * 3); // 2-4 -> 4..16 pieces
+    const ROWS = 2 + Math.floor(Math.random() * 3);
+    const splitAxis = (total: number, count: number): number[] => {
+      const weights: number[] = [];
+      for (let i = 0; i < count; i++) weights.push(0.5 + Math.random());
+      const sum = weights.reduce((a, b) => a + b, 0);
+      const bounds = [0];
+      let acc = 0;
+      for (let i = 0; i < count - 1; i++) {
+        acc += (weights[i] / sum) * total;
+        bounds.push(Math.max(bounds[i] + 2, Math.round(acc)));
+      }
+      bounds.push(total);
+      return bounds;
+    };
+    const xb = splitAxis(src.width, COLS);
+    const yb = splitAxis(src.height, ROWS);
+    // Some deaths burst violently, others just crumble apart
+    const fallsApart = Math.random() < 0.4;
+    const explosive = fallsApart
+      ? 0.25 + Math.random() * 0.35 // crumble: weak push
+      : 0.8 + Math.random() * 0.7; // burst: hard
     const dispScaleX = sprite.displayWidth / src.width;
     const dispScaleY = sprite.displayHeight / src.height;
     const rot = sprite.rotation; // tipped-over corpses burst from their pose
@@ -2204,17 +2259,20 @@ export class GameScene extends Phaser.Scene {
 
     for (let gy = 0; gy < ROWS; gy++) {
       for (let gx = 0; gx < COLS; gx++) {
-        const w = gx === COLS - 1 ? src.width - pw * gx : pw;
-        const h = gy === ROWS - 1 ? src.height - ph * gy : ph;
-        const sx = src.cutX + gx * pw;
-        const sy = src.cutY + gy * ph;
+        const px0 = xb[gx];
+        const py0 = yb[gy];
+        const w = xb[gx + 1] - px0;
+        const h = yb[gy + 1] - py0;
+        if (w < 2 || h < 2) continue;
+        const sx = src.cutX + px0;
+        const sy = src.cutY + py0;
         const shardName = `shard_${sx}_${sy}_${w}_${h}`;
         if (!tex.has(shardName)) {
           tex.add(shardName, src.sourceIndex, sx, sy, w, h);
         }
 
-        const ox = (gx * pw + w / 2) * dispScaleX - sprite.displayWidth / 2;
-        const oy = (gy * ph + h / 2) * dispScaleY - sprite.displayHeight / 2;
+        const ox = (px0 + w / 2) * dispScaleX - sprite.displayWidth / 2;
+        const oy = (py0 + h / 2) * dispScaleY - sprite.displayHeight / 2;
         const piece = this.add.image(
           sprite.x + ox * cosR - oy * sinR,
           sprite.y + ox * sinR + oy * cosR,
@@ -2225,9 +2283,9 @@ export class GameScene extends Phaser.Scene {
         piece.setDepth(16); // above blood (11) and projectiles (15)
         piece.setAlpha(alpha);
 
-        // Fling outward with a slight direction tweak and widely varied
-        // speed and length — most pieces barely scatter, but occasionally
-        // one flies much further and skitters with extra bounces
+        // Fling outward with a slight direction tweak — the death's
+        // explosiveness scales how far, fast and spinny it goes (soft
+        // crumbles barely scatter), with the occasional far fling
         const longShot = Math.random() < 0.01; // ~1 in 100
         const rx = piece.x - sprite.x;
         const ry = piece.y - sprite.y;
@@ -2236,18 +2294,18 @@ export class GameScene extends Phaser.Scene {
         const dirY = Math.sin(ang);
         const dist = longShot
           ? 90 + Math.random() * 80          // 90-170px: the occasional far fling
-          : 10 + Math.random() * Math.random() * 70; // 10-80, skewed short
+          : (10 + Math.random() * Math.random() * 70) * explosive;
         const duration = longShot
           ? 900 + Math.random() * 600        // readable flight for the far ones
-          : 400 + Math.random() * 800;
+          : (400 + Math.random() * 800) / (0.7 + explosive * 0.55);
         const bounces = longShot ? 2 + Math.floor(Math.random() * 2) : 1;
         this.tweens.add({
           targets: piece,
           x: piece.x + dirX * dist,
-          y: piece.y + dirY * dist + 8 + Math.random() * 14,
-          angle: piece.angle + (Math.random() - 0.5) * 720,
+          y: piece.y + dirY * dist + 8 + Math.random() * 14 + (fallsApart ? 12 : 0),
+          angle: piece.angle + (Math.random() - 0.5) * 720 * explosive,
           duration,
-          ease: 'Power2.out',
+          ease: fallsApart ? 'Power1.in' : 'Power2.out',
           onComplete: () => {
             if (!piece.active) return;
             // Lands through the shared pipeline: glide/drip down walls,
