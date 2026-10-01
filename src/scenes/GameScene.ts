@@ -1315,11 +1315,15 @@ export class GameScene extends Phaser.Scene {
     const x = proj.position.x;
     const y = proj.position.y;
 
+    // Higher levels blast bigger and throw more shrapnel
+    const level = Math.max(1, proj.towerLevel);
+    const boomScale = 1.5 + (level - 1) * 0.35;
+
     // Explosion graphic from the FX pack (flash fallback if missing)
     if (this.textures.exists('fx_explosion')) {
       const boom = this.add.sprite(x, y, 'fx_explosion');
       boom.setDepth(15);
-      boom.setScale(1.5);
+      boom.setScale(boomScale);
       boom.once('animationcomplete', () => boom.destroy());
       boom.play('fx_explosion');
     } else {
@@ -1327,8 +1331,8 @@ export class GameScene extends Phaser.Scene {
       flash.setDepth(15);
       this.tweens.add({
         targets: flash,
-        scaleX: 4.5,
-        scaleY: 4.5,
+        scaleX: 3 * boomScale,
+        scaleY: 3 * boomScale,
         alpha: 0,
         duration: 260,
         ease: 'Power2.out',
@@ -1337,8 +1341,9 @@ export class GameScene extends Phaser.Scene {
     }
     playSfx(this, 'sfx_explosion', { volume: 0.45 });
 
-    // Shrapnel spray — single-target fragments (no splash of their own)
-    const count = TOWER_DEFINITIONS[proj.getTowerType()].shrapnelCount ?? 0;
+    // Shrapnel spray — single-target fragments (no splash of their own):
+    // 5 at level 1, +2 per upgrade level
+    const count = (TOWER_DEFINITIONS[proj.getTowerType()].shrapnelCount ?? 0) + (level - 1) * 2;
     const color = Phaser.Display.Color.HexStringToColor(TOWER_DEFINITIONS.grenade.color).color;
     const src = proj.damage;
     for (let i = 0; i < count; i++) {
