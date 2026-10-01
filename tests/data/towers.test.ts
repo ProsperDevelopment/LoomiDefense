@@ -7,17 +7,17 @@ import { TOWER_DEFINITIONS, TOWER_LIST, TOWER_UPGRADES, MAX_TOWER_LEVEL } from '
 import { TOWER_SPRITE_FRAMES } from '../../src/entities/Tower';
 import type { TowerType } from '../../src/types';
 
-const ALL_TYPES: TowerType[] = ['arrow', 'cannon', 'frost', 'sniper', 'mortar', 'tesla'];
+const ALL_TYPES: TowerType[] = ['arrow', 'cannon', 'frost', 'sniper', 'mortar', 'tesla', 'grenade'];
 const FREE_TOWERS = ['arrow', 'cannon', 'frost'];
-const STORED_TOWERS = ['sniper', 'mortar', 'tesla'];
+const STORED_TOWERS = ['sniper', 'mortar', 'tesla', 'grenade'];
 
 describe('tower roster', () => {
-  it('defines all six tower types', () => {
+  it('defines all seven tower types', () => {
     for (const type of ALL_TYPES) {
       expect(TOWER_DEFINITIONS[type], `missing definition for ${type}`).toBeDefined();
       expect(TOWER_DEFINITIONS[type].type).toBe(type);
     }
-    expect(TOWER_LIST).toHaveLength(6);
+    expect(TOWER_LIST).toHaveLength(7);
   });
 
   it('new towers have sane stats', () => {
@@ -33,6 +33,10 @@ describe('tower roster', () => {
     const tesla = TOWER_DEFINITIONS.tesla;
     expect(tesla.fireRate).toBeGreaterThanOrEqual(3);
     expect(tesla.splashRadius).toBeGreaterThan(0);
+
+    const grenade = TOWER_DEFINITIONS.grenade;
+    expect(grenade.shrapnelCount).toBeGreaterThan(0);
+    expect(grenade.splashRadius).toBeGreaterThan(0);
   });
 
   it('every tower has a sprite frame within the tileset (0-35)', () => {

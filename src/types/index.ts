@@ -47,7 +47,7 @@ export interface MapData {
 }
 
 // --- Towers ---
-export type TowerType = 'arrow' | 'cannon' | 'frost' | 'sniper' | 'mortar' | 'tesla';
+export type TowerType = 'arrow' | 'cannon' | 'frost' | 'sniper' | 'mortar' | 'tesla' | 'grenade';
 export type TargetMode = 'first' | 'closest' | 'strongest';
 
 export interface TowerData {
@@ -62,6 +62,8 @@ export interface TowerData {
   slowDuration: number;   // ms
   color: string;
   description: string;
+  /** On detonation the projectile bursts into this many shrapnel hits. */
+  shrapnelCount?: number;
 }
 
 export interface TowerUpgradeData {

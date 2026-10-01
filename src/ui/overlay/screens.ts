@@ -284,6 +284,7 @@ export function showStorePanel(): void {
       { towerType: 'sniper', price: 150, name: 'Sniper Tower', description: 'Huge range, massive single-target damage', owned: userProfile.ownedTowers.includes('sniper') },
       { towerType: 'mortar', price: 250, name: 'Mortar Tower', description: 'Long range artillery with big splash', owned: userProfile.ownedTowers.includes('mortar') },
       { towerType: 'tesla', price: 400, name: 'Tesla Tower', description: 'Rapid fire chain lightning', owned: userProfile.ownedTowers.includes('tesla') },
+      { towerType: 'grenade', price: 300, name: 'Grenade Tower', description: 'Lobs grenades that burst into shrapnel', owned: userProfile.ownedTowers.includes('grenade') },
     ];
 
     function render(): void {

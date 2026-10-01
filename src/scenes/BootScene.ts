@@ -53,6 +53,13 @@ export class BootScene extends Phaser.Scene {
     this.load.audio('sfx_upgrade', 'assets/audio/PowerUp2.wav'); // tower upgraded
     this.load.audio('sfx_coin', 'assets/audio/Coin.wav');        // tower sold
     this.load.audio('sfx_wave', 'assets/audio/Bonus.wav');       // wave started
+    this.load.audio('sfx_explosion', 'assets/audio/Explosion.wav'); // grenade blast
+
+    // Explosion FX from the pack: 9 frames of 40x40
+    this.load.spritesheet('fx_explosion', 'assets/images/projectiles/explosion.png', {
+      frameWidth: 40,
+      frameHeight: 40,
+    });
     this.load.audio('sfx_success', 'assets/audio/Success1.wav'); // victory jingle
     this.load.audio('sfx_gameover', 'assets/audio/GameOver.wav');// defeat jingle
 
@@ -170,6 +177,14 @@ export class BootScene extends Phaser.Scene {
       });
     }
 
+    // Grenade blast animation (plays once)
+    this.anims.create({
+      key: 'fx_explosion',
+      frames: this.anims.generateFrameNumbers('fx_explosion', { start: 0, end: 8 }),
+      frameRate: 20,
+      repeat: 0,
+    });
+
     // Check for URL level parameter
     const startLevel = (window as any).__START_LEVEL;
     if (startLevel !== null && !isNaN(startLevel)) {
@@ -282,6 +297,22 @@ export class BootScene extends Phaser.Scene {
     });
 
     // Cannonball
+    // Grenade (olive ball with a lit fuse)
+    this.createProjectileTexture('projectile_grenade', (ctx) => {
+      ctx.fillStyle = '#5D7A3D';
+      ctx.beginPath();
+      ctx.arc(6, 7, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#8AA865';
+      ctx.beginPath();
+      ctx.arc(4.5, 5.5, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#C0793A';
+      ctx.fillRect(7, 1, 2, 3);
+      ctx.fillStyle = '#FFD54F';
+      ctx.fillRect(7, 0, 2, 1);
+    });
+
     this.createProjectileTexture('projectile_cannon', (ctx) => {
       ctx.fillStyle = '#2C2C2C';
       ctx.beginPath();

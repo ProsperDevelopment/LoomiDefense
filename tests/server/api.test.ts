@@ -185,7 +185,7 @@ describe('store', () => {
     const { token } = await registerUser('nina');
     const res = await req('GET', '/api/store', undefined, token);
     expect(res.status).toBe(200);
-    expect(res.json.catalog.map((c: { towerType: string }) => c.towerType)).toEqual(['sniper', 'mortar', 'tesla']);
+    expect(res.json.catalog.map((c: { towerType: string }) => c.towerType)).toEqual(['sniper', 'mortar', 'tesla', 'grenade']);
     expect(res.json.ownedTowers).toEqual(['arrow', 'cannon', 'frost']);
   });
 

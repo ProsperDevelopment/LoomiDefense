@@ -14,6 +14,7 @@ const PROJECTILE_SPRITES: Record<TowerType, string> = {
   sniper: 'projectile_sniper',
   mortar: 'projectile_mortar',
   tesla: 'projectile_tesla',
+  grenade: 'projectile_grenade',
 };
 
 /**
@@ -36,6 +37,10 @@ export class Projectile {
   private color: number;
   private prevX: number;
   private prevY: number;
+  /** Straight-line flight from a detonation (grenade shrapnel). */
+  private shrapnelDir: { x: number; y: number } | null = null;
+  private shrapnelLeft: number = 0;
+  private shrapnelTravel: number = 0;
 
   // Phaser objects
   sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Arc | null = null;
@@ -69,7 +74,9 @@ export class Projectile {
     // Try to use sprite image, fall back to circle
     if (scene.textures.exists(spriteKey)) {
       this.sprite = scene.add.image(this.position.x, this.position.y, spriteKey);
-      this.sprite.setDisplaySize(12, 12);
+      // Shrapnel reads as an oval stretched along its flight line —
+      // update() keeps the rotation on the travel direction
+      this.sprite.setDisplaySize(this.isShrapnel() ? 15 : 12, this.isShrapnel() ? 6 : 12);
       this.sprite.setDepth(15);
     } else {
       // Fallback to circle if sprite not loaded
@@ -83,11 +90,52 @@ export class Projectile {
     }
   }
 
+  /** Turn this projectile into shrapnel flying straight from a blast. */
+  spawnShrapnel(dirX: number, dirY: number, distance: number): void {
+    const len = Math.hypot(dirX, dirY) || 1;
+    this.shrapnelDir = { x: dirX / len, y: dirY / len };
+    this.shrapnelLeft = distance;
+    this.shrapnelTravel = 0;
+    this.targetId = '';
+  }
+
+  isShrapnel(): boolean {
+    return this.shrapnelDir !== null;
+  }
+
+  /**
+   * Shrapnel arms after flying clear of the blast, so the grenade's
+   * own target isn't shredded by all five fragments at once.
+   */
+  shrapnelArmed(): boolean {
+    return this.shrapnelTravel >= 36;
+  }
+
   /**
    * Move toward target. Returns true if reached target position.
    */
   update(deltaMs: number, targetPos: Position | null): boolean {
     if (!this.alive) return true;
+
+    // Shrapnel: straight flight with a fixed budget, no target needed
+    if (this.shrapnelDir) {
+      this.prevX = this.position.x;
+      this.prevY = this.position.y;
+      const step = Math.min(this.shrapnelLeft, (this.speed * deltaMs) / 1000);
+      this.position.x += this.shrapnelDir.x * step;
+      this.position.y += this.shrapnelDir.y * step;
+      this.shrapnelLeft -= step;
+      this.shrapnelTravel += step;
+      if (this.sprite) {
+        this.sprite.setPosition(this.position.x, this.position.y);
+        this.sprite.setRotation(Math.atan2(this.shrapnelDir.y, this.shrapnelDir.x));
+      }
+      if (this.shrapnelLeft <= 0) {
+        this.alive = false;
+        return true;
+      }
+      return false;
+    }
 
     if (!targetPos) {
       this.alive = false;
@@ -175,6 +223,9 @@ export class Projectile {
     this.damage = damage;
     this.targetId = targetId;
     this.color = color;
+    this.shrapnelDir = null;
+    this.shrapnelLeft = 0;
+    this.shrapnelTravel = 0;
     this.alive = true;
   }
 }

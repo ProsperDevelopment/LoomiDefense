@@ -22,7 +22,7 @@ import { lobby } from '../ui/overlay/lobbyScreen';
 import type { NetSnapshot, NetCommand, NetStatus } from '../../shared/protocol';
 import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN, livesForDifficulty } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
-import { bindGameAudio } from '../audio/GameAudio';
+import { bindGameAudio, playSfx } from '../audio/GameAudio';
 import { isWaveResolved } from '../utils/waveCompletion';
 import { canDamageEnemy } from '../utils/damageRules';
 
@@ -110,9 +110,14 @@ export class GameScene extends Phaser.Scene {
     this.guestProjectiles.clear();
 
     // Every player builds from THEIR OWN selected loadout (multiplayer too)
-    this.loadoutTypes = userProfile.loadout.filter((t): t is TowerType => t in TOWER_DEFINITIONS);
-    if (this.loadoutTypes.length === 0) {
-      this.loadoutTypes = ['arrow', 'cannon', 'frost'];
+    if (DEV_MODE) {
+      // In development every tower is available
+      this.loadoutTypes = Object.keys(TOWER_DEFINITIONS) as TowerType[];
+    } else {
+      this.loadoutTypes = userProfile.loadout.filter((t): t is TowerType => t in TOWER_DEFINITIONS);
+      if (this.loadoutTypes.length === 0) {
+        this.loadoutTypes = ['arrow', 'cannon', 'frost'];
+      }
     }
 
     // Host keeps every player's loadout to validate their build commands
@@ -1265,15 +1270,98 @@ export class GameScene extends Phaser.Scene {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const proj = this.projectiles[i];
       if (!proj.alive) { proj.destroy(); this.projectiles.splice(i, 1); continue; }
+
+      // Shrapnel flies straight, arming once clear of the blast, and
+      // damages the first enemy it crosses
+      if (proj.isShrapnel()) {
+        const done = proj.update(deltaMs, null);
+        const hit = proj.shrapnelArmed()
+          ? this.enemies.find((e) =>
+              e.alive &&
+              e.position.distanceTo(proj.position) <= e.data.size + 6 &&
+              !(e.data.immuneTo && e.data.immuneTo.includes(proj.getTowerType())) &&
+              canDamageEnemy(proj.getTowerType(), proj.towerLevel, e.data))
+          : undefined;
+        if (hit) {
+          this.applyProjectileDamage(proj, hit);
+          proj.alive = false;
+        } else if (done) {
+          proj.alive = false;
+        }
+        continue;
+      }
+
       const targetEnemy = this.enemies.find(e => e.id === proj.getTargetId() && e.alive);
       const targetPos = targetEnemy ? targetEnemy.position : null;
       const reached = proj.update(deltaMs, targetPos);
       if (reached && targetEnemy && proj.hasHit(targetEnemy.position)) {
+        // Grenades burst into shrapnel where they land
+        if (proj.getTowerType() === 'grenade') this.detonateGrenade(proj);
         this.applyProjectileDamage(proj, targetEnemy);
         proj.alive = false;
       } else if (!targetPos) {
+        // Target died in flight — grenades still go off
+        if (proj.getTowerType() === 'grenade') this.detonateGrenade(proj);
         proj.alive = false;
       }
+    }
+  }
+
+  /**
+   * Grenade detonation: flash and bang, then a spray of shrapnel that
+   * flies outward and damages whatever it crosses.
+   */
+  private detonateGrenade(proj: Projectile): void {
+    const x = proj.position.x;
+    const y = proj.position.y;
+
+    // Explosion graphic from the FX pack (flash fallback if missing)
+    if (this.textures.exists('fx_explosion')) {
+      const boom = this.add.sprite(x, y, 'fx_explosion');
+      boom.setDepth(15);
+      boom.setScale(1.5);
+      boom.once('animationcomplete', () => boom.destroy());
+      boom.play('fx_explosion');
+    } else {
+      const flash = this.add.circle(x, y, 7, 0xffd54f, 0.9);
+      flash.setDepth(15);
+      this.tweens.add({
+        targets: flash,
+        scaleX: 4.5,
+        scaleY: 4.5,
+        alpha: 0,
+        duration: 260,
+        ease: 'Power2.out',
+        onComplete: () => flash.destroy(),
+      });
+    }
+    playSfx(this, 'sfx_explosion', { volume: 0.45 });
+
+    // Shrapnel spray — single-target fragments (no splash of their own)
+    const count = TOWER_DEFINITIONS[proj.getTowerType()].shrapnelCount ?? 0;
+    const color = Phaser.Display.Color.HexStringToColor(TOWER_DEFINITIONS.grenade.color).color;
+    const src = proj.damage;
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2; // any direction from the blast center
+      const shard = new Projectile(
+        'grenade',
+        x,
+        y,
+        {
+          baseDamage: src.baseDamage,
+          splashRadius: 0,
+          slowFactor: src.slowFactor,
+          slowDuration: src.slowDuration,
+        } as any,
+        '',
+        color,
+        220,
+      );
+      shard.ownerId = proj.ownerId;
+      shard.towerLevel = proj.towerLevel;
+      shard.spawnShrapnel(Math.cos(angle), Math.sin(angle), 80 + Math.random() * 50);
+      shard.createSprite(this);
+      this.projectiles.push(shard);
     }
   }
 

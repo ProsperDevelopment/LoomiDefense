@@ -14,6 +14,7 @@ const SHOT_SFX: Record<TowerType, { key: string; volume: number }> = {
   sniper: { key: 'sfx_slash2', volume: 0.3 },
   mortar: { key: 'sfx_fireball', volume: 0.3 },
   tesla: { key: 'sfx_fx', volume: 0.25 },
+  grenade: { key: 'sfx_fireball', volume: 0.35 },
 };
 
 const DEATH_SFX = ['sfx_hit1', 'sfx_hit5', 'sfx_hit9'];

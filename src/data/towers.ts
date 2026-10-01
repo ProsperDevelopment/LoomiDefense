@@ -79,6 +79,20 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
     color: '#00BCD4',
     description: 'Rapid fire chain lightning',
   },
+  grenade: {
+    type: 'grenade',
+    name: 'Grenade Tower',
+    cost: 140,
+    damage: 20,
+    fireRate: 0.5,
+    range: 170,
+    splashRadius: 40,
+    slowFactor: 1.0,
+    slowDuration: 0,
+    color: '#9E9D24',
+    description: 'Lobs grenades that burst into shrapnel',
+    shrapnelCount: 5,
+  },
 };
 
 export const TOWER_UPGRADES: TowerUpgradeData[] = [

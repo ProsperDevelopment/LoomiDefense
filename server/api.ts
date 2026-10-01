@@ -11,6 +11,7 @@ export const STORE_CATALOG: StoreCatalogItem[] = [
   { towerType: 'sniper', price: 150, name: 'Sniper Tower', description: 'Huge range, massive single-target damage' },
   { towerType: 'mortar', price: 250, name: 'Mortar Tower', description: 'Long range artillery with big splash' },
   { towerType: 'tesla', price: 400, name: 'Tesla Tower', description: 'Rapid fire chain lightning' },
+  { towerType: 'grenade', price: 300, name: 'Grenade Tower', description: 'Lobs grenades that burst into shrapnel' },
 ];
 
 export const FREE_TOWERS = ['arrow', 'cannon', 'frost'];
