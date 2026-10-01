@@ -6,6 +6,7 @@
 import { api, getToken, ApiError } from '../api/client';
 import type { PublicUser, UserProgress, UserSearchResult } from '../../shared/protocol';
 import { defaultProgress, DEFAULT_SETTINGS } from '../../shared/protocol';
+import { DEV_MODE } from '../config/constants';
 
 const LOCAL_KEY = 'loomi_guest_profile';
 
@@ -102,6 +103,8 @@ class UserProfile {
   }
 
   get coins(): number {
+    // Dev mode: free spending money for the store
+    if (DEV_MODE) return 9000;
     return this.isLoggedIn ? this.user!.progress.coins : this.guest.progress.coins;
   }
 
