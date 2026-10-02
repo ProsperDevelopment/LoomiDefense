@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { TowerType } from '../types';
+import type { TowerType, TargetMode } from '../types';
 import { TOWER_LIST, TOWER_UPGRADES, TOWER_DEFINITIONS, MAX_TOWER_LEVEL } from '../data/towers';
 import { TOWER_SPRITE_FRAMES } from '../entities/Tower';
 
@@ -10,6 +10,8 @@ export interface TowerPanelCallbacks {
   canAfford: (cost: number) => boolean;
   /** True when this player already hit the build cap for the type. */
   maxedOut?: (type: TowerType) => boolean;
+  /** Cycle the selected tower's targeting mode. */
+  onAimChange?: (mode: TargetMode) => void;
   onCancel: () => void;
 }
 
@@ -43,7 +45,7 @@ export class TowerPanel {
     return list.filter((t) => this.availableTypes!.includes(t.type));
   }
 
-  showAtCursor(pointerX: number, pointerY: number, mode: 'build' | 'tower', towerData?: { type: TowerType; level: number; sellValue: number }): void {
+  showAtCursor(pointerX: number, pointerY: number, mode: 'build' | 'tower', towerData?: { type: TowerType; level: number; sellValue: number; aim: TargetMode }): void {
     this.container.removeAll(true);
 
     const width = this.scene.cameras.main.width;
@@ -98,7 +100,7 @@ export class TowerPanel {
 
     towers.forEach((tower, i) => {
       const btnX = startX + i * (btnSize + padding);
-      const btnY = -10;
+      const btnY = 6; // no cancel row anymore — buttons sit lower
       const canAfford = this.callbacks.canAfford(tower.cost);
       const maxed = this.callbacks.maxedOut?.(tower.type) ?? false;
       const enabled = canAfford && !maxed;
@@ -139,30 +141,13 @@ export class TowerPanel {
       }
     });
 
-    // Cancel button below tower icons
-    const cancelY = totalHeight / 2 - 18;
-    const cancelBg = this.scene.add.rectangle(0, cancelY, totalWidth, 24, 0x8B0000);
-    cancelBg.setStrokeStyle(1, 0xffffff);
-    const cancelText = this.scene.add.text(0, cancelY, 'CANCEL', {
-      fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.container.add([cancelBg, cancelText]);
-
-    cancelBg.setInteractive({ useHandCursor: true });
-    cancelBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      pointer.event.stopPropagation();
-      (this.scene as any).popupClickHandled = true;
-      this.callbacks.onCancel();
-      this.hide();
-    });
-    cancelBg.on('pointerover', () => cancelBg.setFillStyle(0xAA0000));
-    cancelBg.on('pointerout', () => cancelBg.setFillStyle(0x8B0000));
+    // No cancel button — clicking outside closes the popup
 
     // Position container
     this.container.setPosition(x + totalWidth / 2 + padding, y + totalHeight / 2);
   }
 
-  private createTowerInfoMenu(x: number, y: number, data: { type: TowerType; level: number; sellValue: number }): void {
+  private createTowerInfoMenu(x: number, y: number, data: { type: TowerType; level: number; sellValue: number; aim: TargetMode }): void {
     const towerDef = TOWER_DEFINITIONS[data.type];
     const upgradeData = TOWER_UPGRADES[data.level];
     const canUpgrade = data.level < MAX_TOWER_LEVEL;
@@ -234,22 +219,27 @@ export class TowerPanel {
       this.container.add(maxText);
     }
 
-    // Cancel button
-    const cancelBg = this.scene.add.rectangle(0, 78, 140, 28, 0x555555);
-    cancelBg.setStrokeStyle(1, 0xffffff);
-    const cancelText = this.scene.add.text(0, 78, 'CLOSE', {
+    // Aim toggle: cycles first -> last -> strongest -> random
+    // (no close button — clicking outside closes the popup)
+    const aimModes: TargetMode[] = ['first', 'last', 'strongest', 'random'];
+    const aimBg = this.scene.add.rectangle(0, 78, 140, 28, 0x263238);
+    aimBg.setStrokeStyle(1, 0x90a4ae);
+    const aimText = this.scene.add.text(0, 78, `AIM: ${data.aim.toUpperCase()}`, {
       fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5);
-    this.container.add([cancelBg, cancelText]);
+    this.container.add([aimBg, aimText]);
 
-    cancelBg.setInteractive({ useHandCursor: true });
-    cancelBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    aimBg.setInteractive({ useHandCursor: true });
+    aimBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       pointer.event.stopPropagation();
       (this.scene as any).popupClickHandled = true;
-      this.hide();
+      const next = aimModes[(aimModes.indexOf(data.aim) + 1) % aimModes.length];
+      data.aim = next;
+      aimText.setText(`AIM: ${next.toUpperCase()}`);
+      this.callbacks.onAimChange?.(next);
     });
-    cancelBg.on('pointerover', () => cancelBg.setFillStyle(0x666666));
-    cancelBg.on('pointerout', () => cancelBg.setFillStyle(0x555555));
+    aimBg.on('pointerover', () => aimBg.setFillStyle(0x37474f));
+    aimBg.on('pointerout', () => aimBg.setFillStyle(0x263238));
 
     // Position container
     this.container.setPosition(x + 90, y + 90);

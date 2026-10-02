@@ -50,7 +50,10 @@ export interface MapData {
 
 // --- Towers ---
 export type TowerType = 'arrow' | 'cannon' | 'frost' | 'sniper' | 'mortar' | 'tesla' | 'grenade';
-export type TargetMode = 'first' | 'closest' | 'strongest';
+export type TargetMode = 'first' | 'closest' | 'strongest' | 'last' | 'random';
+
+/** Every valid targeting mode (network + UI validation). */
+export const TARGET_MODES: TargetMode[] = ['first', 'closest', 'strongest', 'last', 'random'];
 
 export interface TowerData {
   type: TowerType;
@@ -78,7 +81,7 @@ export interface TowerUpgradeData {
 
 // --- Enemies ---
 export type EnemyType = 'basic' | 'fast' | 'armored' | 'healer' | 'swarm' | 'tank' | 'elite' | 'boss'
-  | 'brute' | 'sprinter' | 'phantom';
+  | 'brute' | 'sprinter' | 'phantom' | 'splitter';
 
 export interface EnemyData {
   type: EnemyType;

@@ -65,11 +65,11 @@ describe('Tower', () => {
 
   it('initializes with correct stats for each type', () => {
     const arrow = new Tower('arrow', 0, 0);
-    expect(arrow.damage).toBe(5);
+    expect(arrow.damage).toBe(4);
     expect(arrow.range).toBe(120);
 
     const cannon = new Tower('cannon', 0, 0);
-    expect(cannon.damage).toBe(25);
+    expect(cannon.damage).toBe(22);
     expect(cannon.splashRadius).toBe(60);
 
     const frost = new Tower('frost', 0, 0);

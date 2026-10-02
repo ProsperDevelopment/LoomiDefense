@@ -29,7 +29,7 @@
   .btn.secondary:hover { background: #555; }
   
   /* Tile palette */
-  .tile-palette { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-height: 200px; overflow-y: auto; background: #0a0a1a; padding: 4px; border-radius: 4px; }
+  .tile-palette { display: grid; grid-template-columns: repeat(var(--tile-cols, 8), 32px); gap: 2px; max-height: 200px; overflow: auto; background: #0a0a1a; padding: 4px; border-radius: 4px; }
   .tile-palette img { width: 32px; height: 32px; cursor: pointer; border: 2px solid transparent; image-rendering: pixelated; }
   .tile-palette img:hover { border-color: #e94560; }
   .tile-palette img.selected { border-color: #FFD700; background: rgba(255,215,0,0.2); }
@@ -269,6 +269,8 @@ const TILESETS = [
   { name: 'Desert', folder: 'TilesetDesert', base: 579, count: 240 },
   { name: 'Floor', folder: 'TilesetFloor', base: 819, count: 594 },
   { name: 'Water', folder: 'TilesetWater', base: 1413, count: 476 },
+  { name: 'House', folder: 'TilesetHouse', base: 1889, count: 759 },
+  { name: 'Abandoned', folder: 'TilesetAbandoned', base: 2648, count: 240 },
 ];
 // Legacy level `tileset` values -> asset folder (importing old exports)
 const LEGACY_FOLDERS = {
@@ -280,6 +282,7 @@ const LEGACY_FOLDERS = {
 };
 let currentPalette = TILESETS[0];
 let selectedTileIndex = 0;   // GLOBAL tile id
+let multiStamp = [];          // shift-selected tiles -> temporary stamp
 let tileImages = {};
 let zoom = 3;
 let isMouseDown = false;
@@ -530,6 +533,10 @@ async function loadPaletteSet(ts) {
 
   const palette = document.getElementById('tilePalette');
   palette.innerHTML = '';
+  // Group rows like the original tileset picture (scroll sideways for wide sets)
+  multiStamp = [];
+  const columns = tileData?.[ts.folder]?.columns ?? 8;
+  palette.style.setProperty('--tile-cols', String(columns));
   for (let i = 0; i < ts.count; i++) {
     const gid = ts.base + i;
     const img = tileImages[gid];
@@ -537,7 +544,7 @@ async function loadPaletteSet(ts) {
     const tileImg = document.createElement('img');
     tileImg.src = img.src;
     tileImg.dataset.index = gid;
-    tileImg.onclick = () => selectTile(gid);
+    tileImg.onclick = (ev) => selectTile(gid, ev);
     if (gid === selectedTileIndex) tileImg.classList.add('selected');
     palette.appendChild(tileImg);
   }
@@ -577,12 +584,37 @@ function convertLegacyBgGrid(bg, tileset) {
   });
 }
 
-function selectTile(index) {
-  selectedTileIndex = index;
+function selectTile(index, ev) {
+  if (ev && ev.shiftKey) {
+    // Shift-click builds a temporary stamp from several tiles
+    const at = multiStamp.indexOf(index);
+    if (at >= 0) multiStamp.splice(at, 1);
+    else multiStamp.push(index);
+    document.getElementById('status').textContent = multiStamp.length
+      ? `Stamp: ${multiStamp.length} tile${multiStamp.length > 1 ? 's' : ''} — paint with Paint Background`
+      : `Tile ${index} (${currentPalette.name})`;
+  } else {
+    multiStamp = [];
+    selectedTileIndex = index;
+  }
+  const hasMulti = multiStamp.length > 0;
   document.querySelectorAll('.tile-palette img').forEach((img) => {
-    img.classList.toggle('selected', Number(img.dataset.index) === index);
+    const i = Number(img.dataset.index);
+    img.classList.toggle('selected', hasMulti ? multiStamp.includes(i) : i === selectedTileIndex);
   });
   updatePreview();
+}
+
+/** Relative grid offsets of the shift-selected tiles (original-picture layout). */
+function stampCells() {
+  const columns = tileData?.[currentPalette.folder]?.columns ?? 8;
+  const cells = multiStamp.map((gid) => {
+    const local = gid - currentPalette.base;
+    return { g: gid, c: local % columns, r: Math.floor(local / columns) };
+  });
+  const minC = Math.min(...cells.map((c) => c.c));
+  const minR = Math.min(...cells.map((c) => c.r));
+  return cells.map((c) => ({ g: c.g, dx: c.c - minC, dy: c.r - minR }));
 }
 
 function updatePreview() {
@@ -633,7 +665,7 @@ function render() {
   
   ctx.imageSmoothingEnabled = false;
   
-  // Draw background tiles (2x resolution) at native 16x16 size
+  // Draw background tiles (2x resolution), scaled to the zoomed cell
   for (let y = 0; y < gridHeight * 2; y++) {
     for (let x = 0; x < gridWidth * 2; x++) {
       const tileIdx = bgGrid[y][x];
@@ -641,10 +673,8 @@ function render() {
       const py = y * bgTileSize;
       
       if (tileIdx >= 0 && tileImages[tileIdx]) {
-        // Draw tile at native size (16x16) centered in cell
-        const offsetX = (bgTileSize - 16) / 2;
-        const offsetY = (bgTileSize - 16) / 2;
-        ctx.drawImage(tileImages[tileIdx], px + offsetX, py + offsetY);
+        // Scaled to fill the cell — tracks the zoom level
+        ctx.drawImage(tileImages[tileIdx], px, py, bgTileSize, bgTileSize);
       } else {
         // Default ground
         ctx.fillStyle = (x + y) % 2 === 0 ? groundColorDark : groundColor;
@@ -883,8 +913,11 @@ function setupInput() {
     if (currentTool === 'paintBg' || currentTool === 'eraseBg' || currentTool === 'paintFg' || currentTool === 'deleteFg' || currentTool === 'area') {
       const bgCell = getBgCell(e);
       if (bgCell) {
+        const tileLabel = multiStamp.length > 0
+          ? `Stamp x${multiStamp.length}`
+          : `Tile ${selectedTileIndex} (${currentPalette.name})`;
         document.getElementById('status').textContent = 
-          `BG Tile: (${bgCell.x}, ${bgCell.y}) | Tool: ${toolLabel()} | Tile ${selectedTileIndex} (${currentPalette.name})`;
+          `BG Tile: (${bgCell.x}, ${bgCell.y}) | Tool: ${toolLabel()} | ${tileLabel}`;
       }
       if (isMouseDown) {
         handleCell(e);
@@ -974,7 +1007,19 @@ function handleCell(e) {
     lastCell = bgCell;
     
     if (currentTool === 'paintBg') {
-      bgGrid[bgCell.y][bgCell.x] = selectedTileIndex;
+      if (multiStamp.length > 0) {
+        // Temporary stamp: lay the shift-selected tiles out as they
+        // sat in the original picture, anchored at the clicked cell
+        for (const cell of stampCells()) {
+          const tx = bgCell.x + cell.dx;
+          const ty = bgCell.y + cell.dy;
+          if (tx >= 0 && tx < gridWidth * 2 && ty >= 0 && ty < gridHeight * 2) {
+            bgGrid[ty][tx] = cell.g;
+          }
+        }
+      } else {
+        bgGrid[bgCell.y][bgCell.x] = selectedTileIndex;
+      }
     } else if (currentTool === 'eraseBg') {
       bgGrid[bgCell.y][bgCell.x] = -1;
     } else if (currentTool === 'paintFg') {
@@ -1312,7 +1357,7 @@ function updateZoom() {
 // ============================================================
 // Wave Definitions
 // ============================================================
-const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss', 'brute', 'sprinter', 'phantom'];
+const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss', 'brute', 'sprinter', 'phantom', 'splitter'];
 // Custom waves for this level: [{ entries: [{enemyType, count, spawnDelay, waveDelay}] }]
 // Empty list = the level uses the game's built-in waves.
 let waves = [];

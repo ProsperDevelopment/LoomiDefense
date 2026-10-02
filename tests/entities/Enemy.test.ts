@@ -94,3 +94,53 @@ describe('new enemy types', () => {
     expect(canDamageEnemy('cannon', 5, phantom.data)).toBe(false);
   });
 });
+
+describe('splitter enemy', () => {
+  // Long straight path so the21s test never reaches the base
+  const longPath = Array.from({ length: 60 }, (_, i) => ({ x: i * 48, y: 0 }));
+
+  it('is quite resistant', () => {
+    const splitter = new Enemy('splitter', longPath);
+    expect(splitter.data.hp).toBeGreaterThanOrEqual(500);
+    expect(splitter.data.armor).toBeGreaterThanOrEqual(6);
+    expect(splitter.data.speed).toBeLessThanOrEqual(35);
+  });
+
+  it('minis are weaker, quicker half-size copies that never split', () => {
+    const parent = new Enemy('splitter', longPath);
+    const mini = new Enemy('splitter', longPath, undefined, { mini: true });
+    expect(mini.isMini).toBe(true);
+    expect(mini.data.hp).toBeLessThan(parent.data.hp);
+    expect(mini.data.size).toBeLessThan(parent.data.size);
+    expect(mini.data.speed).toBeGreaterThan(parent.data.speed);
+    // Parent keeps its own stats (definitions are never mutated)
+    expect(parent.data.hp).toBe(650);
+    expect(new Enemy('splitter', longPath).data.hp).toBe(650);
+  });
+
+  it('stops dead for two seconds every twenty, then signals a split', () => {
+    const e = new Enemy('splitter', longPath);
+    let t = 0;
+    while (t < 19500) {
+      e.update(500);
+      t += 500;
+    }
+    expect(e.consumeSplitRequest()).toBe(false);
+
+    // Crossing the 20s mark freezes it in place
+    e.update(600);
+    const frozenX = e.position.x;
+    e.update(500);
+    e.update(500);
+    expect(e.position.x).toBe(frozenX);
+    expect(e.consumeSplitRequest()).toBe(false);
+
+    // The2s stop completes -> one-shot split signal, walking resumes
+    e.update(1200);
+    expect(e.consumeSplitRequest()).toBe(true);
+    expect(e.consumeSplitRequest()).toBe(false);
+    const beforeResume = e.position.x;
+    e.update(500);
+    expect(e.position.x).toBeGreaterThan(beforeResume);
+  });
+});

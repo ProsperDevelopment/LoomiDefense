@@ -8,6 +8,10 @@ import { Health } from '../components/Health';
  * Enemy type to sprite and animation mapping
  * Using Ninja Adventure Asset Pack monsters
  */
+/** Splitter: ms between bursts and how long it freezes before bursting. */
+const SPLIT_INTERVAL_MS = 20000;
+const SPLIT_STOP_MS = 2000;
+
 const ENEMY_SPRITES: Record<EnemyType, { key: string; anim: string }> = {
   basic: { key: 'enemy_slime', anim: 'slime_walk' },
   fast: { key: 'enemy_spider', anim: 'spider_walk' },
@@ -20,6 +24,7 @@ const ENEMY_SPRITES: Record<EnemyType, { key: string; anim: string }> = {
   brute: { key: 'enemy_beast', anim: 'beast_walk' },
   sprinter: { key: 'enemy_snake', anim: 'snake_walk' },
   phantom: { key: 'enemy_dragon', anim: 'dragon_walk' },
+  splitter: { key: 'enemy_beast', anim: 'beast_walk' },
 };
 
 /**
@@ -55,12 +60,34 @@ export class Enemy {
   private invisibilityTween: Phaser.Tweens.Tween | null = null;
   /** Hit stagger: brief movement slowdown after taking a hit. */
   private staggerMs = 0;
+  /** Mini copies (spawned by a splitter) are smaller and never split. */
+  isMini: boolean = false;
+  private canSplit: boolean = false;
+  private visualScale: number = 1;
+  /** Splitter cycle: walks, stops dead for 2s, then bursts into minis. */
+  private splitTimer: number = SPLIT_INTERVAL_MS;
+  private splitStopMs: number = 0;
+  private splitReady: boolean = false;
   /** Last movement delta (set by refresh() during multiplayer sync). */
   private netFacing: { dx: number; dy: number } | null = null;
 
-  constructor(type: EnemyType, path: { x: number; y: number }[], id?: string) {
+  constructor(type: EnemyType, path: { x: number; y: number }[], id?: string, opts?: { mini?: boolean }) {
     this.type = type;
-    this.data = ENEMY_DEFINITIONS[type];
+    const base = ENEMY_DEFINITIONS[type];
+    this.isMini = opts?.mini === true;
+    // Minis are weaker, quicker, half-size copies of the parent
+    this.data = this.isMini
+      ? {
+          ...base,
+          hp: Math.max(1, Math.round(base.hp * 0.25)),
+          armor: Math.max(0, base.armor - 3),
+          speed: base.speed + 25,
+          size: Math.max(8, Math.round(base.size * 0.5)),
+          reward: Math.max(1, Math.round(base.reward * 0.5)),
+        }
+      : base;
+    this.canSplit = this.type === 'splitter' && !this.isMini;
+    this.visualScale = this.isMini ? 0.55 : 1;
     this.id = id || `enemy_${type}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     this.path = path;
 
@@ -81,6 +108,7 @@ export class Enemy {
     // Create animated sprite
     const sprite = scene.add.sprite(this.position.x, this.position.y, spriteInfo.key, 0);
     sprite.play(spriteInfo.anim);
+    if (this.visualScale !== 1) sprite.setScale(this.visualScale);
     sprite.setDepth(10); 
     this.sprite = sprite;
 
@@ -137,6 +165,18 @@ export class Enemy {
     this.invisibilityTween = null;
   }
 
+  /** True once per completed stop — the host spawns the minis then. */
+  consumeSplitRequest(): boolean {
+    if (!this.splitReady) return false;
+    this.splitReady = false;
+    return true;
+  }
+
+  /** Continue from another enemy's spot in the path (splitter minis). */
+  syncPathProgressFrom(other: Enemy): void {
+    this.pathIndex = other.pathIndex;
+  }
+
   /**
    * Unit direction the enemy is travelling right now — the way its
    * corpse keeps gliding when it dies (falls back to the last network
@@ -167,6 +207,29 @@ export class Enemy {
     this.health.updateStatusEffects(deltaMs);
     this.speed = this.baseSpeed * this.health.slowFactor;
 
+    // Splitter: every 20s it stops dead for 2s, then bursts into minis
+    if (this.splitStopMs > 0) {
+      this.splitStopMs -= deltaMs;
+      if (this.splitStopMs <= 0) {
+        // Stop over — the host spawns the minis, then it walks on
+        this.splitStopMs = 0;
+        this.splitReady = true;
+        this.splitTimer = SPLIT_INTERVAL_MS;
+        this.sprite?.anims.resume();
+      } else {
+        this.updateVisuals();
+        return false;
+      }
+    } else if (this.canSplit) {
+      this.splitTimer -= deltaMs;
+      if (this.splitTimer <= 0) {
+        this.splitStopMs = SPLIT_STOP_MS;
+        this.sprite?.anims.pause();
+        this.updateVisuals();
+        return false;
+      }
+    }
+
     // Follow path
     if (this.pathIndex >= this.path.length) {
       this.reachedBase = true;
@@ -193,7 +256,7 @@ export class Enemy {
     if (this.health.slowFactor < 1.0) {
       this.pulseTimer += deltaMs;
       if (this.sprite) {
-        const scale = 1 + Math.sin(this.pulseTimer * 0.01) * 0.1;
+        const scale = this.visualScale * (1 + Math.sin(this.pulseTimer * 0.01) * 0.1);
         this.sprite.setScale(scale);
       }
     }

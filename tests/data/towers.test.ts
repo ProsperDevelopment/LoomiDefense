@@ -97,15 +97,19 @@ describe('tower roster', () => {
 });
 
 describe('loadout rules', () => {
-  it('validates loadout: exactly 3 unique owned towers', () => {
+  it('validates loadout: 3 or 4 unique owned towers', () => {
     const owned = ['arrow', 'cannon', 'frost', 'sniper'];
     const validate = (loadout: string[]) =>
-      loadout.length === 3 && new Set(loadout).size === 3 && loadout.every((t) => owned.includes(t));
+      loadout.length >= 3 &&
+      loadout.length <= 4 &&
+      new Set(loadout).size === loadout.length &&
+      loadout.every((t) => owned.includes(t));
 
     expect(validate(['arrow', 'cannon', 'frost'])).toBe(true);
     expect(validate(['arrow', 'cannon', 'sniper'])).toBe(true);
+    expect(validate(['arrow', 'cannon', 'frost', 'sniper'])).toBe(true); // four allowed
     expect(validate(['arrow', 'cannon'])).toBe(false); // too few
-    expect(validate(['arrow', 'cannon', 'frost', 'sniper'])).toBe(false); // too many
+    expect(validate(['arrow', 'cannon', 'frost', 'sniper', 'mortar'])).toBe(false); // too many
     expect(validate(['arrow', 'arrow', 'frost'])).toBe(false); // duplicates
     expect(validate(['arrow', 'cannon', 'mortar'])).toBe(false); // not owned
   });

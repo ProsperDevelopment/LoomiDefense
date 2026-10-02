@@ -59,6 +59,25 @@ describe('TargetingSystem', () => {
     expect(result[0].id).toBe('e1');
   });
 
+  it('finds last enemy (highest HP ratio)', () => {
+    const e1 = makeEnemy('e1', 250, 200, 100);
+    e1.health.current = 10; // 10% HP — furthest along
+    const e2 = makeEnemy('e2', 250, 200, 100);
+    e2.health.current = 80; // 80% HP — newest to the pack
+    const result = TargetingSystem.findTarget(towerPos, 200, [e1, e2], 'last');
+    expect(result?.id).toBe('e2');
+  });
+
+  it('picks a random enemy in range, never one outside it', () => {
+    const e1 = makeEnemy('e1', 250, 200, 100);
+    const e2 = makeEnemy('e2', 260, 200, 100);
+    const outside = makeEnemy('e3', 500, 500, 100);
+    for (let i = 0; i < 20; i++) {
+      const result = TargetingSystem.findTarget(towerPos, 200, [e1, e2, outside], 'random');
+      expect(['e1', 'e2']).toContain(result?.id);
+    }
+  });
+
   it('defaults to first mode when unknown mode given', () => {
     const e1 = makeEnemy('e1', 250, 200, 100);
     const result = TargetingSystem.findTarget(towerPos, 200, [e1], 'first' as any);

@@ -162,7 +162,7 @@ app.put('/api/progress', authMiddleware, (req: AuthedRequest, res: Response) => 
       (t: unknown): t is string => typeof t === 'string' && p.ownedTowers.includes(t),
     ) as string[];
     const unique = Array.from(new Set(valid));
-    if (unique.length === 3) {
+    if (unique.length === 3 || unique.length === 4) {
       p.loadout = unique;
     }
   }

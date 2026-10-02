@@ -201,6 +201,24 @@ export class Grid {
   }
 
 
+  /**
+   * Tower whose body covers this point (within `radius` of its center)
+   * as its center — debris uses this to glide off towers it lands on.
+   */
+  towerNear(x: number, y: number, radius: number): { cx: number; cy: number } | null {
+    const col = Math.floor(x / BG_CELL);
+    const row = Math.floor((y - GRID_OFFSET_Y) / BG_CELL);
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (!this.bgOccupied.has(`${col + dc},${row + dr}`)) continue;
+        const cx = (col + dc) * BG_CELL + BG_CELL / 2;
+        const cy = (row + dr) * BG_CELL + BG_CELL / 2 + GRID_OFFSET_Y;
+        if (Math.hypot(x - cx, y - cy) <= radius) return { cx, cy };
+      }
+    }
+    return null;
+  }
+
   placeTowerAtBg(bgCol: number, bgRow: number, towerType?: TowerType): boolean {
     if (!this.canPlaceAtBg(bgCol, bgRow, towerType)) return false;
     this.bgOccupied.add(`${bgCol},${bgRow}`);

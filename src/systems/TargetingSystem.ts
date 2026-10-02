@@ -38,6 +38,10 @@ export class TargetingSystem {
         return this.findClosest(towerPos, inRange);
       case 'strongest':
         return this.findStrongest(inRange);
+      case 'last':
+        return this.findLast(inRange);
+      case 'random':
+        return inRange[Math.floor(Math.random() * inRange.length)];
       default:
         return this.findFirst(inRange);
     }
@@ -63,6 +67,16 @@ export class TargetingSystem {
       const bestDist = towerPos.distanceTo(best.position);
       return dist < bestDist ? e : best;
     });
+  }
+
+  /**
+   * "Last" - target the enemy newest to the pack (highest HP ratio,
+   * the mirror of the HP-ratio proxy used for "first").
+   */
+  private static findLast(enemies: TargetableEntity[]): TargetableEntity {
+    return enemies.reduce((best, e) =>
+      e.health.getHealthPercent() > best.health.getHealthPercent() ? e : best
+    );
   }
 
   /**

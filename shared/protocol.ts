@@ -107,6 +107,8 @@ export interface NetEnemySnap {
   y: number;
   hp: number;
   hpMax: number;
+  /** Splitter spawned a smaller copy — guests size it accordingly. */
+  mini?: boolean;
 }
 
 export interface NetTowerSnap {
@@ -117,6 +119,8 @@ export interface NetTowerSnap {
   level: number;
   color: string;
   ownerId?: string;
+  /** Targeting mode the host uses for this tower. */
+  targetMode?: string;
 }
 
 export interface NetProjectileSnap {
@@ -150,6 +154,7 @@ export type NetCommand =
   | { k: 'upgrade'; id: string }
   | { k: 'sell'; id: string }
   | { k: 'wave' }
+  | { k: 'aim'; id: string; mode: string }
   | { k: 'early' };
 
 export interface NetCommandMsg {

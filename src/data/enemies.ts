@@ -122,6 +122,16 @@ export const ENEMY_DEFINITIONS: Record<string, EnemyData> = {
     size: 16,
     invisible: true,
   },
+  splitter: {
+    type: 'splitter',
+    name: 'Splitter',
+    hp: 650,
+    speed: 28,
+    armor: 7,
+    reward: 60,
+    color: '#7e57c2',
+    size: 24,
+  },
 };
 
 export const ENEMY_LIST = Object.values(ENEMY_DEFINITIONS);

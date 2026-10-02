@@ -5,7 +5,7 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
     type: 'arrow',
     name: 'Arrow Tower',
     cost: 50,
-    damage: 5,
+    damage: 4,
     fireRate: 1.8,
     range: 120,
     splashRadius: 0,
@@ -18,7 +18,7 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
     type: 'cannon',
     name: 'Cannon Tower',
     cost: 100,
-    damage: 25,
+    damage: 22,
     fireRate: 0.6,
     range: 105,
     splashRadius: 60,
@@ -31,7 +31,7 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
     type: 'frost',
     name: 'Frost Tower',
     cost: 75,
-    damage: 3,
+    damage: 2,
     fireRate: 1.1,
     range: 95,
     splashRadius: 50,
@@ -44,7 +44,7 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
     type: 'sniper',
     name: 'Sniper Tower',
     cost: 110,
-    damage: 70,
+    damage: 63,
     fireRate: 0.3,
     range: 270,
     splashRadius: 0,
@@ -57,7 +57,7 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
     type: 'mortar',
     name: 'Mortar Tower',
     cost: 150,
-    damage: 35,
+    damage: 31,
     fireRate: 0.4,
     range: 200,
     splashRadius: 90,
@@ -70,7 +70,7 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
     type: 'tesla',
     name: 'Tesla Tower',
     cost: 125,
-    damage: 5,
+    damage: 4,
     fireRate: 3,
     range: 110,
     splashRadius: 45,
@@ -83,7 +83,7 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
     type: 'grenade',
     name: 'Grenade Tower',
     cost: 140,
-    damage: 20,
+    damage: 18,
     fireRate: 0.5,
     range: 170,
     splashRadius: 40,
@@ -107,6 +107,9 @@ export const TOWER_UPGRADES: TowerUpgradeData[] = [
 export const MAX_TOWER_LEVEL = TOWER_UPGRADES[TOWER_UPGRADES.length - 1].level;
 
 export const TOWER_LIST = Object.values(TOWER_DEFINITIONS);
+
+/** The three basic towers — their combined build budget is shared. */
+export const BASIC_TOWERS: TowerType[] = ['arrow', 'cannon', 'frost'];
 
 /**
  * Default per-type build caps. Levels can override any of them via the
