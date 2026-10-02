@@ -114,6 +114,18 @@
 
     <h3>Start Gold</h3>
     <input type="number" id="startGold" value="500" min="0" step="25" onchange="setStartGold(this.value)">
+    
+    <h3>Tower Limits</h3>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:3px 10px; font-size:11px;">
+      <label style="display:flex; justify-content:space-between; align-items:center;">Arrow <input type="number" id="limit_arrow" min="0" placeholder="10" style="width:54px; margin:0;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Cannon <input type="number" id="limit_cannon" min="0" placeholder="10" style="width:54px; margin:0;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Frost <input type="number" id="limit_frost" min="0" placeholder="10" style="width:54px; margin:0;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Sniper <input type="number" id="limit_sniper" min="0" placeholder="4" style="width:54px; margin:0;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Mortar <input type="number" id="limit_mortar" min="0" placeholder="1" style="width:54px; margin:0;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Tesla <input type="number" id="limit_tesla" min="0" placeholder="1" style="width:54px; margin:0;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Grenade <input type="number" id="limit_grenade" min="0" placeholder="1" style="width:54px; margin:0;"></label>
+    </div>
+    <div style="font-size:10px; color:#8888aa; margin-top:3px;">Empty = default cap</div>
 
     <h3>Waves</h3>
     <div class="waves-row">
@@ -425,6 +437,24 @@ function setDifficulty(value) {
   const lives = value === 'easy' ? 20 : value === 'medium' ? 5 : 1;
   document.getElementById('status').textContent =
     `Difficulty: ${value} — ${lives} ${lives === 1 ? 'life' : 'lives'}`;
+}
+
+const TOWER_LIMIT_TYPES = ['arrow', 'cannon', 'frost', 'sniper', 'mortar', 'tesla', 'grenade'];
+
+/** Collect the per-type build caps; empty fields fall back to defaults. */
+function readTowerLimits() {
+  const out = {};
+  let any = false;
+  for (const t of TOWER_LIMIT_TYPES) {
+    const raw = document.getElementById('limit_' + t).value;
+    if (raw === '') continue;
+    const n = Math.floor(Number(raw));
+    if (Number.isFinite(n) && n >= 0) {
+      out[t] = n;
+      any = true;
+    }
+  }
+  return any ? out : undefined;
 }
 
 function setStartGold(value) {
@@ -1195,23 +1225,75 @@ function renderStampList() {
   `).join('');
 }
 
-function saveStampsToStorage() {
+// ============================================================
+// Stamp storage: IndexedDB (the browser's database) — the whole
+// list lives under one record, mirroring the old full-replace
+// semantics. Data from the old localStorage slot migrates once.
+// ============================================================
+const STAMP_DB_NAME = 'loomi_editor';
+const STAMP_DB_VERSION = 1;
+const STAMP_STORE = 'stamps';
+const STAMP_RECORD_KEY = 'all';
+
+function openStampDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(STAMP_DB_NAME, STAMP_DB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(STAMP_STORE)) {
+        req.result.createObjectStore(STAMP_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveStampsToStorage() {
   try {
-    localStorage.setItem('loomi_editor_stamps', JSON.stringify(savedStamps));
+    const db = await openStampDb();
+    const tx = db.transaction(STAMP_STORE, 'readwrite');
+    tx.objectStore(STAMP_STORE).put(savedStamps.slice(), STAMP_RECORD_KEY);
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => db.close();
   } catch (e) {
-    console.warn('Could not save stamps to localStorage:', e);
+    console.warn('Could not save stamps to IndexedDB:', e);
   }
 }
 
-function loadStampsFromStorage() {
+async function loadStampsFromStorage() {
   try {
-    const stored = localStorage.getItem('loomi_editor_stamps');
-    if (stored) {
-      savedStamps = JSON.parse(stored);
+    const db = await openStampDb();
+    const tx = db.transaction(STAMP_STORE, 'readonly');
+    const req = tx.objectStore(STAMP_STORE).get(STAMP_RECORD_KEY);
+    req.onsuccess = () => {
+      db.close();
+      let stamps = req.result;
+      if (!Array.isArray(stamps)) stamps = [];
+
+      // One-time migration from the old localStorage slot
+      const legacy = localStorage.getItem('loomi_editor_stamps');
+      if (legacy) {
+        try {
+          const parsed = JSON.parse(legacy);
+          if (stamps.length === 0 && Array.isArray(parsed)) {
+            stamps = parsed;
+            saveStampsToStorage();
+          }
+        } catch {
+          // unparsable legacy data — drop it
+        }
+        localStorage.removeItem('loomi_editor_stamps');
+      }
+
+      savedStamps = stamps;
       renderStampList();
-    }
+    };
+    req.onerror = () => {
+      db.close();
+      console.warn('Could not load stamps from IndexedDB:', req.error);
+    };
   } catch (e) {
-    console.warn('Could not load stamps from localStorage:', e);
+    console.warn('Could not load stamps from IndexedDB:', e);
   }
 }
 
@@ -1349,6 +1431,7 @@ function colorToNum(hex, fallback) {
 }
 
 function exportJSON() {
+  const limits = readTowerLimits();
   const data = {
     version: 1,
     name: 'Untitled Level',
@@ -1360,6 +1443,7 @@ function exportJSON() {
     fgAreas: fgAreas,
     difficulty: difficulty,
     startGold: startGold,
+    ...(limits ? { towerLimits: limits } : {}),
     ...(waves.length > 0 && {
       waves: waves.map((w, i) => ({ waveNumber: i + 1, entries: w.entries })),
     }),
@@ -1420,6 +1504,14 @@ function handleFileImport(e) {
       const importedGold = Math.floor(Number(data.startGold));
       startGold = Number.isFinite(importedGold) && importedGold >= 0 ? importedGold : 500;
       document.getElementById('startGold').value = startGold;
+      // Tower limits (empty fields keep the defaults)
+      const limits = data.towerLimits && typeof data.towerLimits === 'object' ? data.towerLimits : {};
+      for (const t of TOWER_LIMIT_TYPES) {
+        const v = limits[t];
+        const n = Math.floor(Number(v));
+        document.getElementById('limit_' + t).value =
+          v !== undefined && v !== null && Number.isFinite(n) && n >= 0 ? String(n) : '';
+      }
 
       // Load custom wave definitions (invalid data falls back to defaults)
       waves = normalizeWaves(data.waves);

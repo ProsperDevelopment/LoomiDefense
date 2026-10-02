@@ -8,6 +8,7 @@ import { AddressInfo } from 'node:net';
 import { app } from '../../server/api';
 import { store } from '../../server/db';
 import type { UserProgress } from '../../shared/protocol';
+import { DEV_MODE, DEV_COINS } from '../../src/config/constants';
 
 let server: Server;
 let base: string;
@@ -54,7 +55,8 @@ describe('auth', () => {
     expect(user.progress.ownedTowers).toEqual(['arrow', 'cannon', 'frost']);
     expect(user.progress.loadout).toEqual(['arrow', 'cannon', 'frost']);
     expect(user.progress.unlocked).toEqual([1]);
-    expect(user.progress.coins).toBe(0);
+    // Dev mode seeds fresh accounts with DEV_COINS
+    expect(user.progress.coins).toBe(DEV_MODE ? DEV_COINS : 0);
   });
 
   it('rejects duplicate usernames', async () => {
@@ -154,6 +156,8 @@ describe('friends', () => {
 describe('progress', () => {
   it('awards coins only on first level completion', async () => {
     const { token } = await registerUser('leo');
+    // Dev mode seeds accounts with DEV_COINS — drain first to test the math
+    await req('PUT', '/api/progress', { progress: { coins: 0 } }, token);
 
     const first = await req('POST', '/api/progress/complete-level', { levelId: 1, coins: 50 }, token);
     expect(first.json.firstTime).toBe(true);
@@ -204,6 +208,9 @@ describe('store', () => {
 
   it('rejects purchase without enough coins', async () => {
     const { token } = await registerUser('peggy');
+    // Dev mode seeds accounts with DEV_COINS — drain first so the
+    // balance check still gets exercised
+    await req('PUT', '/api/progress', { progress: { coins: 0 } }, token);
     const res = await req('POST', '/api/store/buy', { towerType: 'tesla' }, token);
     expect(res.status).toBe(402);
   });

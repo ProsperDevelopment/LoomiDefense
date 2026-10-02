@@ -176,3 +176,25 @@ describe('LevelLoader start gold', () => {
     expect(MAP_DEFINITIONS.find(l => l.id === 0)!.startGold).toBe(9999); // dev demo
   });
 });
+
+// ============================================================
+// LevelLoader: tower build limits.
+// ============================================================
+describe('LevelLoader tower limits', () => {
+  it('keeps valid per-type caps', () => {
+    const level = loadLevelFromJSON(
+      { ...baseLevel, towerLimits: { arrow: 5, sniper: 2 } },
+      1,
+    );
+    expect(level.towerLimits).toEqual({ arrow: 5, sniper: 2 });
+  });
+
+  it('drops unknown types and invalid values, missing stays undefined', () => {
+    expect(loadLevelFromJSON({ ...baseLevel }, 1).towerLimits).toBeUndefined();
+    const level = loadLevelFromJSON(
+      { ...baseLevel, towerLimits: { nope: 3, arrow: -1, tesla: 2.9, frost: 0 } },
+      1,
+    );
+    expect(level.towerLimits).toEqual({ tesla: 2, frost: 0 });
+  });
+});

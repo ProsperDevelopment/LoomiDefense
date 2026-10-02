@@ -3,7 +3,7 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { Tower } from '../../src/entities/Tower';
-import { TOWER_DEFINITIONS, TOWER_LIST, TOWER_UPGRADES, MAX_TOWER_LEVEL } from '../../src/data/towers';
+import { TOWER_DEFINITIONS, TOWER_LIST, TOWER_UPGRADES, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS } from '../../src/data/towers';
 import { TOWER_SPRITE_FRAMES } from '../../src/entities/Tower';
 import type { TowerType } from '../../src/types';
 
@@ -45,6 +45,22 @@ describe('tower roster', () => {
       expect(frame, `no frame for ${type}`).toBeGreaterThanOrEqual(0);
       expect(frame).toBeLessThanOrEqual(33); // normal frame of last group
       expect(frame % 3).toBe(0); // groups of 3 (normal, damaged1, damaged2)
+    }
+  });
+
+  it('ships the default build caps', () => {
+    expect(DEFAULT_TOWER_LIMITS).toEqual({
+      arrow: 10,
+      cannon: 10,
+      frost: 10,
+      sniper: 4,
+      mortar: 1,
+      tesla: 1,
+      grenade: 1,
+    });
+    // Every tower type must have a cap
+    for (const type of ALL_TYPES) {
+      expect(DEFAULT_TOWER_LIMITS[type], `no cap for ${type}`).toBeTypeOf('number');
     }
   });
 

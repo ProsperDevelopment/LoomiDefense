@@ -1,6 +1,7 @@
-import type { MapData, CellType, Difficulty, WaveData, WaveEntry, FgAreaType } from '../types';
+import type { MapData, CellType, Difficulty, WaveData, WaveEntry, FgAreaType, TowerType } from '../types';
 import { convertLegacyBgTiles } from '../utils/backgroundTiles';
 import { ENEMY_DEFINITIONS } from './enemies';
+import { TOWER_DEFINITIONS } from './towers';
 
 /**
  * Parse a level color value. Accepts a number (0xRRGGBB) or a hex
@@ -13,6 +14,18 @@ function parseColor(value: unknown): number | undefined {
     if (/^[0-9a-fA-F]{6}$/.test(hex)) return parseInt(hex, 16);
   }
   return undefined;
+}
+
+/** Keep only valid per-tower-type build caps; anything else is dropped. */
+function parseTowerLimits(value: unknown): Partial<Record<TowerType, number>> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const out: Partial<Record<TowerType, number>> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!(key in TOWER_DEFINITIONS)) continue;
+    const n = Math.floor(Number(raw));
+    if (Number.isFinite(n) && n >= 0) out[key as TowerType] = n;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Validate a difficulty value; anything unknown falls back to undefined (easy). */
@@ -118,6 +131,7 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
     fgAreas: parseFgAreas(jsonData.fgAreas),
     difficulty: parseDifficulty(jsonData.difficulty),
     startGold: parseStartGold(jsonData.startGold),
+    towerLimits: parseTowerLimits(jsonData.towerLimits),
     waves: parseWaves(jsonData.waves),
     // Legacy exports used `grassColor` — fall back so old files keep their colors
     groundColor: parseColor(jsonData.groundColor ?? jsonData.grassColor),

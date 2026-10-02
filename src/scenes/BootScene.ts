@@ -60,6 +60,11 @@ export class BootScene extends Phaser.Scene {
       frameWidth: 40,
       frameHeight: 40,
     });
+
+    // Bone fragments — join death bursts (pick one at random per death)
+    for (let i = 1; i <= 5; i++) {
+      this.load.image(`bone_${i}`, `assets/images/bones/bone${i}.png`);
+    }
     this.load.audio('sfx_success', 'assets/audio/Success1.wav'); // victory jingle
     this.load.audio('sfx_gameover', 'assets/audio/GameOver.wav');// defeat jingle
 

@@ -6,7 +6,7 @@
 import { api, getToken, ApiError } from '../api/client';
 import type { PublicUser, UserProgress, UserSearchResult } from '../../shared/protocol';
 import { defaultProgress, DEFAULT_SETTINGS } from '../../shared/protocol';
-import { DEV_MODE } from '../config/constants';
+import { DEV_MODE, DEV_COINS } from '../config/constants';
 
 const LOCAL_KEY = 'loomi_guest_profile';
 
@@ -103,9 +103,12 @@ class UserProfile {
   }
 
   get coins(): number {
-    // Dev mode: free spending money for the store
-    if (DEV_MODE) return 9000;
-    return this.isLoggedIn ? this.user!.progress.coins : this.guest.progress.coins;
+    if (this.isLoggedIn) return this.user!.progress.coins;
+    // Dev mode: guests run on constant pocket money; logged-in balances
+    // are real (the server seeds DEV_COINS at register/login), so
+    // purchases visibly spend the dev coins down
+    if (DEV_MODE) return DEV_COINS;
+    return this.guest.progress.coins;
   }
 
   get ownedTowers(): string[] {

@@ -7,6 +7,8 @@ export const BACKGROUND_COLOR = 0x1a1a2e;
 
 // --- Dev Mode ---
 export const DEV_MODE = true;
+/** Coins dev accounts carry — seeded at register/login on the server. */
+export const DEV_COINS = 9000;
 
 // --- Grid ---
 export const GRID_COLS = 16;

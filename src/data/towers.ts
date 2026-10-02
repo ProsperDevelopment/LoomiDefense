@@ -1,4 +1,4 @@
-import type { TowerData, TowerUpgradeData } from '../types';
+import type { TowerData, TowerUpgradeData, TowerType } from '../types';
 
 export const TOWER_DEFINITIONS: Record<string, TowerData> = {
   arrow: {
@@ -107,3 +107,17 @@ export const TOWER_UPGRADES: TowerUpgradeData[] = [
 export const MAX_TOWER_LEVEL = TOWER_UPGRADES[TOWER_UPGRADES.length - 1].level;
 
 export const TOWER_LIST = Object.values(TOWER_DEFINITIONS);
+
+/**
+ * Default per-type build caps. Levels can override any of them via the
+ * optional `towerLimits` map in their JSON.
+ */
+export const DEFAULT_TOWER_LIMITS: Record<TowerType, number> = {
+  arrow: 10,
+  cannon: 10,
+  frost: 10,
+  sniper: 4,
+  mortar: 1,
+  tesla: 1,
+  grenade: 1,
+};

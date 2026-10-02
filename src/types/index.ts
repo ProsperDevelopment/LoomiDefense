@@ -39,6 +39,8 @@ export interface MapData {
   fgAreas?: FgAreaType[][]; // Foreground markers (same size as bgTiles, 2x grid)
   difficulty?: Difficulty; // Starting lives come from this (default: easy)
   startGold?: number;      // Gold at level start (default: 500)
+  /** Optional per-type build caps (absent types use the defaults). */
+  towerLimits?: Partial<Record<TowerType, number>>;
   waves?: WaveData[];    // Custom wave definitions (default: game's built-in waves)
   groundColor?: number;    // Fill color for light ground chessboard squares (0xRRGGBB)
   groundColorDark?: number; // Fill color for dark ground chessboard squares (0xRRGGBB)

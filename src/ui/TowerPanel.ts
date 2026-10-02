@@ -8,6 +8,8 @@ export interface TowerPanelCallbacks {
   onSellTower: () => void;
   onUpgradeTower: () => void;
   canAfford: (cost: number) => boolean;
+  /** True when this player already hit the build cap for the type. */
+  maxedOut?: (type: TowerType) => boolean;
   onCancel: () => void;
 }
 
@@ -98,25 +100,27 @@ export class TowerPanel {
       const btnX = startX + i * (btnSize + padding);
       const btnY = -10;
       const canAfford = this.callbacks.canAfford(tower.cost);
+      const maxed = this.callbacks.maxedOut?.(tower.type) ?? false;
+      const enabled = canAfford && !maxed;
 
       // Button background
-      const btnBg = this.scene.add.rectangle(btnX, btnY, btnSize, btnSize, canAfford ? 0x2a2a4a : 0x1a1a2a);
-      btnBg.setStrokeStyle(2, canAfford ? 0x4a4a6a : 0x333344);
+      const btnBg = this.scene.add.rectangle(btnX, btnY, btnSize, btnSize, enabled ? 0x2a2a4a : 0x1a1a2a);
+      btnBg.setStrokeStyle(2, enabled ? 0x4a4a6a : 0x333344);
 
       // Tower icon from tileset
       const frame = TOWER_SPRITE_FRAMES[tower.type];
       const icon = this.scene.add.image(btnX, btnY - 2, 'towers_tileset', frame);
       icon.setDisplaySize(btnSize - 12, btnSize - 12);
 
-      // Cost text below icon
-      const cost = this.scene.add.text(btnX, btnY + btnSize / 2 - 6, `${tower.cost}g`, {
-        fontSize: '8px', color: canAfford ? '#FFD700' : '#666644',
+      // Cost text below icon (or MAX when the build cap is hit)
+      const cost = this.scene.add.text(btnX, btnY + btnSize / 2 - 6, maxed ? 'MAX' : `${tower.cost}g`, {
+        fontSize: '8px', color: maxed ? '#ff7766' : canAfford ? '#FFD700' : '#666644',
         fontStyle: 'bold',
       }).setOrigin(0.5);
 
       this.container.add([btnBg, icon, cost]);
 
-      if (canAfford) {
+      if (enabled) {
         btnBg.setInteractive({ useHandCursor: true });
         btnBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
           pointer.event.stopPropagation();

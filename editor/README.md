@@ -131,6 +131,7 @@ The status bar shows the **global tile id** of the selected tile.
   "fgAreas": [["fg", "none", ...], ...],
   "difficulty": "medium",
   "startGold": 500,
+  "towerLimits": { "sniper": 2 },
   "path": [{"x": 0, "y": 7}, ...],
   "spawnPoints": [{"x": 0, "y": 7}],
   "basePoints": [{"x": 19, "y": 7}],

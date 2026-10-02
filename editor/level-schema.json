@@ -114,6 +114,11 @@
       "type": "number",
       "description": "Gold the player starts the level with (default 500)"
     },
+    "towerLimits": {
+      "type": "object",
+      "description": "Optional per-type build caps; absent types use the defaults",
+      "additionalProperties": { "type": "number", "minimum": 0 }
+    },
     "waves": {
       "type": "array",
       "description": "Custom wave definitions for this level. Each wave: { waveNumber, entries: [{ enemyType, count, spawnDelay, waveDelay }] }. Omit to use the game defaults.",

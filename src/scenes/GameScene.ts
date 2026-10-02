@@ -16,7 +16,7 @@ import { HUD } from '../ui/HUD';
 import { TowerPanel } from '../ui/TowerPanel';
 import { WaveIndicator } from '../ui/WaveIndicator';
 import { MAP_DEFINITIONS } from '../data/maps';
-import { TOWER_DEFINITIONS, MAX_TOWER_LEVEL } from '../data/towers';
+import { TOWER_DEFINITIONS, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS } from '../data/towers';
 import { userProfile } from '../state/UserProfile';
 import { lobby } from '../ui/overlay/lobbyScreen';
 import type { NetSnapshot, NetCommand, NetStatus } from '../../shared/protocol';
@@ -75,6 +75,8 @@ export class GameScene extends Phaser.Scene {
   private guestWaveNumber: number = 0;
   /** Recent splatter timestamps — thins the fine spray in busy fights. */
   private recentSplats: number[] = [];
+  /** Bones lying on the ground; enemies kick them as they walk past. */
+  private restingBones: { img: Phaser.GameObjects.Image; cooldown: number }[] = [];
   /** Per-level background tile loading (see drawBackgroundTiles). */
   private bgTileEpoch: number = 0;
   private bgTileLoadActive: boolean = false;
@@ -223,6 +225,7 @@ export class GameScene extends Phaser.Scene {
     this.towers = [];
     this.enemies = [];
     this.projectiles = [];
+    this.restingBones = [];
     this.lives = STARTING_LIVES;
     this.score = 0;
     this.selectedTowerType = null;
@@ -284,6 +287,7 @@ export class GameScene extends Phaser.Scene {
       onSellTower: () => this.onSellTower(),
       onUpgradeTower: () => this.onUpgradeTower(),
       canAfford: (cost) => this.economy.canAfford(cost),
+      maxedOut: (type) => !this.canBuildMore(type, this.myPlayerId()),
       onCancel: () => this.cancelPendingBuild(),
     });
     this.towerPanel.setAvailableTypes(this.loadoutTypes);
@@ -387,6 +391,7 @@ export class GameScene extends Phaser.Scene {
     this.updateEnemies(scaledDelta);
     this.updateTowerCombat(scaledDelta);
     this.updateProjectiles(scaledDelta);
+    this.updateBoneKicks(scaledDelta);
 
     // Host: broadcast snapshots ~10x per second
     if (this.netRole === 'host') {
@@ -878,7 +883,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Highlight only if at least one loadout tower fits this cell
-    const canPlace = this.loadoutTypes.some((t) => this.grid.canPlaceAtBg(col, row, t));
+    const canPlace = this.loadoutTypes.some((t) => this.grid.canPlaceAtBg(col, row, t) && this.canBuildMore(t, this.myPlayerId()));
     const worldPos = this.grid.bgToWorld(col, row);
     this.hoverIndicator.setPosition(worldPos.x, worldPos.y);
     this.hoverIndicator.setVisible(true);
@@ -1042,6 +1047,25 @@ export class GameScene extends Phaser.Scene {
     this.cancelPendingBuild();
   }
 
+  /** Build cap for one tower type: level override or the default. */
+  private towerLimit(type: TowerType): number {
+    const override = this.grid.getMapData().towerLimits?.[type];
+    return override ?? DEFAULT_TOWER_LIMITS[type];
+  }
+
+  /** How many of this type this player has already built. */
+  private towersBuiltBy(type: TowerType, ownerId: string): number {
+    let n = 0;
+    for (const t of this.towers) {
+      if (t.type === type && t.ownerId === ownerId) n++;
+    }
+    return n;
+  }
+
+  private canBuildMore(type: TowerType, ownerId: string): boolean {
+    return this.towersBuiltBy(type, ownerId) < this.towerLimit(type);
+  }
+
   private placeTower(col: number, row: number, type: TowerType, ownerId?: string, colorHex?: string): void {
     const data = TOWER_DEFINITIONS[type];
     if (!data) return;
@@ -1055,6 +1079,9 @@ export class GameScene extends Phaser.Scene {
 
     // Who is paying? Solo/host = self; remote command = its sender.
     const owner = ownerId ?? this.myPlayerId();
+
+    // Per-player build cap for this type (level override or default)
+    if (!this.canBuildMore(type, owner)) return;
 
     // Guest: relay the action to the host (authoritative)
     if (this.netRole === 'guest') {
@@ -1191,6 +1218,60 @@ export class GameScene extends Phaser.Scene {
 
   private findTowerAt(col: number, row: number): Tower | null {
     return this.towers.find(t => t.getGridCol() === col && t.getGridRow() === row) || null;
+  }
+
+  /** Walking enemies knock resting bones around. */
+  private updateBoneKicks(deltaMs: number): void {
+    if (this.restingBones.length === 0) return;
+    for (const b of this.restingBones) {
+      if (!b.img.active) continue;
+      if (b.cooldown > 0) {
+        b.cooldown -= deltaMs;
+        continue;
+      }
+      const enemy = this.enemies.find(
+        (e) =>
+          e.alive &&
+          !e.isDead() &&
+          Math.hypot(e.position.x - b.img.x, e.position.y - b.img.y) <= e.data.size * 0.7 + 6,
+      );
+      if (enemy) {
+        b.cooldown = 700; // one kick per pass
+        this.kickBone(b.img, enemy.position.x, enemy.position.y);
+      }
+    }
+    // Drop bones that finished their 30s fade
+    if (this.restingBones.some((b) => !b.img.active)) {
+      this.restingBones = this.restingBones.filter((b) => b.img.active);
+    }
+  }
+
+  /** A walking enemy shoves a resting bone: it hops away and tumbles. */
+  private kickBone(bone: Phaser.GameObjects.Image, fromX: number, fromY: number): void {
+    const dx = bone.x - fromX;
+    const dy = bone.y - fromY;
+    const len = Math.hypot(dx, dy) || 1;
+    const push = 6 + Math.random() * 5;
+    const nx = (dx / len) * push;
+    const ny = (dy / len) * push;
+    const spin = (Math.random() - 0.5) * 80;
+    this.tweens.add({
+      targets: bone,
+      x: bone.x + nx,
+      y: bone.y + ny - 4,
+      angle: bone.angle + spin,
+      duration: 120,
+      ease: 'Power1.out',
+      onComplete: () => {
+        if (!bone.active) return;
+        this.tweens.add({
+          targets: bone,
+          y: bone.y + 4,
+          duration: 140,
+          ease: 'Power1.in',
+        });
+      },
+    });
   }
 
   private updateEnemies(deltaMs: number): void {
@@ -1459,17 +1540,28 @@ export class GameScene extends Phaser.Scene {
     dirX: number,
     dirY: number,
     bounceCount: number,
+    persist: boolean = false,
   ): void {
     const fade = () => {
       if (!piece.active) return;
-      this.tweens.add({
-        targets: piece,
-        alpha: 0,
-        duration: 5000,
-        onComplete: () => {
-          if (piece.active) piece.destroy();
-        },
-      });
+      const start = () => {
+        this.tweens.add({
+          targets: piece,
+          alpha: 0,
+          duration: 5000,
+          onComplete: () => {
+            if (piece.active) piece.destroy();
+          },
+        });
+      };
+      // Bones lie on the ground for 30 seconds before fading away —
+      // and enemies kick them as they walk past
+      if (persist) {
+        this.restingBones.push({ img: piece, cooldown: 0 });
+        this.time.delayedCall(30000, start);
+      } else {
+        start();
+      }
     };
 
     const endY = this.dripEndY(x, y);
@@ -2350,6 +2442,39 @@ export class GameScene extends Phaser.Scene {
     const sinR = Math.sin(rot);
     const alpha = Math.max(sprite.alpha, 0.5); // phantoms still show their burst
 
+    // The flight every piece takes: burst or crumble, then land through
+    // the shared debris pipeline
+    const fling = (piece: Phaser.GameObjects.Image, persist = false): void => {
+      const longShot = Math.random() < 0.01; // ~1 in 100
+      const rx = piece.x - sprite.x;
+      const ry = piece.y - sprite.y;
+      const ang = Math.atan2(ry, rx) + (Math.random() - 0.5) * 0.7;
+      const dirX = Math.cos(ang);
+      const dirY = Math.sin(ang);
+      const dist = longShot
+        ? 90 + Math.random() * 80          // 90-170px: the occasional far fling
+        : (10 + Math.random() * Math.random() * 70) * explosive;
+      const duration = longShot
+        ? 900 + Math.random() * 600        // readable flight for the far ones
+        : (400 + Math.random() * 800) / (0.7 + explosive * 0.55);
+      const bounces = longShot ? 2 + Math.floor(Math.random() * 2) : 1;
+      this.tweens.add({
+        targets: piece,
+        x: piece.x + dirX * dist,
+        y: piece.y + dirY * dist + 8 + Math.random() * 14 + (fallsApart ? 12 : 0),
+        angle: piece.angle + (Math.random() - 0.5) * 720 * explosive,
+        duration,
+        ease: fallsApart ? 'Power1.in' : 'Power2.out',
+        onComplete: () => {
+          if (!piece.active) return;
+          // Lands through the shared pipeline: glide/drip down walls,
+          // trees and towers like blood; on ground, bounce and roll
+          // along the direction it was flying in
+          this.landDebris(piece, piece.x, piece.y, dirX, dirY, bounces, persist);
+        },
+      });
+    };
+
     for (let gy = 0; gy < ROWS; gy++) {
       for (let gx = 0; gx < COLS; gx++) {
         const px0 = xb[gx];
@@ -2376,38 +2501,25 @@ export class GameScene extends Phaser.Scene {
         piece.setDepth(16); // above blood (11) and projectiles (15)
         piece.setAlpha(alpha);
 
-        // Fling outward with a slight direction tweak — the death's
-        // explosiveness scales how far, fast and spinny it goes (soft
-        // crumbles barely scatter), with the occasional far fling
-        const longShot = Math.random() < 0.01; // ~1 in 100
-        const rx = piece.x - sprite.x;
-        const ry = piece.y - sprite.y;
-        const ang = Math.atan2(ry, rx) + (Math.random() - 0.5) * 0.7;
-        const dirX = Math.cos(ang);
-        const dirY = Math.sin(ang);
-        const dist = longShot
-          ? 90 + Math.random() * 80          // 90-170px: the occasional far fling
-          : (10 + Math.random() * Math.random() * 70) * explosive;
-        const duration = longShot
-          ? 900 + Math.random() * 600        // readable flight for the far ones
-          : (400 + Math.random() * 800) / (0.7 + explosive * 0.55);
-        const bounces = longShot ? 2 + Math.floor(Math.random() * 2) : 1;
-        this.tweens.add({
-          targets: piece,
-          x: piece.x + dirX * dist,
-          y: piece.y + dirY * dist + 8 + Math.random() * 14 + (fallsApart ? 12 : 0),
-          angle: piece.angle + (Math.random() - 0.5) * 720 * explosive,
-          duration,
-          ease: fallsApart ? 'Power1.in' : 'Power2.out',
-          onComplete: () => {
-            if (!piece.active) return;
-            // Lands through the shared pipeline: glide/drip down walls,
-            // trees and towers like blood; on ground, bounce and roll
-            // along the direction it was flying in
-            this.landDebris(piece, piece.x, piece.y, dirX, dirY, bounces);
-          },
-        });
+        fling(piece);
       }
+    }
+
+    // One random bone fragment joins the burst — every death except the
+    // bleed-out funnels through here — riding the exact same
+    // fall/explode animation as the shards
+    const BONE_KEYS = ['bone_1', 'bone_2', 'bone_3', 'bone_4', 'bone_5'];
+    const skelKey = BONE_KEYS[Math.floor(Math.random() * BONE_KEYS.length)];
+    if (this.textures.exists(skelKey)) {
+      const skel = this.add.image(
+        sprite.x + (Math.random() - 0.5) * sprite.displayWidth * 0.5,
+        sprite.y + (Math.random() - 0.5) * sprite.displayHeight * 0.5,
+        skelKey,
+      );
+      skel.setDisplaySize(sprite.displayWidth * 0.9, sprite.displayHeight * 0.9);
+      skel.setDepth(10); // below the blood (11) so splatter covers it
+      skel.setAlpha(alpha);
+      fling(skel, true); // bones rest on the ground for 30s first
     }
   }
 

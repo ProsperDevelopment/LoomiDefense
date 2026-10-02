@@ -5,6 +5,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { store, toPublicUser, type UserRecord } from './db';
 import { hashPassword, verifyPassword, createToken } from './auth';
 import type { StoreCatalogItem, UserProgress } from '../shared/protocol';
+import { DEV_MODE, DEV_COINS } from '../src/config/constants';
 
 // Tower store catalog: tower types unlocked with coins (beyond the 3 free ones).
 export const STORE_CATALOG: StoreCatalogItem[] = [
@@ -62,6 +63,11 @@ app.post('/api/auth/register', (req: AuthedRequest, res: Response) => {
   }
   const { hash, salt } = hashPassword(password);
   const user = store.createUser(username, hash, salt);
+  // Dev mode: accounts start with spendable dev coins
+  if (DEV_MODE) {
+    user.progress.coins = DEV_COINS;
+    store.updateUser(user);
+  }
   const token = createToken();
   store.saveSession(token, user.id);
   res.status(201).json({ token, user: toPublicUser(user) });
@@ -77,6 +83,11 @@ app.post('/api/auth/login', (req: AuthedRequest, res: Response) => {
   if (!user || !verifyPassword(password, user.salt, user.passwordHash)) {
     res.status(401).json({ error: 'Invalid username or password' });
     return;
+  }
+  // Dev mode: top the account back up so dev coins stay spendable
+  if (DEV_MODE && user.progress.coins < DEV_COINS) {
+    user.progress.coins = DEV_COINS;
+    store.updateUser(user);
   }
   const token = createToken();
   store.saveSession(token, user.id);
