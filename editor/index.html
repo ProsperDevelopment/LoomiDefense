@@ -72,6 +72,7 @@
   .wave-card { background: #0d1b33; border: 1px solid #24406a; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
   .wave-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .wave-entry { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  .enemy-icon { width: 26px; height: 26px; flex-shrink: 0; background-size: 400% 400%; background-position: 0% 0%; image-rendering: pixelated; border: 1px solid #2a2a4e; border-radius: 3px; background-color: #0a0a1a; }
   .wave-entry select, .wave-entry input { width: auto; margin: 0; padding: 3px 6px; }
   .wave-entry input { width: 64px; }
   .wave-entry label { font-size: 11px; color: #a0a0a0; display: flex; align-items: center; gap: 4px; }
@@ -1358,6 +1359,19 @@ function updateZoom() {
 // Wave Definitions
 // ============================================================
 const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss', 'brute', 'sprinter', 'phantom', 'splitter'];
+
+// Sprite-sheet file per enemy (mirrors the game's ENEMY_SPRITES)
+const ENEMY_ICON_FILES = {
+  basic: 'slime', fast: 'spider', armored: 'bear', healer: 'snake',
+  swarm: 'slime', tank: 'beast', elite: 'cyclops', boss: 'dragon',
+  brute: 'beast', sprinter: 'snake', phantom: 'dragon', splitter: 'beast',
+};
+
+/** First frame of the enemy's 4x4 sheet as a swatch. */
+function enemyIconHtml(type) {
+  const file = ENEMY_ICON_FILES[type] ?? 'slime';
+  return `<span class="enemy-icon" title="${type}" style="background-image:url('assets/enemies/${file}.png')"></span>`;
+}
 // Custom waves for this level: [{ entries: [{enemyType, count, spawnDelay, waveDelay}] }]
 // Empty list = the level uses the game's built-in waves.
 let waves = [];
@@ -1390,6 +1404,7 @@ function renderWavesDialog() {
       </div>
       ${wave.entries.map((entry, ei) => `
         <div class="wave-entry">
+          ${enemyIconHtml(entry.enemyType)}
           <select onchange="setWaveEntry(${wi}, ${ei}, 'enemyType', this.value)">
             ${ENEMY_TYPES.map(t => `<option value="${t}"${t === entry.enemyType ? ' selected' : ''}>${t}</option>`).join('')}
           </select>
@@ -1426,6 +1441,7 @@ function setWaveEntry(wi, ei, field, value) {
   const entry = waves[wi].entries[ei];
   if (field === 'enemyType') {
     entry.enemyType = ENEMY_TYPES.includes(value) ? value : 'basic';
+    renderWavesDialog(); // refresh the enemy icon
   } else {
     const min = field === 'count' ? 1 : 0;
     const n = Math.floor(Number(value));
