@@ -84,7 +84,7 @@ export class GameScene extends Phaser.Scene {
   /** Per-player gold: players never share economics (see PlayerEconomy). */
   private playerEcon: PlayerEconomy | null = null;
   private guestEnemyTargets = new Map<string, { x: number; y: number }>();
-  private guestProjectiles = new Map<string, { img: Phaser.GameObjects.Image; tx: number; ty: number }>();
+  private guestProjectiles = new Map<string, { img: Phaser.GameObjects.Image; tx: number; ty: number; type: string; shrapnel: boolean }>();
 
   constructor() {
     super({ key: 'GameScene' });
@@ -532,12 +532,29 @@ export class GameScene extends Phaser.Scene {
         this.enemies.push(enemy);
         enemy.position.set(s.x, s.y);
       }
+      const prevHp = enemy.health.current;
+      const prevX = enemy.position.x;
+      const prevY = enemy.position.y;
       enemy.health.current = Math.max(1, Math.min(s.hp, enemy.health.max));
+      // Host-side hit: mirror the blood at the host's position, sized
+      // by the chunk of health the hit took
+      if (s.hp < prevHp) {
+        const dx = s.x - prevX;
+        const dy = s.y - prevY;
+        const len = Math.hypot(dx, dy);
+        const dir = len > 1 ? { x: dx / len, y: dy / len } : { x: 0, y: 1 };
+        const frac = (prevHp - s.hp) / Math.max(1, s.hpMax);
+        const bloodSize = frac >= 0.5 ? 2 : frac >= 0.25 ? 1 : 0;
+        this.createBloodSplatter(dir.x, dir.y, new Position(s.x, s.y), enemy.data.size, bloodSize);
+      }
       this.guestEnemyTargets.set(s.id, { x: s.x, y: s.y });
     }
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
       if (!seen.has(enemy.id)) {
+        // Dropped from the snapshot = the killing blow on the host —
+        // mirror the burst of blood where it died
+        this.createBloodSplatter(0, 1, enemy.position, enemy.data.size, 2);
         if (this.selectedEnemy === enemy) this.deselectEnemy();
         this.guestEnemyTargets.delete(enemy.id);
         enemy.destroy();
@@ -546,7 +563,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private syncGuestProjectiles(snaps: Array<{ id: string; type: string; x: number; y: number }>): void {
+  private syncGuestProjectiles(
+    snaps: Array<{ id: string; type: string; x: number; y: number; shrapnel?: boolean }>,
+  ): void {
     const seen = new Set<string>();
     for (const s of snaps) {
       seen.add(s.id);
@@ -557,7 +576,7 @@ export class GameScene extends Phaser.Scene {
         const img = this.add.image(s.x, s.y, key);
         img.setDisplaySize(12, 12);
         img.setDepth(15);
-        entry = { img, tx: s.x, ty: s.y };
+        entry = { img, tx: s.x, ty: s.y, type: s.type, shrapnel: s.shrapnel ?? false };
         this.guestProjectiles.set(s.id, entry);
       }
       entry.tx = s.x;
@@ -565,6 +584,11 @@ export class GameScene extends Phaser.Scene {
     }
     for (const [id, entry] of this.guestProjectiles) {
       if (!seen.has(id)) {
+        // A grenade that vanished detonated on the host — mirror the
+        // blast here (shrapnel never explodes itself)
+        if (entry.type === 'grenade' && !entry.shrapnel) {
+          this.grenadeDetonationFx(entry.tx, entry.ty);
+        }
         entry.img.destroy();
         this.guestProjectiles.delete(id);
       }
@@ -609,7 +633,13 @@ export class GameScene extends Phaser.Scene {
       })),
       projectiles: this.projectiles
         .filter((p) => p.alive)
-        .map((p) => ({ id: p.id, type: p.getTowerType(), x: Math.round(p.position.x), y: Math.round(p.position.y) })),
+        .map((p) => ({
+          id: p.id,
+          type: p.getTowerType(),
+          x: Math.round(p.position.x),
+          y: Math.round(p.position.y),
+          shrapnel: p.isShrapnel(),
+        })),
     });
   }
 
@@ -1389,18 +1419,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Grenade detonation: flash and bang, then a spray of shrapnel that
-   * flies outward and damages whatever it crosses.
+   * Explosion visuals + bang — shared by the host blast and the guest
+   * mirror (guests only ever see the blast, never the damage).
    */
-  private detonateGrenade(proj: Projectile): void {
-    const x = proj.position.x;
-    const y = proj.position.y;
-
-    // Higher levels blast bigger and throw more shrapnel
-    const level = Math.max(1, proj.towerLevel);
-    const boomScale = 1.5 + (level - 1) * 0.35;
-
-    // Explosion graphic from the FX pack (flash fallback if missing)
+  private grenadeDetonationFx(x: number, y: number, boomScale: number = 1.5): void {
     if (this.textures.exists('fx_explosion')) {
       const boom = this.add.sprite(x, y, 'fx_explosion');
       boom.setDepth(15);
@@ -1421,6 +1443,19 @@ export class GameScene extends Phaser.Scene {
       });
     }
     playSfx(this, 'sfx_explosion', { volume: 0.45 });
+  }
+
+  /**
+   * Grenade detonation: flash and bang, then a spray of shrapnel that
+   * flies outward and damages whatever it crosses.
+   */
+  private detonateGrenade(proj: Projectile): void {
+    const x = proj.position.x;
+    const y = proj.position.y;
+
+    // Higher levels blast bigger and throw more shrapnel
+    const level = Math.max(1, proj.towerLevel);
+    this.grenadeDetonationFx(x, y, 1.5 + (level - 1) * 0.35);
 
     // Shrapnel spray — single-target fragments (no splash of their own):
     // 5 at level 1, +2 per upgrade level

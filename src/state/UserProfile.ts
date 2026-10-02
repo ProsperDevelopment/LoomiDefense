@@ -126,13 +126,24 @@ class UserProfile {
   // --- auth ---
 
   async register(username: string, password: string): Promise<void> {
+    // Keep whatever the guest already picked (tower color) so it
+    // applies to the new account instead of resetting to the default
+    const carried = { ...this.guest.settings };
     const data = await api.register(username, password);
     this.user = data.user;
+    if (carried.towerColor !== data.user.settings.towerColor) {
+      try {
+        this.user = await api.updateProfile({ settings: carried });
+      } catch {
+        // settings sync failed — account defaults stay for now
+      }
+    }
     this.mode = 'user';
     this.saveGuest(); // keep guest data around is unnecessary; clear it
     localStorage.removeItem(LOCAL_KEY);
     emitProfile('login');
     emitProfile('profile-changed');
+    emitProfile('coins-changed');
   }
 
   async login(username: string, password: string): Promise<void> {

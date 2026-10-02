@@ -124,6 +124,8 @@ export interface NetProjectileSnap {
   type: string;
   x: number;
   y: number;
+  /** Grenade fragments — guests must not mirror their detonation. */
+  shrapnel?: boolean;
 }
 
 export type NetStatus = 'playing' | 'won' | 'lost';
