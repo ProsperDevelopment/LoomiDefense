@@ -2867,7 +2867,7 @@
       "none"
     ]
   ],
-  "difficulty": "easy",
+  "difficulty": "medium",
   "waves": [
     {
       "waveNumber": 1,
@@ -2876,7 +2876,7 @@
           "enemyType": "basic",
           "count": 4,
           "spawnDelay": 700,
-          "waveDelay": 0
+          "waveDelay": 3000
         }
       ]
     },
@@ -2893,7 +2893,7 @@
           "enemyType": "basic",
           "count": 5,
           "spawnDelay": 500,
-          "waveDelay": 6000
+          "waveDelay": 1000
         }
       ]
     },
@@ -2940,6 +2940,12 @@
           "count": 3,
           "spawnDelay": 500,
           "waveDelay": 8000
+        },
+        {
+          "enemyType": "healer",
+          "count": 2,
+          "spawnDelay": 1000,
+          "waveDelay": 12000
         }
       ]
     },
@@ -2969,6 +2975,12 @@
           "count": 5,
           "spawnDelay": 500,
           "waveDelay": 7000
+        },
+        {
+          "enemyType": "tank",
+          "count": 2,
+          "spawnDelay": 100,
+          "waveDelay": 9000
         }
       ]
     },
@@ -2977,7 +2989,7 @@
       "entries": [
         {
           "enemyType": "basic",
-          "count": 10,
+          "count": 12,
           "spawnDelay": 500,
           "waveDelay": 0
         },
