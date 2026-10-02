@@ -1080,7 +1080,10 @@ export class GameScene extends Phaser.Scene {
   /** Build cap for one tower type: level override or the default. */
   private towerLimit(type: TowerType): number {
     const override = this.grid.getMapData().towerLimits?.[type];
-    return override ?? DEFAULT_TOWER_LIMITS[type];
+    const limit = override ?? DEFAULT_TOWER_LIMITS[type];
+    // Multiplayer: each player gets half the cap (rounded up), so two
+    // players together never build more than a solo run would allow
+    return this.netRole !== null ? Math.ceil(limit / 2) : limit;
   }
 
   /** How many of this type this player has already built. */
