@@ -12,9 +12,23 @@ const TILESETS = [
   'TilesetDesert',
   'TilesetFloor',
   'TilesetWater',
+  'TilesetHouse',
+  'TilesetAbandoned',
 ];
 
 const TILE_SIZE = 16;
+
+// Original tileset picture widths (in tiles) — the palette groups rows
+// exactly like the source image. Verified against the pack PNGs.
+const COLUMNS = {
+  TilesetNature: 24,
+  TilesetField: 5,
+  TilesetDesert: 20,
+  TilesetFloor: 22,
+  TilesetWater: 28,
+  TilesetHouse: 33,
+  TilesetAbandoned: 20,
+};
 
 function generateTileData(tilesetName) {
   const tileDir = path.join(__dirname, '..', 'public', 'assets', 'tilesets', tilesetName);
@@ -40,6 +54,7 @@ function generateTileData(tilesetName) {
   return {
     name: tilesetName,
     tileSize: TILE_SIZE,
+    columns: COLUMNS[tilesetName] ?? 8,
     tileCount: tiles.length,
     tiles: tiles,
   };
@@ -66,6 +81,10 @@ function categorizeTile(index, tileset) {
       return 'farm';
     case 'TilesetFloor':
       return 'floor';
+    case 'TilesetHouse':
+      return 'house';
+    case 'TilesetAbandoned':
+      return 'abandoned';
     default:
       return 'unknown';
   }
