@@ -23,6 +23,8 @@ export class TowerPanel {
   private callbacks: TowerPanelCallbacks;
   private container: Phaser.GameObjects.Container;
   private visible: boolean = false;
+  private panelW = 0;
+  private panelH = 0;
   private availableTypes: TowerType[] | null = null;
 
   constructor(scene: Phaser.Scene, callbacks: TowerPanelCallbacks) {
@@ -45,7 +47,7 @@ export class TowerPanel {
     return list.filter((t) => this.availableTypes!.includes(t.type));
   }
 
-  showAtCursor(pointerX: number, pointerY: number, mode: 'build' | 'tower', towerData?: { type: TowerType; level: number; sellValue: number; aim: TargetMode }): void {
+  showAtCursor(pointerX: number, pointerY: number, mode: 'build' | 'tower', towerData?: { type: TowerType; level: number; sellValue: number; aim: TargetMode; owned?: boolean }): void {
     this.container.removeAll(true);
 
     const width = this.scene.cameras.main.width;
@@ -75,6 +77,13 @@ export class TowerPanel {
 
   isVisible(): boolean {
     return this.visible;
+  }
+
+  /** Whether a world point lies inside the popup (touch-safe outside-click). */
+  contains(px: number, py: number): boolean {
+    if (!this.visible) return false;
+    return Math.abs(px - this.container.x) <= this.panelW / 2 &&
+      Math.abs(py - this.container.y) <= this.panelH / 2;
   }
 
   private createBuildMenu(x: number, y: number): void {
@@ -144,10 +153,12 @@ export class TowerPanel {
     // No cancel button — clicking outside closes the popup
 
     // Position container
+    this.panelW = totalWidth + padding * 2;
+    this.panelH = totalHeight;
     this.container.setPosition(x + totalWidth / 2 + padding, y + totalHeight / 2);
   }
 
-  private createTowerInfoMenu(x: number, y: number, data: { type: TowerType; level: number; sellValue: number; aim: TargetMode }): void {
+  private createTowerInfoMenu(x: number, y: number, data: { type: TowerType; level: number; sellValue: number; aim: TargetMode; owned?: boolean }): void {
     const towerDef = TOWER_DEFINITIONS[data.type];
     const upgradeData = TOWER_UPGRADES[data.level];
     const canUpgrade = data.level < MAX_TOWER_LEVEL;
@@ -219,29 +230,39 @@ export class TowerPanel {
       this.container.add(maxText);
     }
 
-    // Aim toggle: cycles first -> last -> strongest -> random
-    // (no close button — clicking outside closes the popup)
-    const aimModes: TargetMode[] = ['first', 'last', 'strongest', 'random'];
-    const aimBg = this.scene.add.rectangle(0, 78, 140, 28, 0x263238);
-    aimBg.setStrokeStyle(1, 0x90a4ae);
-    const aimText = this.scene.add.text(0, 78, `AIM: ${data.aim.toUpperCase()}`, {
-      fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.container.add([aimBg, aimText]);
+    // Aim toggle: cycles first -> last -> strongest -> random —
+    // only the owner may change it (no close button — clicking
+    // outside closes the popup)
+    if (data.owned) {
+      const aimModes: TargetMode[] = ['first', 'last', 'strongest', 'random'];
+      const aimBg = this.scene.add.rectangle(0, 78, 140, 28, 0x263238);
+      aimBg.setStrokeStyle(1, 0x90a4ae);
+      const aimText = this.scene.add.text(0, 78, `AIM: ${data.aim.toUpperCase()}`, {
+        fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      this.container.add([aimBg, aimText]);
 
-    aimBg.setInteractive({ useHandCursor: true });
-    aimBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      pointer.event.stopPropagation();
-      (this.scene as any).popupClickHandled = true;
-      const next = aimModes[(aimModes.indexOf(data.aim) + 1) % aimModes.length];
-      data.aim = next;
-      aimText.setText(`AIM: ${next.toUpperCase()}`);
-      this.callbacks.onAimChange?.(next);
-    });
-    aimBg.on('pointerover', () => aimBg.setFillStyle(0x37474f));
-    aimBg.on('pointerout', () => aimBg.setFillStyle(0x263238));
+      aimBg.setInteractive({ useHandCursor: true });
+      aimBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        pointer.event.stopPropagation();
+        (this.scene as any).popupClickHandled = true;
+        const next = aimModes[(aimModes.indexOf(data.aim) + 1) % aimModes.length];
+        data.aim = next;
+        aimText.setText(`AIM: ${next.toUpperCase()}`);
+        this.callbacks.onAimChange?.(next);
+      });
+      aimBg.on('pointerover', () => aimBg.setFillStyle(0x37474f));
+      aimBg.on('pointerout', () => aimBg.setFillStyle(0x263238));
+    } else {
+      const locked = this.scene.add.text(0, 78, 'AIM: OWNER ONLY', {
+        fontSize: '10px', color: '#666666', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      this.container.add(locked);
+    }
 
     // Position container
+    this.panelW = 180;
+    this.panelH = 180;
     this.container.setPosition(x + 90, y + 90);
   }
 

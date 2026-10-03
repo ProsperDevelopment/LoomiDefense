@@ -293,7 +293,7 @@ export class GameScene extends Phaser.Scene {
       maxedOut: (type) => !this.canBuildMore(type, this.myPlayerId()),
       onAimChange: (mode) => {
         const tower = this.selectedTower;
-        if (!tower) return;
+        if (!tower || tower.ownerId !== this.myPlayerId()) return; // only your own towers
         if (this.netRole === 'guest') {
           lobby.sendCommand({ k: 'aim', id: tower.id, mode });
         } else {
@@ -357,6 +357,11 @@ export class GameScene extends Phaser.Scene {
   private setupInput(): void {
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => this.onPointerMove(p));
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => this.onPointerDown(p));
+    // Widget clicks set popupClickHandled during pointerdown — clear it at
+    // pointerup so touch (scene-first ordering) never swallows the next tap
+    this.input.on('pointerup', () => {
+      this.popupClickHandled = false;
+    });
 
     // Keyboard shortcuts
     this.input.keyboard?.on('keydown-U', () => this.onUpgradeTower());
@@ -682,7 +687,7 @@ export class GameScene extends Phaser.Scene {
       }
       case 'aim': {
         const tower = this.towers.find((t) => t.id === cmd.id);
-        if (tower && TARGET_MODES.includes(cmd.mode as TargetMode)) {
+        if (tower && tower.ownerId === from && TARGET_MODES.includes(cmd.mode as TargetMode)) {
           tower.targetMode = cmd.mode as TargetMode;
         }
         break;
@@ -960,10 +965,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Click outside the popup closes it — replaces the cancel buttons
+    // Click outside the popup closes it — replaces the cancel buttons.
+    // Bounds-checked so taps ON the popup survive touch input ordering
     if (this.towerPanel.isVisible()) {
-      this.towerPanel.hide();
-      this.cancelPendingBuild();
+      if (!this.towerPanel.contains(pointer.x, pointer.y)) {
+        this.towerPanel.hide();
+        this.cancelPendingBuild();
+      }
       return;
     }
 
@@ -1001,6 +1009,7 @@ export class GameScene extends Phaser.Scene {
         level: existingTower.level,
         sellValue,
         aim: existingTower.targetMode,
+        owned: existingTower.ownerId === this.myPlayerId(),
       });
       return;
     }
