@@ -81,7 +81,7 @@ export interface TowerUpgradeData {
 
 // --- Enemies ---
 export type EnemyType = 'basic' | 'fast' | 'armored' | 'healer' | 'swarm' | 'tank' | 'elite' | 'boss'
-  | 'brute' | 'sprinter' | 'phantom' | 'splitter';
+  | 'brute' | 'sprinter' | 'phantom' | 'splitter' | 'bat';
 
 export interface EnemyData {
   type: EnemyType;

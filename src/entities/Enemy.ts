@@ -21,10 +21,11 @@ const ENEMY_SPRITES: Record<EnemyType, { key: string; anim: string }> = {
   tank: { key: 'enemy_beast', anim: 'beast_walk' },
   elite: { key: 'enemy_cyclops', anim: 'cyclops_walk' },
   boss: { key: 'enemy_dragon', anim: 'dragon_walk' },
-  brute: { key: 'enemy_beast', anim: 'beast_walk' },
-  sprinter: { key: 'enemy_snake', anim: 'snake_walk' },
-  phantom: { key: 'enemy_dragon', anim: 'dragon_walk' },
-  splitter: { key: 'enemy_beast', anim: 'beast_walk' },
+  brute: { key: 'enemy_racoon', anim: 'racoon_walk' },
+  sprinter: { key: 'enemy_owl', anim: 'owl_walk' },
+  phantom: { key: 'enemy_spirit', anim: 'spirit_walk' },
+  splitter: { key: 'enemy_mushroom', anim: 'mushroom_walk' },
+  bat: { key: 'enemy_bat', anim: 'bat_walk' },
 };
 
 /**

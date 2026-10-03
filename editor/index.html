@@ -1358,13 +1358,14 @@ function updateZoom() {
 // ============================================================
 // Wave Definitions
 // ============================================================
-const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss', 'brute', 'sprinter', 'phantom', 'splitter'];
+const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss', 'brute', 'sprinter', 'phantom', 'splitter', 'bat'];
 
 // Sprite-sheet file per enemy (mirrors the game's ENEMY_SPRITES)
 const ENEMY_ICON_FILES = {
   basic: 'slime', fast: 'spider', armored: 'bear', healer: 'snake',
   swarm: 'slime', tank: 'beast', elite: 'cyclops', boss: 'dragon',
-  brute: 'beast', sprinter: 'snake', phantom: 'dragon', splitter: 'beast',
+  brute: 'racoon', sprinter: 'owl', phantom: 'spirit', splitter: 'mushroom',
+  bat: 'bat',
 };
 
 /** First frame of the enemy's 4x4 sheet as a swatch. */

@@ -106,6 +106,26 @@ export class BootScene extends Phaser.Scene {
       frameHeight: 32,
     });
 
+    this.load.spritesheet('enemy_racoon', 'assets/images/enemies/racoon.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+    this.load.spritesheet('enemy_mushroom', 'assets/images/enemies/mushroom.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+    this.load.spritesheet('enemy_bat', 'assets/images/enemies/bat.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+    this.load.spritesheet('enemy_spirit', 'assets/images/enemies/spirit.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+    this.load.spritesheet('enemy_owl', 'assets/images/enemies/owl.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
     this.load.spritesheet('enemy_snake', 'assets/images/enemies/snake.png', {
       frameWidth: 32,
       frameHeight: 32,
@@ -126,7 +146,7 @@ export class BootScene extends Phaser.Scene {
     // Column 2 (frames 2, 6, 10, 14) = Left
     // Column 3 (frames 3, 7, 11, 15) = Right
 
-    const monsters = ['slime', 'bear', 'dragon', 'spider', 'beast', 'cyclops', 'snake'];
+    const monsters = ['slime', 'bear', 'dragon', 'spider', 'beast', 'cyclops', 'snake', 'racoon', 'mushroom', 'spirit', 'owl', 'bat'];
 
     for (const name of monsters) {
       // Down (column 0): frames 0, 4, 8, 12

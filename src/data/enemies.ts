@@ -132,6 +132,18 @@ export const ENEMY_DEFINITIONS: Record<string, EnemyData> = {
     color: '#7e57c2',
     size: 24,
   },
+  bat: {
+    type: 'bat',
+    name: 'Bat',
+    hp: 60,
+    speed: 120,
+    armor: 0,
+    reward: 15,
+    color: '#444466',
+    size: 16,
+    // A flying bat: only arrows and snipers can hit it
+    immuneTo: ['cannon', 'frost', 'mortar', 'tesla', 'grenade'],
+  },
 };
 
 export const ENEMY_LIST = Object.values(ENEMY_DEFINITIONS);
