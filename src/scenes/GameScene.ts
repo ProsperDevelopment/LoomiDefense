@@ -23,7 +23,7 @@ import { lobby } from '../ui/overlay/lobbyScreen';
 import type { NetSnapshot, NetCommand, NetStatus, DeathVariant } from '../../shared/protocol';
 import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN, livesForDifficulty } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
-import { bindGameAudio, playSfx } from '../audio/GameAudio';
+import { bindGameAudio, playSfx, startGameMusic, stopGameMusic } from '../audio/GameAudio';
 import { isWaveResolved } from '../utils/waveCompletion';
 import { cachedServerLevel } from '../data/serverLevels';
 import { canDamageEnemy, canNinjaThrowHit } from '../utils/damageRules';
@@ -212,6 +212,7 @@ export class GameScene extends Phaser.Scene {
 
     // Clean up lobby listeners when leaving the scene
     this.events.once('shutdown', () => {
+      stopGameMusic();
       this.lobbyUnsubs.forEach((u) => u());
       this.lobbyUnsubs = [];
       if (this.netRole) {
@@ -409,6 +410,8 @@ export class GameScene extends Phaser.Scene {
   private setupEvents(): void {
     // Gameplay sounds ride the same event bus
     bindGameAudio(this);
+    // Background music runs for as long as this scene lives
+    startGameMusic();
 
     // Farms pay their owner at the start of every wave (host only —
     // guests receive their gold through snapshots)

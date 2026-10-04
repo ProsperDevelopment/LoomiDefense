@@ -36,6 +36,46 @@ export function setSfxMuted(muted: boolean): void {
   } catch {
     // storage unavailable — mute just won't persist
   }
+  // Keep the music in sync with the toggle while a game is running
+  if (muted) pauseMusicNow();
+  else if (musicWanted) playMusicNow();
+}
+
+// --- In-game music -------------------------------------------------
+// Streamed through an HTML5 Audio element: the track is ~1 hour long,
+// so Phaser's WebAudio path would decode it into ~600MB of PCM.
+const MUSIC_SRC = 'assets/audio/pow-pow.mp3';
+const MUSIC_VOLUME = 0.3;
+let musicEl: HTMLAudioElement | null = null;
+let musicWanted = false;
+
+function playMusicNow(): void {
+  if (!musicEl) {
+    musicEl = new Audio(MUSIC_SRC);
+    musicEl.loop = true;
+    musicEl.volume = MUSIC_VOLUME;
+  }
+  void musicEl.play().catch(() => {
+    // Autoplay blocked until the first user gesture — nothing to do
+  });
+}
+
+function pauseMusicNow(): void {
+  musicEl?.pause();
+}
+
+/** Start the looping in-game music (respects the sound toggle). */
+export function startGameMusic(): void {
+  musicWanted = true;
+  if (isSfxMuted()) return;
+  playMusicNow();
+}
+
+/** Stop the in-game music and rewind (scene shutdown). */
+export function stopGameMusic(): void {
+  musicWanted = false;
+  if (musicEl) musicEl.currentTime = 0;
+  pauseMusicNow();
 }
 
 /** Play a loaded sound key, respecting the mute toggle. */
