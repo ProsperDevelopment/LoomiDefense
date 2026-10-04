@@ -153,7 +153,7 @@ export const ENEMY_DEFINITIONS: Record<string, EnemyData> = {
     armor: 0,
     reward: 0,
     color: '#37474F',
-    size: 14,
+    size: 17,
     contactDamage: 8,
   },
 };

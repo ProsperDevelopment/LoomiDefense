@@ -22,3 +22,21 @@ export function canDamageEnemy(
   const isSniperOrArcher = towerType === 'sniper' || towerType === 'arrow';
   return isSniperOrArcher && towerLevel >= 2;
 }
+
+/**
+ * Can a summoned ninja hurt this enemy with its CURRENT weapon?
+ *
+ * Melee contact (no throw profile) hurts anything it can touch; throws
+ * follow the same rules as towers — arrows keep their privileges, so an
+ * arrow-throwing ninja can target bats and phantoms, while cannon and
+ * grenade throws skip anything they cannot hit (no wasted immune spam).
+ */
+export function canNinjaThrowHit(
+  profile: { towerType: string } | null,
+  towerLevel: number,
+  enemy: DamageableEnemyData & { immuneTo?: string[] },
+): boolean {
+  if (!profile) return true;
+  if (enemy.immuneTo?.includes(profile.towerType)) return false;
+  return canDamageEnemy(profile.towerType, towerLevel, enemy);
+}

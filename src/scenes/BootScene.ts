@@ -130,6 +130,10 @@ export class BootScene extends Phaser.Scene {
       frameWidth: 32,
       frameHeight: 32,
     });
+    this.load.spritesheet('enemy_ninja_attack', 'assets/images/enemies/ninja_attack.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
     this.load.spritesheet('enemy_ninja', 'assets/images/enemies/ninja.png', {
       frameWidth: 32,
       frameHeight: 32,
@@ -205,6 +209,21 @@ export class BootScene extends Phaser.Scene {
         repeat: -1,
       });
     }
+
+    // Ninja close-combat stance: same 4x4 layout (columns = directions)
+    // on the attack sheet, at a steeper cadence than the walk cycle
+    const attackStance = (key: string, frames: number[]): void => {
+      this.anims.create({
+        key,
+        frames: frames.map((f) => ({ key: 'enemy_ninja_attack', frame: f })),
+        frameRate: 10,
+        repeat: -1,
+      });
+    };
+    attackStance('ninja_attack', [0, 4, 8, 12]);       // down
+    attackStance('ninja_attack_up', [1, 5, 9, 13]);     // up
+    attackStance('ninja_attack_left', [2, 6, 10, 14]);  // left
+    attackStance('ninja_attack_right', [3, 7, 11, 15]); // right
 
     // Grenade blast animation (plays once)
     this.anims.create({

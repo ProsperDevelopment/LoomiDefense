@@ -17,7 +17,7 @@ import { HUD } from '../ui/HUD';
 import { TowerPanel } from '../ui/TowerPanel';
 import { WaveIndicator } from '../ui/WaveIndicator';
 import { MAP_DEFINITIONS } from '../data/maps';
-import { TOWER_DEFINITIONS, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS, BASIC_TOWERS, farmIncome, beaconFireRateBuff } from '../data/towers';
+import { TOWER_DEFINITIONS, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS, BASIC_TOWERS, farmIncome, beaconFireRateBuff, ninjaThrowProfile, type NinjaThrow } from '../data/towers';
 import { userProfile } from '../state/UserProfile';
 import { lobby } from '../ui/overlay/lobbyScreen';
 import type { NetSnapshot, NetCommand, NetStatus, DeathVariant } from '../../shared/protocol';
@@ -25,7 +25,7 @@ import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, STARTING_GOLD, GRID_OFFSET
 import { eventBus } from '../utils/EventBus';
 import { bindGameAudio, playSfx } from '../audio/GameAudio';
 import { isWaveResolved } from '../utils/waveCompletion';
-import { canDamageEnemy } from '../utils/damageRules';
+import { canDamageEnemy, canNinjaThrowHit } from '../utils/damageRules';
 
 /** Bodies that share the blood landing pipeline (blood arcs, death debris images). */
 type SplatterBody = Phaser.GameObjects.Arc | Phaser.GameObjects.Image;
@@ -36,6 +36,21 @@ const NINJA_SUMMON_CAP = 5;
 const NINJA_HIT_COOLDOWN_MS = 600;
 /** How far a ninja keeps chasing its duel target before giving up (px). */
 const NINJA_LEASH = 150;
+/** L3+ ninjas stop at this range and throw (px). */
+const NINJA_THROW_RANGE = 80;
+/** Pause between a ranged ninja's throws (ms). */
+const NINJA_THROW_COOLDOWN_MS = 900;
+/** Throws a ranged ninja carries before it runs dry and fights in melee. */
+const NINJA_THROW_AMMO = 10;
+/** How hard each melee trade hits the NINJA back (health drains fast). */
+const NINJA_MELEE_HURT = 2;
+/** Ninja tint per summoning tower level (L1 keeps its natural green). */
+const NINJA_LEVEL_TINTS: Record<number, number> = {
+  2: 0xb0ffb0, // pale green
+  3: 0x60d0ff, // ice blue
+  4: 0xd090ff, // violet
+  5: 0xffd040, // gold
+};
 
 export class GameScene extends Phaser.Scene {
   private grid!: Grid;
@@ -579,7 +594,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private syncGuestEnemies(snaps: Array<{ id: string; type: string; x: number; y: number; hp: number; hpMax: number; mini?: boolean }>): void {
+  private syncGuestEnemies(snaps: Array<{ id: string; type: string; x: number; y: number; hp: number; hpMax: number; mini?: boolean; sl?: number; fight?: boolean }>): void {
     const seen = new Set<string>();
     for (const s of snaps) {
       seen.add(s.id);
@@ -587,7 +602,11 @@ export class GameScene extends Phaser.Scene {
       if (!enemy) {
         const path = this.grid.getPathPixels();
         enemy = new Enemy(s.type as EnemyType, path, s.id, { mini: s.mini });
+        if (s.sl) enemy.summonLevel = s.sl;
         enemy.createSprite(this);
+        // Match the host's level tint on summoned ninjas
+        const tint = s.sl ? NINJA_LEVEL_TINTS[s.sl] : undefined;
+        if (tint !== undefined && enemy.sprite) enemy.sprite.setTint(tint);
         this.enemies.push(enemy);
         enemy.position.set(s.x, s.y);
       }
@@ -606,6 +625,7 @@ export class GameScene extends Phaser.Scene {
         const bloodSize = frac >= 0.5 ? 2 : frac >= 0.25 ? 1 : 0;
         this.createBloodSplatter(dir.x, dir.y, new Position(s.x, s.y), enemy.data.size, bloodSize);
       }
+      enemy.fighting = s.fight === true;
       this.guestEnemyTargets.set(s.id, { x: s.x, y: s.y });
     }
     for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -681,6 +701,8 @@ export class GameScene extends Phaser.Scene {
           hp: e.health.current,
           hpMax: e.health.max,
           mini: e.isMini,
+          sl: e.friendly && e.summonLevel > 1 ? e.summonLevel : undefined,
+          fight: e.fighting || undefined,
         })),
       towers: this.towers.map((t) => ({
         id: t.id,
@@ -1493,23 +1515,42 @@ export class GameScene extends Phaser.Scene {
       friendly: true,
       ownerId: tower.ownerId,
     });
+    // Behavior and color follow the tower's level AT summon time
+    ninja.summonLevel = tower.level;
+    // Ranged summons carry a quiver: after 10 throws they go melee
+    if (ninjaThrowProfile(tower.level)) ninja.throwsLeft = NINJA_THROW_AMMO;
     // Jitter so back-to-back summons don't stack on one pixel
     ninja.position.x += (Math.random() - 0.5) * 12;
     ninja.position.y += (Math.random() - 0.5) * 12;
     ninja.createSprite(this);
+    const tint = NINJA_LEVEL_TINTS[tower.level];
+    if (tint !== undefined && ninja.sprite) ninja.sprite.setTint(tint);
     this.enemies.push(ninja);
     playSfx(this, 'sfx_magic', { volume: 0.25, rate: 0.9 + Math.random() * 0.2 });
   }
 
   /**
-   * Ninjas duel whatever they meet: lock onto a target on first contact
-   * and keep pressing it — trading blows every cooldown — until it dies
-   * (or outruns the leash). No lock and no contact means back to the path.
+   * Ninjas stop on the spot when they spot a hittable enemy in shooting
+   * range and throw from there (L3+, quiver of 10). When the enemy comes
+   * close and collides — or the quiver runs dry — they engage in close
+   * combat: lock, press and trade blows until one side dies (or the
+   * target outruns the leash). No lock and no contact: back to the path.
    */
   private resolveNinjaCollisions(): void {
     // Snapshot copy: a kill splices this.enemies mid-iteration
     for (const ninja of [...this.enemies]) {
       if (!ninja.alive || !ninja.friendly) continue;
+
+      // Ranged ninjas (L3+) throw while their quiver has arrows left;
+      // once dry (or melee-only L1-2) they fight in contact
+      const profile = ninja.summonLevel >= 3 && ninja.throwsLeft > 0
+        ? ninjaThrowProfile(ninja.summonLevel)
+        : null;
+      // Only engage enemies the current weapon can actually hurt: arrows
+      // keep their tower privileges (bats and phantoms included), while
+      // cannon/grenade throws skip what they cannot hit
+      const canHurt = (e: Enemy): boolean =>
+        canNinjaThrowHit(profile, ninja.summonLevel, e.data);
 
       // Keep dueling the locked target while it lives and stays near
       let target = ninja.combatTargetId
@@ -1518,13 +1559,18 @@ export class GameScene extends Phaser.Scene {
       if (target && ninja.position.distanceTo(target.position) > NINJA_LEASH) {
         target = undefined;
       }
-      // Otherwise lock onto whoever we're already touching
+      // Otherwise lock onto whoever we've spotted — ranged ninjas see at
+      // throw range and stop there; melee needs contact first
       if (!target) {
         let bestDist = Infinity;
         for (const e of this.enemies) {
           if (!e.alive || e.isDead() || e.friendly) continue;
+          if (!canHurt(e)) continue;
           const d = ninja.position.distanceTo(e.position);
-          if (d <= ninja.data.size + e.data.size + 4 && d < bestDist) {
+          const limit = profile
+            ? NINJA_THROW_RANGE
+            : ninja.data.size + e.data.size + 4;
+          if (d <= limit && d < bestDist) {
             bestDist = d;
             target = e;
           }
@@ -1533,27 +1579,50 @@ export class GameScene extends Phaser.Scene {
       if (!target) {
         ninja.combatTargetId = null;
         ninja.meleeFocus = null;
+        ninja.fighting = false;
         continue;
       }
       ninja.combatTargetId = target.id;
 
-      // Press a standoff point on our side of the target: this closes
-      // knocked-back gaps and holds the line so nobody walks through
       const dx = ninja.position.x - target.position.x;
       const dy = ninja.position.y - target.position.y;
       const dist = Math.hypot(dx, dy) || 1;
       const reach = ninja.data.size + target.data.size;
+
+      // Still at range: hold the stop and throw on the attack timer
+      if (profile && dist > reach) {
+        ninja.fighting = false;
+        if (ninja.collisionCd <= 0 && dist <= NINJA_THROW_RANGE) {
+          this.ninjaThrow(ninja, target, profile);
+        }
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+        if (dist <= NINJA_THROW_RANGE) {
+          ninja.meleeFocus = { x: ninja.position.x, y: ninja.position.y };
+        } else {
+          // Spotted but drifted out of range — close back to it
+          ninja.meleeFocus = {
+            x: target.position.x + dirX * (NINJA_THROW_RANGE - 4),
+            y: target.position.y + dirY * (NINJA_THROW_RANGE - 4),
+          };
+        }
+        continue;
+      }
+
+      // Close combat: press a standoff point on our side of the target —
+      // this closes knocked-back gaps and holds the line so nobody walks
+      // through, and trades blows when the swing is ready
+      ninja.fighting = true;
       ninja.meleeFocus = {
         x: target.position.x + (dx / dist) * (reach - 4),
         y: target.position.y + (dy / dist) * (reach - 4),
       };
-
-      // Trade blows when our swing is ready and anyone is in reach
       if (ninja.collisionCd > 0) continue;
       let strike: Enemy | undefined;
       let strikeDist = Infinity;
       for (const e of this.enemies) {
         if (!e.alive || e.isDead() || e.friendly) continue;
+        if (!canHurt(e)) continue;
         const d = ninja.position.distanceTo(e.position);
         if (d <= ninja.data.size + e.data.size && d < strikeDist) {
           strikeDist = d;
@@ -1564,6 +1633,31 @@ export class GameScene extends Phaser.Scene {
       this.ninjaCollide(ninja, strike);
       if (!target.alive || target.isDead()) ninja.combatTargetId = null;
     }
+  }
+
+  /** A level 3+ ninja throws an arrow, cannonball or grenade at its target. */
+  private ninjaThrow(ninja: Enemy, target: Enemy, profile: NinjaThrow): void {
+    ninja.throwsLeft = Math.max(0, ninja.throwsLeft - 1);
+    ninja.collisionCd = NINJA_THROW_COOLDOWN_MS;
+    const proj = new Projectile(
+      profile.towerType,
+      ninja.position.x,
+      ninja.position.y - 8,
+      {
+        baseDamage: profile.damage,
+        splashRadius: profile.splash,
+        slowFactor: 1.0,
+        slowDuration: 0,
+      } as any,
+      target.id,
+      Phaser.Display.Color.HexStringToColor(TOWER_DEFINITIONS[profile.towerType].color).color,
+      180, // hand-thrown, slower than tower shots
+    );
+    proj.ownerId = ninja.ownerId;
+    proj.towerLevel = ninja.summonLevel;
+    proj.markAsNinjaThrow();
+    proj.createSprite(this);
+    this.projectiles.push(proj);
   }
 
   /** One melee trade: the ninja bounces off; the enemy marches on untouched. */
@@ -1582,15 +1676,18 @@ export class GameScene extends Phaser.Scene {
     ninja.position.y -= ny * knock;
     ninja.applyImpact();
 
-    this.createBloodSplatter(nx, ny, target.position, target.data.size, 1);
-    this.createBloodSplatter(-nx, -ny, ninja.position, ninja.data.size, 1);
+    // Small marks only — a melee duel ticks over too long for splatters
+    // this bloody (the killing blow gets its proper death blood anyway)
+    this.createBloodSplatter(nx, ny, target.position, target.data.size, 0);
+    this.createBloodSplatter(-nx, -ny, ninja.position, ninja.data.size, 0);
     playSfx(this, 'sfx_impact', { volume: 0.3 });
 
     const targetKilled = this.healthSystem.applyDamage(
       { id: target.id, position: target.position, health: target.health }, dmg,
     );
+    // The ninja bleeds faster than it cuts: trades cost it double
     const ninjaKilled = this.healthSystem.applyDamage(
-      { id: ninja.id, position: ninja.position, health: ninja.health }, dmg,
+      { id: ninja.id, position: ninja.position, health: ninja.health }, dmg * NINJA_MELEE_HURT,
     );
 
     // The kill reward goes to the tower owner who sent this ninja
@@ -1704,6 +1801,13 @@ export class GameScene extends Phaser.Scene {
   private detonateGrenade(proj: Projectile): void {
     const x = proj.position.x;
     const y = proj.position.y;
+
+    // A ninja's grenade just flashes and bangs — no shrapnel spray
+    // (guests mirror this same fx when the mirrored projectile vanishes)
+    if (proj.isNinjaThrow()) {
+      this.grenadeDetonationFx(x, y);
+      return;
+    }
 
     // Higher levels blast bigger and throw more shrapnel
     const level = Math.max(1, proj.towerLevel);
@@ -2936,10 +3040,12 @@ export class GameScene extends Phaser.Scene {
 
     // One random bone fragment joins the burst — every death except the
     // bleed-out funnels through here — riding the exact same
-    // fall/explode animation as the shards
+    // fall/explode animation as the shards (summoned ninjas leave none)
     const BONE_KEYS = ['bone_1', 'bone_2', 'bone_3', 'bone_4', 'bone_5'];
-    const skelKey = BONE_KEYS[Math.floor(Math.random() * BONE_KEYS.length)];
-    if (this.textures.exists(skelKey)) {
+    const skelKey = enemy.type === 'ninja'
+      ? null
+      : BONE_KEYS[Math.floor(Math.random() * BONE_KEYS.length)];
+    if (skelKey && this.textures.exists(skelKey)) {
       const skel = this.add.image(
         sprite.x + (Math.random() - 0.5) * sprite.displayWidth * 0.5,
         sprite.y + (Math.random() - 0.5) * sprite.displayHeight * 0.5,

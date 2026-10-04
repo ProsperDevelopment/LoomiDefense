@@ -42,6 +42,8 @@ export class Projectile {
   private shrapnelDir: { x: number; y: number } | null = null;
   private shrapnelLeft: number = 0;
   private shrapnelTravel: number = 0;
+  /** Thrown by a ninja (L5 grenades flash and bang, never spray shrapnel). */
+  private ninjaThrow: boolean = false;
 
   // Phaser objects
   sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Arc | null = null;
@@ -102,6 +104,15 @@ export class Projectile {
 
   isShrapnel(): boolean {
     return this.shrapnelDir !== null;
+  }
+
+  /** Mark this as a ninja's hand-thrown projectile. */
+  markAsNinjaThrow(): void {
+    this.ninjaThrow = true;
+  }
+
+  isNinjaThrow(): boolean {
+    return this.ninjaThrow;
   }
 
   /**

@@ -109,6 +109,10 @@ export interface NetEnemySnap {
   hpMax: number;
   /** Splitter spawned a smaller copy — guests size it accordingly. */
   mini?: boolean;
+  /** Ninja-tower level that summoned this unit (guests tint it to match). */
+  sl?: number;
+  /** Ninja is in close combat — guests play the attack stance. */
+  fight?: boolean;
 }
 
 export interface NetTowerSnap {

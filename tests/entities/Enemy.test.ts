@@ -158,6 +158,7 @@ describe('ninja summons', () => {
   it('defines the ninja unit with contact damage and no bounty', () => {
     const n = new Enemy('ninja', simplePath);
     expect(n.data.hp).toBe(45);
+    expect(n.data.size).toBe(17); // drawn 1.25x — a bit larger than the rest
     expect(n.data.contactDamage).toBeGreaterThan(0);
     expect(n.data.reward).toBe(0); // ninja kills never pay a bounty
   });
@@ -218,5 +219,29 @@ describe('ninja melee focus', () => {
     n.reset('ninja', simplePath);
     expect(n.combatTargetId).toBeNull();
     expect(n.meleeFocus).toBeNull();
+  });
+});
+
+describe('ninja throw ammo', () => {
+  it('starts dry by default and melee summons never carry a quiver', () => {
+    const melee = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
+    expect(melee.throwsLeft).toBe(0);
+    expect(melee.summonLevel).toBe(1);
+  });
+
+  it('keeps its quiver until reset, then clears for pooling', () => {
+    const n = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
+    n.summonLevel = 3;
+    n.throwsLeft = 10;
+    n.fighting = true;
+    n.reset('ninja', simplePath);
+    expect(n.throwsLeft).toBe(0);
+    expect(n.summonLevel).toBe(1);
+    expect(n.fighting).toBe(false);
+  });
+
+  it('starts out of the attack stance', () => {
+    const n = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
+    expect(n.fighting).toBe(false);
   });
 });

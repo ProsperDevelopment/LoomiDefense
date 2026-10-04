@@ -57,6 +57,12 @@ export class Enemy {
   collisionCd: number = 0;
   /** Melee lock: the enemy id this unit is dueling (ninja summons). */
   combatTargetId: string | null = null;
+  /** Ninja-tower level that summoned this unit (drives throws and tint). */
+  summonLevel: number = 1;
+  /** Throws left before a ranged ninja runs dry and fights in melee. */
+  throwsLeft: number = 0;
+  /** In close combat — swaps the walk cycle for the attack stance. */
+  fighting: boolean = false;
   /**
    * While set, the unit ignores its path and presses toward this point
    * instead (the standoff spot on its side of the duel target). Set and
@@ -108,7 +114,7 @@ export class Enemy {
         }
       : base;
     this.canSplit = this.type === 'splitter' && !this.isMini;
-    this.visualScale = this.isMini ? 0.55 : 1;
+    this.visualScale = this.isMini ? 0.55 : this.type === 'ninja' ? 1.25 : 1;
     this.id = id || `enemy_${type}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     this.path = path;
 
@@ -345,14 +351,20 @@ export class Enemy {
 
       if (dx !== null && dy !== null && (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)) {
         const spriteInfo = ENEMY_SPRITES[this.type];
-        let animKey = `${spriteInfo.key.replace('enemy_', '')}_walk`;
+        const name = spriteInfo.key.replace('enemy_', '');
+        // Close combat swaps the walk cycle for the attack stance
+        // (ninjas only — every other monster has no attack sheet)
+        const stance = this.fighting ? 'attack' : 'walk';
+        let animKey = `${name}_${stance}`;
 
         if (Math.abs(dx) > Math.abs(dy)) {
           // Moving horizontally
-          animKey = dx > 0 ? `${spriteInfo.key.replace('enemy_', '')}_right` : `${spriteInfo.key.replace('enemy_', '')}_left`;
+          animKey = this.fighting
+            ? `${name}_attack_${dx > 0 ? 'right' : 'left'}`
+            : `${name}_${dx > 0 ? 'right' : 'left'}`;
         } else if (dy < 0) {
           // Moving up
-          animKey = `${spriteInfo.key.replace('enemy_', '')}_up`;
+          animKey = this.fighting ? `${name}_attack_up` : `${name}_up`;
         }
 
         if (this.sprite.anims.currentAnim?.key !== animKey) {
@@ -438,6 +450,9 @@ export class Enemy {
     this.ownerId = null;
     this.collisionCd = 0;
     this.combatTargetId = null;
+    this.summonLevel = 1;
+    this.throwsLeft = 0;
+    this.fighting = false;
     this.meleeFocus = null;
     this.pathIndex = 0;
     this.baseSpeed = this.data.speed;

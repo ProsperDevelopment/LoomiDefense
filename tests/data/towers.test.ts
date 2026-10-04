@@ -3,7 +3,7 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { Tower } from '../../src/entities/Tower';
-import { TOWER_DEFINITIONS, TOWER_LIST, TOWER_UPGRADES, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS, farmIncome, beaconFireRateBuff } from '../../src/data/towers';
+import { TOWER_DEFINITIONS, TOWER_LIST, TOWER_UPGRADES, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS, farmIncome, beaconFireRateBuff, ninjaThrowProfile } from '../../src/data/towers';
 import { TOWER_SPRITE_FRAMES } from '../../src/entities/Tower';
 import type { TowerType } from '../../src/types';
 
@@ -98,6 +98,14 @@ describe('tower roster', () => {
     expect(tower.canFire()).toBe(true); // summon ready
     tower.fire();
     expect(tower.canFire()).toBe(false); // then it goes on cooldown
+  });
+
+  it('ninja throws unlock at tower level 3: arrow, cannon, grenade', () => {
+    expect(ninjaThrowProfile(1)).toBeNull(); // melee only
+    expect(ninjaThrowProfile(2)).toBeNull();
+    expect(ninjaThrowProfile(3)).toEqual({ towerType: 'arrow', damage: 12, splash: 0 });
+    expect(ninjaThrowProfile(4)).toEqual({ towerType: 'cannon', damage: 16, splash: 30 });
+    expect(ninjaThrowProfile(5)).toEqual({ towerType: 'grenade', damage: 20, splash: 45 });
   });
 
   it('defines 5 upgrade levels with growing multipliers', () => {

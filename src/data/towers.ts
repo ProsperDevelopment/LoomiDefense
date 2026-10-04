@@ -165,6 +165,21 @@ export function beaconFireRateBuff(level: number): number {
   return base * (up?.fireRateMultiplier ?? 1);
 }
 
+/** What a summoned ninja throws at tower level 3+ (null = melee only). */
+export interface NinjaThrow {
+  towerType: TowerType;
+  damage: number;
+  splash: number;
+}
+
+/** L3 throws arrows, L4 cannonballs, L5 grenades; below that it's melee. */
+export function ninjaThrowProfile(level: number): NinjaThrow | null {
+  if (level === 3) return { towerType: 'arrow', damage: 12, splash: 0 };
+  if (level === 4) return { towerType: 'cannon', damage: 16, splash: 30 };
+  if (level >= 5) return { towerType: 'grenade', damage: 20, splash: 45 };
+  return null;
+}
+
 /** The three basic towers — their combined build budget is shared. */
 export const BASIC_TOWERS: TowerType[] = ['arrow', 'cannon', 'frost'];
 
