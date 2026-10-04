@@ -3,21 +3,21 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { Tower } from '../../src/entities/Tower';
-import { TOWER_DEFINITIONS, TOWER_LIST, TOWER_UPGRADES, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS } from '../../src/data/towers';
+import { TOWER_DEFINITIONS, TOWER_LIST, TOWER_UPGRADES, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS, farmIncome, beaconFireRateBuff } from '../../src/data/towers';
 import { TOWER_SPRITE_FRAMES } from '../../src/entities/Tower';
 import type { TowerType } from '../../src/types';
 
-const ALL_TYPES: TowerType[] = ['arrow', 'cannon', 'frost', 'sniper', 'mortar', 'tesla', 'grenade'];
+const ALL_TYPES: TowerType[] = ['arrow', 'cannon', 'frost', 'sniper', 'mortar', 'tesla', 'grenade', 'farm', 'beacon', 'ninja'];
 const FREE_TOWERS = ['arrow', 'cannon', 'frost'];
-const STORED_TOWERS = ['sniper', 'mortar', 'tesla', 'grenade'];
+const STORED_TOWERS = ['sniper', 'mortar', 'tesla', 'grenade', 'farm', 'beacon', 'ninja'];
 
 describe('tower roster', () => {
-  it('defines all seven tower types', () => {
+  it('defines all ten tower types', () => {
     for (const type of ALL_TYPES) {
       expect(TOWER_DEFINITIONS[type], `missing definition for ${type}`).toBeDefined();
       expect(TOWER_DEFINITIONS[type].type).toBe(type);
     }
-    expect(TOWER_LIST).toHaveLength(7);
+    expect(TOWER_LIST).toHaveLength(10);
   });
 
   it('new towers have sane stats', () => {
@@ -57,11 +57,47 @@ describe('tower roster', () => {
       mortar: 1,
       tesla: 1,
       grenade: 1,
+      farm: 5,
+      beacon: 3,
+      ninja: 3,
     });
     // Every tower type must have a cap
     for (const type of ALL_TYPES) {
       expect(DEFAULT_TOWER_LIMITS[type], `no cap for ${type}`).toBeTypeOf('number');
     }
+  });
+
+  it('farm never fights but pays 50g per wave at L1 up to 500g at L5', () => {
+    const farm = TOWER_DEFINITIONS.farm;
+    expect(farm.damage).toBe(0);
+    expect(farm.range).toBe(0);
+    expect(farm.incomePerWave).toBe(50);
+    expect(farmIncome(1)).toBe(50);
+    expect(farmIncome(5)).toBe(500);
+  });
+
+  it('beacon never fights but buffs fire rate, growing with upgrades', () => {
+    const beacon = TOWER_DEFINITIONS.beacon;
+    expect(beacon.damage).toBe(0);
+    expect(beacon.fireRate).toBe(0);
+    expect(beacon.fireRateBuff).toBeGreaterThan(0);
+    expect(beacon.range).toBeGreaterThan(0);
+    // Never shoots, even with a target in range
+    expect(new Tower('beacon', 0, 0).canFire()).toBe(false);
+    // The aura strengthens with the beacon's level
+    expect(beaconFireRateBuff(1)).toBeCloseTo(0.3);
+    expect(beaconFireRateBuff(5)).toBeGreaterThan(beaconFireRateBuff(1) * 1.5);
+  });
+
+  it('ninja summons instead of shooting: no combat stats, summon timer instead', () => {
+    const ninja = TOWER_DEFINITIONS.ninja;
+    expect(ninja.damage).toBe(0);
+    expect(ninja.range).toBe(0);
+    expect(ninja.fireRate).toBeGreaterThan(0); // seconds between summons
+    const tower = new Tower('ninja', 0, 0);
+    expect(tower.canFire()).toBe(true); // summon ready
+    tower.fire();
+    expect(tower.canFire()).toBe(false); // then it goes on cooldown
   });
 
   it('defines 5 upgrade levels with growing multipliers', () => {

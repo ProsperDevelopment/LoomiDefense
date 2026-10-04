@@ -125,6 +125,9 @@
       <label style="display:flex; justify-content:space-between; align-items:center;">Mortar <input type="number" id="limit_mortar" min="0" placeholder="1" style="width:54px; margin:0;"></label>
       <label style="display:flex; justify-content:space-between; align-items:center;">Tesla <input type="number" id="limit_tesla" min="0" placeholder="1" style="width:54px; margin:0;"></label>
       <label style="display:flex; justify-content:space-between; align-items:center;">Grenade <input type="number" id="limit_grenade" min="0" placeholder="1" style="width:54px; margin:0;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Farm <input type="number" id="limit_farm" min="0" placeholder="5" style="width:54px; margin:0;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Beacon <input type="number" id="limit_beacon" min="0" placeholder="3" style="width:54px; margin:0;"></label>
+      <label style="display:flex; justify-content:space-between; align-items:center;">Ninja <input type="number" id="limit_ninja" min="0" placeholder="3" style="width:54px; margin:0;"></label>
     </div>
     <div style="font-size:10px; color:#8888aa; margin-top:3px;">Empty = default cap</div>
 
@@ -443,7 +446,7 @@ function setDifficulty(value) {
     `Difficulty: ${value} — ${lives} ${lives === 1 ? 'life' : 'lives'}`;
 }
 
-const TOWER_LIMIT_TYPES = ['arrow', 'cannon', 'frost', 'sniper', 'mortar', 'tesla', 'grenade'];
+const TOWER_LIMIT_TYPES = ['arrow', 'cannon', 'frost', 'sniper', 'mortar', 'tesla', 'grenade', 'farm', 'beacon', 'ninja'];
 
 /** Collect the per-type build caps; empty fields fall back to defaults. */
 function readTowerLimits() {
@@ -1358,14 +1361,14 @@ function updateZoom() {
 // ============================================================
 // Wave Definitions
 // ============================================================
-const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss', 'brute', 'sprinter', 'phantom', 'splitter', 'bat'];
+const ENEMY_TYPES = ['basic', 'fast', 'armored', 'healer', 'swarm', 'tank', 'elite', 'boss', 'brute', 'sprinter', 'phantom', 'splitter', 'bat', 'ninja'];
 
 // Sprite-sheet file per enemy (mirrors the game's ENEMY_SPRITES)
 const ENEMY_ICON_FILES = {
   basic: 'slime', fast: 'spider', armored: 'bear', healer: 'snake',
   swarm: 'slime', tank: 'beast', elite: 'cyclops', boss: 'dragon',
   brute: 'racoon', sprinter: 'owl', phantom: 'spirit', splitter: 'mushroom',
-  bat: 'bat',
+  bat: 'bat', ninja: 'ninja',
 };
 
 /** First frame of the enemy's 4x4 sheet as a swatch. */

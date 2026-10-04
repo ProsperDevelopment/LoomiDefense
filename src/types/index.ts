@@ -49,7 +49,7 @@ export interface MapData {
 }
 
 // --- Towers ---
-export type TowerType = 'arrow' | 'cannon' | 'frost' | 'sniper' | 'mortar' | 'tesla' | 'grenade';
+export type TowerType = 'arrow' | 'cannon' | 'frost' | 'sniper' | 'mortar' | 'tesla' | 'grenade' | 'farm' | 'beacon' | 'ninja';
 export type TargetMode = 'first' | 'closest' | 'strongest' | 'last' | 'random';
 
 /** Every valid targeting mode (network + UI validation). */
@@ -69,6 +69,10 @@ export interface TowerData {
   description: string;
   /** On detonation the projectile bursts into this many shrapnel hits. */
   shrapnelCount?: number;
+  /** Gold this tower pays its owner when a wave starts (farm). */
+  incomePerWave?: number;
+  /** Fire-rate aura this tower adds to towers in its range (beacon). */
+  fireRateBuff?: number;
 }
 
 export interface TowerUpgradeData {
@@ -81,7 +85,7 @@ export interface TowerUpgradeData {
 
 // --- Enemies ---
 export type EnemyType = 'basic' | 'fast' | 'armored' | 'healer' | 'swarm' | 'tank' | 'elite' | 'boss'
-  | 'brute' | 'sprinter' | 'phantom' | 'splitter' | 'bat';
+  | 'brute' | 'sprinter' | 'phantom' | 'splitter' | 'bat' | 'ninja';
 
 export interface EnemyData {
   type: EnemyType;
@@ -99,6 +103,8 @@ export interface EnemyData {
    * see canDamageEnemy() in utils/damageRules.ts.
    */
   invisible?: boolean;
+  /** Health this enemy deals to whatever it collides with (ninja units). */
+  contactDamage?: number;
 }
 
 // --- Waves ---

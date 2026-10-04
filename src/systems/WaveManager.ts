@@ -87,6 +87,49 @@ export class WaveManager {
   }
 
   /**
+   * Put wave 1 behind the same auto-start countdown + start button the
+   * later waves use, so the player controls when it begins.
+   */
+  scheduleFirstWave(): void {
+    if (this.currentWaveIndex === 0 && !this.waveActive && !this.waitingForNextWave) {
+      this.waitingForNextWave = true;
+      this.autoStartTimer = 0;
+      // Wave 1 waits for the ready button — it never auto-starts
+      this.autoStartEnabled = false;
+    }
+  }
+
+  /** Whether the waiting wave still auto-starts (false for wave 1). */
+  isAutoStartEnabled(): boolean {
+    return this.autoStartEnabled;
+  }
+
+  /** True once every enemy of the active wave spawned and a next wave exists. */
+  canStartNextWave(): boolean {
+    return (
+      this.waveActive &&
+      this.totalEnemiesInWave > 0 &&
+      this.enemiesSpawnedThisWave >= this.totalEnemiesInWave &&
+      this.currentWaveIndex + 1 < this.waves.length
+    );
+  }
+
+  /**
+   * Leave the rest of the current wave (leftover enemies stay alive on
+   * the field) and start the next one immediately — allowed once every
+   * enemy of the current wave has spawned.
+   */
+  startNextWhileActive(): boolean {
+    if (!this.canStartNextWave()) return false;
+    // Close out the current wave first — startWave() refuses while a
+    // wave is still active, and leftover enemies simply stay alive
+    this.waveActive = false;
+    this.waitingForNextWave = false;
+    this.currentWaveIndex++;
+    return this.startWave();
+  }
+
+  /**
    * Start the first wave manually or trigger auto-start countdown
    */
   startFirstWave(): void {
@@ -132,10 +175,9 @@ export class WaveManager {
    */
   startWaveEarly(): number {
     if (!this.waitingForNextWave || this.waveActive) return 0;
-
-    const bonus = this.earlyStartBonus;
-    this.startWave();
-    return bonus;
+    // Claim the bonus only — starting the wave is the caller's job so
+    // every start funnels through the same path (and UI update)
+    return this.earlyStartBonus;
   }
 
   /**
@@ -154,17 +196,19 @@ export class WaveManager {
       eventBus.emit('all-waves-cleared', {});
       this.onAllWavesCleared?.();
     } else {
-      // Start auto-start countdown
+      // Start auto-start countdown (wave 1 disabled this until pressed)
       this.waitingForNextWave = true;
       this.autoStartTimer = 0;
+      this.autoStartEnabled = true;
     }
 
     this.onWaveCleared?.(waveNumber);
   }
 
   update(deltaMs: number): void {
-    // Handle auto-start countdown
+    // Handle auto-start countdown (skipped while waiting on the button)
     if (this.waitingForNextWave && !this.waveActive) {
+      if (!this.autoStartEnabled) return;
       this.autoStartTimer += deltaMs;
       if (this.autoStartTimer >= this.autoStartDelay) {
         this.startWave();

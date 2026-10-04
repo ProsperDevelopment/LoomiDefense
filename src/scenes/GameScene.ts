@@ -17,10 +17,10 @@ import { HUD } from '../ui/HUD';
 import { TowerPanel } from '../ui/TowerPanel';
 import { WaveIndicator } from '../ui/WaveIndicator';
 import { MAP_DEFINITIONS } from '../data/maps';
-import { TOWER_DEFINITIONS, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS, BASIC_TOWERS } from '../data/towers';
+import { TOWER_DEFINITIONS, MAX_TOWER_LEVEL, DEFAULT_TOWER_LIMITS, BASIC_TOWERS, farmIncome, beaconFireRateBuff } from '../data/towers';
 import { userProfile } from '../state/UserProfile';
 import { lobby } from '../ui/overlay/lobbyScreen';
-import type { NetSnapshot, NetCommand, NetStatus } from '../../shared/protocol';
+import type { NetSnapshot, NetCommand, NetStatus, DeathVariant } from '../../shared/protocol';
 import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, STARTING_GOLD, GRID_OFFSET_Y, COINS_PER_LEVEL_WIN, livesForDifficulty } from '../config/constants';
 import { eventBus } from '../utils/EventBus';
 import { bindGameAudio, playSfx } from '../audio/GameAudio';
@@ -29,6 +29,13 @@ import { canDamageEnemy } from '../utils/damageRules';
 
 /** Bodies that share the blood landing pipeline (blood arcs, death debris images). */
 type SplatterBody = Phaser.GameObjects.Arc | Phaser.GameObjects.Image;
+
+/** Max ninjas alive at once across all ninja towers. */
+const NINJA_SUMMON_CAP = 5;
+/** Pause between one ninja's melee trades (ms) so fights tick, not instakill. */
+const NINJA_HIT_COOLDOWN_MS = 600;
+/** How far a ninja keeps chasing its duel target before giving up (px). */
+const NINJA_LEASH = 150;
 
 export class GameScene extends Phaser.Scene {
   private grid!: Grid;
@@ -178,11 +185,10 @@ export class GameScene extends Phaser.Scene {
     // Multiplayer: wire lobby net handlers
     this.setupNetHandlers();
 
-    // Start first wave after a short delay (host/solo only; guests wait for snapshots)
+    // Wave 1 waits behind the same countdown + start button as the
+    // later waves (host/solo; guests wait for snapshots)
     if (this.netRole !== 'guest') {
-      this.time.delayedCall(2000, () => {
-        this.startNextWave();
-      });
+      this.waveManager.scheduleFirstWave();
     }
 
     // Clean up lobby listeners when leaving the scene
@@ -207,13 +213,20 @@ export class GameScene extends Phaser.Scene {
           this.applyNetCommand(from, data.cmd);
         } else if (this.netRole === 'guest' && data.kind === 'snap') {
           this.pendingSnaps.push(data);
+        } else if (this.netRole === 'guest' && data.kind === 'died') {
+          this.playGuestDeath(data.id, data.variant);
         }
       }),
       lobby.onClose(() => {
-        // Connection lost mid-game: return to menu
-        if (!this.isGameOver && this.netRole === 'guest') {
-          this.scene.start('MenuScene');
+        if (this.netRole !== 'guest' || this.isGameOver) return;
+        // The host leaves right after sending won/lost — drain any final
+        // snapshot first so the victory/defeat screen still shows
+        while (this.pendingSnaps.length > 0) {
+          this.applySnapshot(this.pendingSnaps.shift()!);
         }
+        if (this.isGameOver) return; // end screen is up
+        // Connection lost mid-game: return to menu
+        this.scene.start('MenuScene');
       }),
     );
   }
@@ -377,6 +390,21 @@ export class GameScene extends Phaser.Scene {
   private setupEvents(): void {
     // Gameplay sounds ride the same event bus
     bindGameAudio(this);
+
+    // Farms pay their owner at the start of every wave (host only —
+    // guests receive their gold through snapshots)
+    eventBus.on('wave-started', () => {
+      let paid = false;
+      for (const t of this.towers) {
+        if (t.type !== 'farm') continue;
+        this.addGold(t.ownerId ?? this.myPlayerId(), farmIncome(t.level));
+        paid = true;
+      }
+      if (paid) {
+        this.refreshOwnGoldHud();
+        playSfx(this, 'sfx_coin', { volume: 0.35, rate: 1.1 });
+      }
+    });
     eventBus.on('enemy-killed', (p) => {
       // Kill rewards go to the owner of the tower that landed the kill
       this.addGold(p.ownerId ?? this.myPlayerId(), p.reward);
@@ -406,6 +434,7 @@ export class GameScene extends Phaser.Scene {
     const scaledDelta = delta * this.gameSpeed;
     this.waveManager.update(scaledDelta);
     this.updateEnemies(scaledDelta);
+    this.resolveNinjaCollisions();
     this.updateTowerCombat(scaledDelta);
     this.updateProjectiles(scaledDelta);
     this.updateDebrisKicks(scaledDelta);
@@ -424,10 +453,19 @@ export class GameScene extends Phaser.Scene {
 
     // Update wave indicator countdown
     if (this.waveManager.isWaitingForNextWave()) {
-      this.waveIndicator.showCountdown(true);
-      this.waveIndicator.setCountdown(this.waveManager.getAutoStartTimer());
+      // Wave 1 waits indefinitely for the button; later waves count down
+      const auto = this.waveManager.isAutoStartEnabled();
+      this.waveIndicator.showCountdown(auto);
+      if (auto) {
+        this.waveIndicator.setCountdown(this.waveManager.getAutoStartTimer());
+      }
       this.waveIndicator.showStartButton(true);
       this.waveIndicator.setBonusText(`Bonus: +${this.waveManager.getEarlyStartBonus()}g`);
+    } else if (this.waveManager.canStartNextWave()) {
+      // Everything of this wave spawned — the next one may start now
+      this.waveIndicator.showCountdown(false);
+      this.waveIndicator.setBonusText('');
+      this.waveIndicator.showStartButton(true);
     } else {
       this.waveIndicator.showCountdown(false);
       this.waveIndicator.setBonusText('');
@@ -596,7 +634,7 @@ export class GameScene extends Phaser.Scene {
         if (!this.textures.exists(key)) continue;
         const img = this.add.image(s.x, s.y, key);
         img.setDisplaySize(12, 12);
-        img.setDepth(15);
+        img.setDepth(26);
         entry = { img, tx: s.x, ty: s.y, type: s.type, shrapnel: s.shrapnel ?? false };
         this.guestProjectiles.set(s.id, entry);
       }
@@ -1388,7 +1426,10 @@ export class GameScene extends Phaser.Scene {
         }
         // Remove BEFORE notifying: wave completion checks the live enemy list
         this.removeEnemy(enemy, i);
-        eventBus.emit('enemy-reached-base', { damage: 1 });
+        // Ninjas walk off the far end of the path — they never hurt the base
+        if (!enemy.friendly) {
+          eventBus.emit('enemy-reached-base', { damage: 1 });
+        }
       }
     }
   }
@@ -1408,9 +1449,34 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Fire-rate aura: every beacon covering this tower speeds it up. */
+  private fireRateMultiplier(tower: Tower): number {
+    let mult = 1;
+    for (const b of this.towers) {
+      if (b.type !== 'beacon') continue;
+      if (tower.position.distanceTo(b.position) > b.range) continue;
+      // The buff grows with the beacon's own upgrade level
+      mult += beaconFireRateBuff(b.level);
+    }
+    return mult;
+  }
+
   private updateTowerCombat(deltaMs: number): void {
     for (const tower of this.towers) {
-      tower.update(deltaMs);
+      tower.update(deltaMs, this.fireRateMultiplier(tower));
+      if (tower.type === 'ninja') {
+        // Summon only during a wave, and never beyond the alive cap
+        if (tower.canFire() && this.waveManager.isWaveActive()) {
+          const alive = this.enemies.reduce(
+            (n, e) => n + (e.friendly && e.alive && !e.isDead() ? 1 : 0), 0,
+          );
+          if (alive < NINJA_SUMMON_CAP) {
+            tower.fire();
+            this.spawnNinja(tower);
+          }
+        }
+        continue;
+      }
       if (!tower.canFire()) continue;
       const target = this.findTarget(tower);
       if (!target) continue;
@@ -1419,22 +1485,136 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** A ninja tower summons a unit at the base that walks the path backwards. */
+  private spawnNinja(tower: Tower): void {
+    const path = this.grid.getPathPixels();
+    const ninja = new Enemy('ninja', path, undefined, {
+      reverse: true,
+      friendly: true,
+      ownerId: tower.ownerId,
+    });
+    // Jitter so back-to-back summons don't stack on one pixel
+    ninja.position.x += (Math.random() - 0.5) * 12;
+    ninja.position.y += (Math.random() - 0.5) * 12;
+    ninja.createSprite(this);
+    this.enemies.push(ninja);
+    playSfx(this, 'sfx_magic', { volume: 0.25, rate: 0.9 + Math.random() * 0.2 });
+  }
+
+  /**
+   * Ninjas duel whatever they meet: lock onto a target on first contact
+   * and keep pressing it — trading blows every cooldown — until it dies
+   * (or outruns the leash). No lock and no contact means back to the path.
+   */
+  private resolveNinjaCollisions(): void {
+    // Snapshot copy: a kill splices this.enemies mid-iteration
+    for (const ninja of [...this.enemies]) {
+      if (!ninja.alive || !ninja.friendly) continue;
+
+      // Keep dueling the locked target while it lives and stays near
+      let target = ninja.combatTargetId
+        ? this.enemies.find((e) => e.id === ninja.combatTargetId && e.alive && !e.isDead())
+        : undefined;
+      if (target && ninja.position.distanceTo(target.position) > NINJA_LEASH) {
+        target = undefined;
+      }
+      // Otherwise lock onto whoever we're already touching
+      if (!target) {
+        let bestDist = Infinity;
+        for (const e of this.enemies) {
+          if (!e.alive || e.isDead() || e.friendly) continue;
+          const d = ninja.position.distanceTo(e.position);
+          if (d <= ninja.data.size + e.data.size + 4 && d < bestDist) {
+            bestDist = d;
+            target = e;
+          }
+        }
+      }
+      if (!target) {
+        ninja.combatTargetId = null;
+        ninja.meleeFocus = null;
+        continue;
+      }
+      ninja.combatTargetId = target.id;
+
+      // Press a standoff point on our side of the target: this closes
+      // knocked-back gaps and holds the line so nobody walks through
+      const dx = ninja.position.x - target.position.x;
+      const dy = ninja.position.y - target.position.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const reach = ninja.data.size + target.data.size;
+      ninja.meleeFocus = {
+        x: target.position.x + (dx / dist) * (reach - 4),
+        y: target.position.y + (dy / dist) * (reach - 4),
+      };
+
+      // Trade blows when our swing is ready and anyone is in reach
+      if (ninja.collisionCd > 0) continue;
+      let strike: Enemy | undefined;
+      let strikeDist = Infinity;
+      for (const e of this.enemies) {
+        if (!e.alive || e.isDead() || e.friendly) continue;
+        const d = ninja.position.distanceTo(e.position);
+        if (d <= ninja.data.size + e.data.size && d < strikeDist) {
+          strikeDist = d;
+          strike = e;
+        }
+      }
+      if (!strike) continue;
+      this.ninjaCollide(ninja, strike);
+      if (!target.alive || target.isDead()) ninja.combatTargetId = null;
+    }
+  }
+
+  /** One melee trade: the ninja bounces off; the enemy marches on untouched. */
+  private ninjaCollide(ninja: Enemy, target: Enemy): void {
+    const dmg = ninja.data.contactDamage ?? 8;
+    ninja.collisionCd = NINJA_HIT_COOLDOWN_MS;
+
+    // Only the ninja gets shoved back — the target's movement is left alone
+    const dx = target.position.x - ninja.position.x;
+    const dy = target.position.y - ninja.position.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = dx / len;
+    const ny = dy / len;
+    const knock = 10;
+    ninja.position.x -= nx * knock;
+    ninja.position.y -= ny * knock;
+    ninja.applyImpact();
+
+    this.createBloodSplatter(nx, ny, target.position, target.data.size, 1);
+    this.createBloodSplatter(-nx, -ny, ninja.position, ninja.data.size, 1);
+    playSfx(this, 'sfx_impact', { volume: 0.3 });
+
+    const targetKilled = this.healthSystem.applyDamage(
+      { id: target.id, position: target.position, health: target.health }, dmg,
+    );
+    const ninjaKilled = this.healthSystem.applyDamage(
+      { id: ninja.id, position: ninja.position, health: ninja.health }, dmg,
+    );
+
+    // The kill reward goes to the tower owner who sent this ninja
+    if (targetKilled) this.onEnemyKilled(target, ninja.ownerId);
+    if (ninjaKilled) this.onNinjaKilled(ninja);
+  }
+
   private findTarget(tower: Tower): TargetableEntity | null {
     // Prioritize selected enemy if in range, alive AND damageable
     // (phantoms ignore everything but upgraded snipers/archers)
     if (
       this.selectedEnemy && this.selectedEnemy.alive && !this.selectedEnemy.isDead() &&
+      !this.selectedEnemy.friendly &&
       canDamageEnemy(tower.type, tower.level, this.selectedEnemy.data)
     ) {
       const dist = tower.position.distanceTo(this.selectedEnemy.position);
       if (dist <= tower.range) {
-        return { id: this.selectedEnemy.id, position: this.selectedEnemy.position, health: this.selectedEnemy.health };
+        return { id: this.selectedEnemy.id, position: this.selectedEnemy.position, health: this.selectedEnemy.health, pathRemaining: this.selectedEnemy.pathRemaining() };
       }
     }
 
     const enemies = this.enemies
-      .filter(e => e.alive && !e.isDead() && canDamageEnemy(tower.type, tower.level, e.data))
-      .map(e => ({ id: e.id, position: e.position, health: e.health }));
+      .filter(e => e.alive && !e.isDead() && !e.friendly && canDamageEnemy(tower.type, tower.level, e.data))
+      .map(e => ({ id: e.id, position: e.position, health: e.health, pathRemaining: e.pathRemaining() }));
     return TargetingSystem.findTarget(tower.position, tower.range, enemies, tower.targetMode);
   }
 
@@ -1460,7 +1640,7 @@ export class GameScene extends Phaser.Scene {
         const done = proj.update(deltaMs, null);
         const hit = proj.shrapnelArmed()
           ? this.enemies.find((e) =>
-              e.alive &&
+              e.alive && !e.friendly &&
               e.position.distanceTo(proj.position) <= e.data.size + 6 &&
               !(e.data.immuneTo && e.data.immuneTo.includes(proj.getTowerType())) &&
               canDamageEnemy(proj.getTowerType(), proj.towerLevel, e.data))
@@ -1593,7 +1773,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (dmg.splashRadius > 0) {
       const nearbyEnemies = this.enemies
-        .filter(e => e.alive && e !== primaryTarget
+        .filter(e => e.alive && e !== primaryTarget && !e.friendly
           && !(e.data.immuneTo && e.data.immuneTo.includes(proj.getTowerType()))
           && canDamageEnemy(proj.getTowerType(), proj.towerLevel, e.data))
         .map(e => ({ id: e.id, position: e.position, health: e.health }));
@@ -1789,10 +1969,10 @@ export class GameScene extends Phaser.Scene {
         if (!particle.active) return;
 
         // Instant: snap straight out of the drip into the pool, on the
-        // ground layer (depth 0 — under walls, tiles and everything else)
+        // blood layer (depth 21 — above foreground tiles)
         const poolSX = 1.35 + Math.random() * 0.45;
         const poolSY = 0.55 + Math.random() * 0.15;
-        particle.setDepth(0);
+        particle.setDepth(21);
         particle.setPosition(poolX, poolY);
         particle.rotation = 0;
         particle.setScale(poolSX, poolSY);
@@ -1818,7 +1998,7 @@ export class GameScene extends Phaser.Scene {
             0xcc0000,
             particle.alpha,
           );
-          drop.setDepth(0);
+          drop.setDepth(21);
           drop.rotation = Math.atan2(endY - startY, endX - startX);
           drop.setScale(1.5 + Math.random() * 0.6, 0.7 + Math.random() * 0.15);
           this.tweens.add({
@@ -1873,7 +2053,7 @@ export class GameScene extends Phaser.Scene {
             0xcc0000,
             particle.alpha,
           );
-          dot.setDepth(11); // on the object's face, under enemies (14)
+          dot.setDepth(21); // on the object's face
           dots.push(dot);
         }
         this.time.delayedCall(300, () => {
@@ -1914,7 +2094,7 @@ export class GameScene extends Phaser.Scene {
         0xcc0000,
         1,
       );
-      particle.setDepth(11);
+      particle.setDepth(21);
 
       // Random spread around the projectile's travel direction
       const angle = hitAngle + (Math.random() - 0.5) * 1.5;
@@ -1951,7 +2131,7 @@ export class GameScene extends Phaser.Scene {
           0xcc0000,
           1,
         );
-        exitParticle.setDepth(11);
+        exitParticle.setDepth(21);
 
         exitParticle.rotation = exitAngle;
         this.tweens.add({
@@ -1980,7 +2160,7 @@ export class GameScene extends Phaser.Scene {
       const targetX = hitPos.x + Math.cos(angle) * speed;
       const targetY = hitPos.y + Math.sin(angle) * speed;
       const speck = this.add.circle(hitPos.x, hitPos.y, 1.85 + Math.random() * 0.5, 0xcc0000, 1);
-      speck.setDepth(11);
+      speck.setDepth(21);
       speck.rotation = angle;
       this.tweens.add({
         targets: speck,
@@ -2034,29 +2214,68 @@ export class GameScene extends Phaser.Scene {
     enemy.healthBar?.setVisible(false);
     enemy.healthBarBg?.setVisible(false);
 
-    // Three death animations, picked at random: bleed out, tip over
-    // and explode, or the plain sprite burst. Phantoms never bleed out
-    // — they only tip over or burst.
-    if (enemy.data.invisible) {
-      if (Math.random() < 0.5) {
-        this.deathTipOver(enemy);
-      } else {
-        this.explodeEnemySprite(enemy);
-        enemy.destroy();
-      }
-    } else {
-      const roll = Math.random();
-      if (roll < 1 / 3) {
-        this.deathBleedOut(enemy);
-      } else if (roll < 2 / 3) {
-        this.deathTipOver(enemy);
-      } else {
-        this.explodeEnemySprite(enemy);
-        enemy.destroy();
-      }
+    // Three death animations, picked once so every peer plays the same
+    // one: bleed out, tip over and explode, or the plain sprite burst.
+    const variant = this.pickDeathVariant(enemy);
+    this.playDeathVariant(enemy, variant);
+    // Tell the guests so their copy of this enemy plays the same one
+    if (this.netRole === 'host') {
+      lobby.sendNet({ kind: 'died', id: enemy.id, variant });
     }
 
     eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x, y, ownerId: ownerId ?? undefined });
+  }
+
+  /** Which death animation to play (phantoms never bleed out). */
+  private pickDeathVariant(enemy: Enemy): DeathVariant {
+    if (enemy.data.invisible) return Math.random() < 0.5 ? 'tip' : 'burst';
+    const roll = Math.random();
+    return roll < 1 / 3 ? 'bleed' : roll < 2 / 3 ? 'tip' : 'burst';
+  }
+
+  /**
+   * A ninja fell in melee — same death variants as any enemy and guests
+   * hear about it, but no kill reward and no wave-completion events.
+   */
+  private onNinjaKilled(ninja: Enemy): void {
+    if (!ninja.alive) return;
+    ninja.alive = false;
+    if (this.selectedEnemy === ninja) this.deselectEnemy();
+    this.detachEnemy(ninja);
+    ninja.healthBar?.setVisible(false);
+    ninja.healthBarBg?.setVisible(false);
+    const variant = this.pickDeathVariant(ninja);
+    this.playDeathVariant(ninja, variant);
+    if (this.netRole === 'host') {
+      lobby.sendNet({ kind: 'died', id: ninja.id, variant });
+    }
+  }
+
+  /** Play one of the three death animations; the variant owns the corpse sprite. */
+  private playDeathVariant(enemy: Enemy, variant: DeathVariant): void {
+    switch (variant) {
+      case 'bleed':
+        this.deathBleedOut(enemy);
+        break;
+      case 'tip':
+        this.deathTipOver(enemy);
+        break;
+      default:
+        this.explodeEnemySprite(enemy);
+        enemy.destroy();
+    }
+  }
+
+  /** The host said this enemy died — play the same animation here. */
+  private playGuestDeath(id: string, variant: DeathVariant): void {
+    const enemy = this.enemies.find((e) => e.id === id && e.alive);
+    if (!enemy) return;
+    enemy.alive = false;
+    if (this.selectedEnemy === enemy) this.deselectEnemy();
+    this.guestEnemyTargets.delete(id);
+    // Detach now — the animation owns the corpse, exactly like the host
+    this.detachEnemy(enemy);
+    this.playDeathVariant(enemy, variant);
   }
 
   private onEnemyKilledById(id: string, ownerId?: string | null): void {
@@ -2310,9 +2529,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     enemy.stopInvisibilityPulse();
-    // Above the blood (11) and its pools (11 -> 0) for the whole death,
-    // so the corpse always lies on top of its own bleed pool
-    sprite.setDepth(12);
+    // Above the blood (21) for the whole death, so the corpse always
+    // lies on top of its own bleed pool
+    sprite.setDepth(22);
 
     // Glide on in the direction it was travelling when shot — bouncing
     // off trees, walls and other enemies — tumbling a full 360° as it goes
@@ -2379,11 +2598,11 @@ export class GameScene extends Phaser.Scene {
           0xcc0000,
           0.85,
         );
-        dot.setDepth(11);
+        dot.setDepth(21);
         // Dry like the rest of the blood
         this.time.delayedCall(400, () => {
           if (!dot.active) return;
-          dot.setDepth(0);
+          dot.setDepth(21);
           dot.setFillStyle(0x4a0000, 0.8);
           this.tweens.add({
             targets: dot,
@@ -2473,7 +2692,7 @@ export class GameScene extends Phaser.Scene {
       const angle = Math.random() * Math.PI * 2;
       const dist = 6 + Math.random() * 14;
       const dot = this.add.circle(x, y, 1.2 + Math.random() * 1.2, 0xcc0000, 0.95);
-      dot.setDepth(11);
+      dot.setDepth(21);
       dot.rotation = angle;
       this.tweens.add({
         targets: dot,
@@ -2486,7 +2705,7 @@ export class GameScene extends Phaser.Scene {
         ease: 'Power2.out',
         onComplete: () => {
           if (!dot.active) return;
-          dot.setDepth(0);
+          dot.setDepth(21);
           dot.setFillStyle(0x4a0000, 0.8);
           this.tweens.add({
             targets: dot,
@@ -2506,7 +2725,7 @@ export class GameScene extends Phaser.Scene {
   private bleedOutPool(x: number, y: number, corpseSize: number): Phaser.GameObjects.Arc {
     const poolY = y + corpseSize * 0.5;
     const pool = this.add.circle(x, poolY, 10 + Math.random() * 6, 0x8a0000, 1); // deep red from the start
-    pool.setDepth(11);
+    pool.setDepth(21);
     pool.setScale(0.1);
 
     // Drips fall from the corpse's center into the pool
@@ -2521,7 +2740,7 @@ export class GameScene extends Phaser.Scene {
           0xcc0000,
           0.9,
         );
-        drip.setDepth(11);
+        drip.setDepth(21);
         this.tweens.add({
           targets: drip,
           y: poolY,
@@ -2543,7 +2762,7 @@ export class GameScene extends Phaser.Scene {
       ease: 'Power2.out',
       onComplete: () => {
         if (!pool.active) return;
-        pool.setDepth(0);
+        pool.setDepth(21);
         pool.setFillStyle(0x4a0000, 0.8);
         this.tweens.add({
           targets: pool,
@@ -2773,8 +2992,14 @@ export class GameScene extends Phaser.Scene {
       lobby.sendCommand({ k: 'wave' });
       return;
     }
+    // Start the waiting wave — or skip ahead when the current one has
+    // spawned everything but leftovers are still fighting. If neither
+    // happens (e.g. a stray mid-wave press) touch nothing: resetting
+    // counters here would stall wave completion forever
+    const started =
+      this.waveManager.startNextWhileActive() || this.waveManager.startWave();
+    if (!started) return;
     this.enemiesSpawnedInWave = 0;
-    this.waveManager.startWave();
     this.waveIndicator.showStartButton(false);
     this.waveIndicator.showCountdown(false);
     this.waveIndicator.setBonusText('');
@@ -2794,6 +3019,9 @@ export class GameScene extends Phaser.Scene {
       this.addGold(actorId, bonus);
       this.refreshOwnGoldHud();
       this.startNextWave();
+    } else if (this.waveManager.canStartNextWave()) {
+      // Everything of this wave has spawned — start the next one now
+      this.startNextWave();
     }
   }
 
@@ -2805,7 +3033,8 @@ export class GameScene extends Phaser.Scene {
     const resolved = isWaveResolved({
       spawned: this.enemiesSpawnedInWave,
       total: this.waveManager.getTotalEnemiesInWave(),
-      remainingEnemies: this.enemies.length,
+      // Friendly ninjas don't belong to the wave — they can't stall it
+      remainingEnemies: this.enemies.filter((e) => !e.friendly).length,
     });
     if (!resolved) return;
 

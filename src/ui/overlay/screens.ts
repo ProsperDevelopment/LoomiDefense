@@ -285,6 +285,9 @@ export function showStorePanel(): void {
       { towerType: 'mortar', price: 250, name: 'Mortar Tower', description: 'Long range artillery with big splash', owned: userProfile.ownedTowers.includes('mortar') },
       { towerType: 'tesla', price: 400, name: 'Tesla Tower', description: 'Rapid fire chain lightning', owned: userProfile.ownedTowers.includes('tesla') },
       { towerType: 'grenade', price: 300, name: 'Grenade Tower', description: 'Lobs grenades that burst into shrapnel', owned: userProfile.ownedTowers.includes('grenade') },
+      { towerType: 'farm', price: 350, name: 'Farm Tower', description: 'Generates gold each wave instead of shooting', owned: userProfile.ownedTowers.includes('farm') },
+      { towerType: 'beacon', price: 300, name: 'Beacon Tower', description: 'Boosts the fire rate of towers in its range', owned: userProfile.ownedTowers.includes('beacon') },
+      { towerType: 'ninja', price: 300, name: 'Ninja Tower', description: 'Summons ninjas from your base that fight along the path', owned: userProfile.ownedTowers.includes('ninja') },
     ];
 
     function render(): void {

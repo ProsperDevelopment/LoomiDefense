@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { TowerType, TargetMode } from '../types';
-import { TOWER_LIST, TOWER_UPGRADES, TOWER_DEFINITIONS, MAX_TOWER_LEVEL } from '../data/towers';
+import { TOWER_LIST, TOWER_UPGRADES, TOWER_DEFINITIONS, MAX_TOWER_LEVEL, farmIncome, beaconFireRateBuff } from '../data/towers';
 import { TOWER_SPRITE_FRAMES } from '../entities/Tower';
 
 export interface TowerPanelCallbacks {
@@ -53,12 +53,15 @@ export class TowerPanel {
     const width = this.scene.cameras.main.width;
     const height = this.scene.cameras.main.height;
 
-    // Keep popup within screen bounds
+    // Keep popup within screen bounds (build menus grow with tower count)
     let x = pointerX + 20;
     let y = pointerY - 50;
-    if (x + 180 > width) x = pointerX - 200;
+    const estW = mode === 'build' ? this.buildableTowers.length * 64 + 24 : 180;
+    const estH = mode === 'build' ? 112 : 180;
+    if (x + estW > width) x = pointerX - estW - 20;
+    if (x < 8) x = 8;
     if (y < 10) y = 10;
-    if (y + 200 > height) y = height - 200;
+    if (y + estH > height) y = height - estH;
 
     if (mode === 'build') {
       this.createBuildMenu(x, y);
@@ -181,9 +184,18 @@ export class TowerPanel {
     }).setOrigin(0.5);
     this.container.add(title);
 
-    // Stats
-    const stats = this.scene.add.text(0, -12, `DMG: ${towerDef.damage} | RNG: ${towerDef.range}`, {
-      fontSize: '9px', color: '#aaaaaa',
+    // Stats (farms show income, beacons their aura, ninja towers their
+    // summons — no combat stats on those three)
+    const statsText = data.type === 'farm'
+      ? `+${farmIncome(data.level)} GOLD / WAVE`
+      : data.type === 'beacon'
+        ? `+${Math.round(beaconFireRateBuff(data.level) * 100)}% FIRE RATE`
+        : data.type === 'ninja'
+          ? 'SUMMONS NINJAS'
+          : `DMG: ${towerDef.damage} | RNG: ${towerDef.range}`;
+    const stats = this.scene.add.text(0, -12, statsText, {
+      fontSize: '9px',
+      color: data.type === 'farm' || data.type === 'beacon' || data.type === 'ninja' ? '#FFD700' : '#aaaaaa',
     }).setOrigin(0.5);
     this.container.add(stats);
 

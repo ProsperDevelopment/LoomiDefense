@@ -130,6 +130,10 @@ export class BootScene extends Phaser.Scene {
       frameWidth: 32,
       frameHeight: 32,
     });
+    this.load.spritesheet('enemy_ninja', 'assets/images/enemies/ninja.png', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
 
     // Load projectile sprites
     this.load.image('projectile_fire', 'assets/images/projectiles/fire.png');
@@ -146,7 +150,7 @@ export class BootScene extends Phaser.Scene {
     // Column 2 (frames 2, 6, 10, 14) = Left
     // Column 3 (frames 3, 7, 11, 15) = Right
 
-    const monsters = ['slime', 'bear', 'dragon', 'spider', 'beast', 'cyclops', 'snake', 'racoon', 'mushroom', 'spirit', 'owl', 'bat'];
+    const monsters = ['slime', 'bear', 'dragon', 'spider', 'beast', 'cyclops', 'snake', 'racoon', 'mushroom', 'spirit', 'owl', 'bat', 'ninja'];
 
     for (const name of monsters) {
       // Down (column 0): frames 0, 4, 8, 12

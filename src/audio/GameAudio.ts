@@ -7,7 +7,8 @@
 import { eventBus } from '../utils/EventBus';
 import type { TowerType } from '../types';
 
-const SHOT_SFX: Record<TowerType, { key: string; volume: number }> = {
+// Partial: towers that never fire (farm) have no shot sound.
+const SHOT_SFX: Partial<Record<TowerType, { key: string; volume: number }>> = {
   arrow: { key: 'sfx_slash', volume: 0.25 },
   cannon: { key: 'sfx_impact', volume: 0.3 },
   frost: { key: 'sfx_magic', volume: 0.25 },

@@ -13,6 +13,9 @@ export const STORE_CATALOG: StoreCatalogItem[] = [
   { towerType: 'mortar', price: 250, name: 'Mortar Tower', description: 'Long range artillery with big splash' },
   { towerType: 'tesla', price: 400, name: 'Tesla Tower', description: 'Rapid fire chain lightning' },
   { towerType: 'grenade', price: 300, name: 'Grenade Tower', description: 'Lobs grenades that burst into shrapnel' },
+  { towerType: 'farm', price: 350, name: 'Farm Tower', description: 'Generates gold each wave instead of shooting' },
+  { towerType: 'beacon', price: 300, name: 'Beacon Tower', description: 'Boosts the fire rate of towers in its range' },
+  { towerType: 'ninja', price: 300, name: 'Ninja Tower', description: 'Summons ninjas from your base that fight along the path' },
 ];
 
 export const FREE_TOWERS = ['arrow', 'cannon', 'frost'];

@@ -26,6 +26,7 @@ const ENEMY_SPRITES: Record<EnemyType, { key: string; anim: string }> = {
   phantom: { key: 'enemy_spirit', anim: 'spirit_walk' },
   splitter: { key: 'enemy_mushroom', anim: 'mushroom_walk' },
   bat: { key: 'enemy_bat', anim: 'bat_walk' },
+  ninja: { key: 'enemy_ninja', anim: 'ninja_walk' },
 };
 
 /**
@@ -48,6 +49,22 @@ export class Enemy {
   // State
   alive: boolean = true;
   reachedBase: boolean = false;
+  /** Friendly units walk the path backwards toward the enemies (ninja summons). */
+  friendly: boolean = false;
+  /** Tower owner credited when this unit kills an enemy. */
+  ownerId: string | null = null;
+  /** Contact-damage cooldown between ninja melee trades (ms). */
+  collisionCd: number = 0;
+  /** Melee lock: the enemy id this unit is dueling (ninja summons). */
+  combatTargetId: string | null = null;
+  /**
+   * While set, the unit ignores its path and presses toward this point
+   * instead (the standoff spot on its side of the duel target). Set and
+   * cleared by the scene's ninja combat each frame.
+   */
+  meleeFocus: { x: number; y: number } | null = null;
+  /** Walk the path in reverse: spawn at the base, despawn at the spawn. */
+  private reverse: boolean = false;
 
   // Phaser objects
   sprite: Phaser.GameObjects.Sprite | null = null;
@@ -72,10 +89,13 @@ export class Enemy {
   /** Last movement delta (set by refresh() during multiplayer sync). */
   private netFacing: { dx: number; dy: number } | null = null;
 
-  constructor(type: EnemyType, path: { x: number; y: number }[], id?: string, opts?: { mini?: boolean }) {
+  constructor(type: EnemyType, path: { x: number; y: number }[], id?: string, opts?: { mini?: boolean; reverse?: boolean; friendly?: boolean; ownerId?: string | null }) {
     this.type = type;
     const base = ENEMY_DEFINITIONS[type];
     this.isMini = opts?.mini === true;
+    this.reverse = opts?.reverse === true;
+    this.friendly = opts?.friendly === true;
+    this.ownerId = opts?.ownerId ?? null;
     // Minis are weaker, quicker, half-size copies of the parent
     this.data = this.isMini
       ? {
@@ -94,7 +114,9 @@ export class Enemy {
 
     this.baseSpeed = this.data.speed;
     this.speed = this.data.speed;
-    this.position = new Position(path[0].x, path[0].y);
+    const startIndex = this.reverse ? path.length - 1 : 0;
+    this.pathIndex = startIndex;
+    this.position = new Position(path[startIndex].x, path[startIndex].y);
     this.health = new Health(this.data.hp, this.data.armor);
   }
 
@@ -121,7 +143,7 @@ export class Enemy {
       4,
       0x333333,
     );
-    this.healthBarBg.setDepth(16);
+    this.healthBarBg.setDepth(23);
 
     // Health bar
     this.healthBar = scene.add.rectangle(
@@ -132,7 +154,7 @@ export class Enemy {
       0x4CAF50,
     );
     this.healthBar.setOrigin(0, 0.5);
-    this.healthBar.setDepth(17);
+    this.healthBar.setDepth(24);
 
     // Invisible enemies (Phantoms) pulse from half transparent to fully
     // invisible and back while traveling — the flicker is the only visual
@@ -164,6 +186,31 @@ export class Enemy {
   stopInvisibilityPulse(): void {
     this.invisibilityTween?.stop();
     this.invisibilityTween = null;
+  }
+
+  /** Distance left along the path to the base (0 = arrived). */
+  pathRemaining(): number {
+    if (this.reverse) {
+      // Walking backwards: "base" is the enemy spawn at path[0]
+      if (this.pathIndex < 0) return 0;
+      let d = Math.hypot(
+        this.path[this.pathIndex].x - this.position.x,
+        this.path[this.pathIndex].y - this.position.y,
+      );
+      for (let i = this.pathIndex - 1; i >= 0; i--) {
+        d += Math.hypot(this.path[i].x - this.path[i + 1].x, this.path[i].y - this.path[i + 1].y);
+      }
+      return d;
+    }
+    if (this.pathIndex >= this.path.length) return 0;
+    let d = Math.hypot(
+      this.path[this.pathIndex].x - this.position.x,
+      this.path[this.pathIndex].y - this.position.y,
+    );
+    for (let i = this.pathIndex + 1; i < this.path.length; i++) {
+      d += Math.hypot(this.path[i].x - this.path[i - 1].x, this.path[i].y - this.path[i - 1].y);
+    }
+    return d;
   }
 
   /** True once per completed stop — the host spawns the minis then. */
@@ -207,6 +254,7 @@ export class Enemy {
     // Update slow effects
     this.health.updateStatusEffects(deltaMs);
     this.speed = this.baseSpeed * this.health.slowFactor;
+    if (this.collisionCd > 0) this.collisionCd -= deltaMs;
 
     // Splitter: every 20s it stops dead for 2s, then bursts into minis
     if (this.splitStopMs > 0) {
@@ -231,23 +279,31 @@ export class Enemy {
       }
     }
 
-    // Follow path
-    if (this.pathIndex >= this.path.length) {
-      this.reachedBase = true;
-      return true;
-    }
-
-    const target = this.path[this.pathIndex];
     // A recent hit staggers movement briefly so the impact reads
     let moveSpeed = this.speed;
     if (this.staggerMs > 0) {
       this.staggerMs = Math.max(0, this.staggerMs - deltaMs);
       moveSpeed *= 0.25;
     }
-    const reached = this.position.moveToward(target.x, target.y, moveSpeed, deltaMs / 1000);
 
-    if (reached) {
-      this.pathIndex++;
+    if (this.meleeFocus) {
+      // Press the duel target instead of following the path — slightly
+      // faster so the partner can't slip away between swings
+      this.position.moveToward(this.meleeFocus.x, this.meleeFocus.y, moveSpeed * 1.5, deltaMs / 1000);
+    } else {
+      // Follow path (ninjas walk it in reverse)
+      const outOfPath = this.reverse
+        ? this.pathIndex < 0
+        : this.pathIndex >= this.path.length;
+      if (outOfPath) {
+        this.reachedBase = true;
+        return true;
+      }
+      const target = this.path[this.pathIndex];
+      const reached = this.position.moveToward(target.x, target.y, moveSpeed, deltaMs / 1000);
+      if (reached) {
+        this.pathIndex += this.reverse ? -1 : 1;
+      }
     }
 
     // Update visual
@@ -277,7 +333,11 @@ export class Enemy {
       if (this.netFacing) {
         dx = this.netFacing.dx;
         dy = this.netFacing.dy;
-      } else if (this.pathIndex < this.path.length) {
+      } else if (this.meleeFocus) {
+        // Mid-duel: face the point we're pressing toward
+        dx = this.meleeFocus.x - this.position.x;
+        dy = this.meleeFocus.y - this.position.y;
+      } else if (this.pathIndex >= 0 && this.pathIndex < this.path.length) {
         const target = this.path[this.pathIndex];
         dx = target.x - this.position.x;
         dy = target.y - this.position.y;
@@ -373,6 +433,12 @@ export class Enemy {
     this.type = type;
     this.data = ENEMY_DEFINITIONS[type];
     this.path = path;
+    this.reverse = false;
+    this.friendly = false;
+    this.ownerId = null;
+    this.collisionCd = 0;
+    this.combatTargetId = null;
+    this.meleeFocus = null;
     this.pathIndex = 0;
     this.baseSpeed = this.data.speed;
     this.speed = this.data.speed;

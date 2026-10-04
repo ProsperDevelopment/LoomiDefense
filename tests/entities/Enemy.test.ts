@@ -16,6 +16,15 @@ describe('Enemy', () => {
     enemy = new Enemy('basic', simplePath);
   });
 
+  it('reports the distance left to the base', () => {
+    const e = new Enemy('basic', simplePath);
+    // Three 48px legs from (48,48) to (192,48)
+    expect(e.pathRemaining()).toBe(144);
+    e.update(500); // first call snaps onto the first leg
+    e.update(500); // walks 30px along it
+    expect(e.pathRemaining()).toBeLessThan(144);
+  });
+
   it('initializes with correct type data', () => {
     expect(enemy.type).toBe('basic');
     expect(enemy.data.hp).toBe(80);
@@ -142,5 +151,72 @@ describe('splitter enemy', () => {
     const beforeResume = e.position.x;
     e.update(500);
     expect(e.position.x).toBeGreaterThan(beforeResume);
+  });
+});
+
+describe('ninja summons', () => {
+  it('defines the ninja unit with contact damage and no bounty', () => {
+    const n = new Enemy('ninja', simplePath);
+    expect(n.data.hp).toBe(45);
+    expect(n.data.contactDamage).toBeGreaterThan(0);
+    expect(n.data.reward).toBe(0); // ninja kills never pay a bounty
+  });
+
+  it('walks the path backwards and flags itself friendly', () => {
+    const n = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true, ownerId: 'p1' });
+    expect(n.friendly).toBe(true);
+    expect(n.ownerId).toBe('p1');
+    // Starts at the base (last path point) and heads toward the spawn
+    expect(n.position.x).toBe(192);
+    for (let i = 0; i < 20; i++) n.update(100);
+    expect(n.position.x).toBeLessThan(192);
+  });
+
+  it('reaches the enemy spawn end of the path', () => {
+    const n = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
+    for (let i = 0; i < 500; i++) {
+      if (n.update(100)) break;
+    }
+    expect(n.reachedBase).toBe(true);
+    expect(n.friendly).toBe(true); // GameScene skips base damage for friendlies
+  });
+
+  it('counts its remaining path from the far end', () => {
+    const n = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
+    expect(n.pathRemaining()).toBe(144); // same three legs, walked in reverse
+  });
+});
+
+describe('ninja melee focus', () => {
+  it('presses toward the focus instead of walking the path', () => {
+    const n = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
+    n.meleeFocus = { x: 192, y: 140 }; // off the path, straight below the base
+    const y0 = n.position.y;
+    const x0 = n.position.x;
+    for (let i = 0; i < 10; i++) n.update(100);
+    expect(n.position.y).toBeGreaterThan(y0); // moved toward the focus
+    expect(n.position.x).toBe(x0);            // not walking the path legs
+    expect(n.reachedBase).toBe(false);        // dueling never claims base arrival
+  });
+
+  it('resumes the path when the focus clears', () => {
+    const n = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
+    n.meleeFocus = { x: 192, y: 140 };
+    for (let i = 0; i < 10; i++) n.update(100);
+    n.meleeFocus = null;
+    const y0 = n.position.y;
+    for (let i = 0; i < 30; i++) n.update(100);
+    // Walks back up to the base waypoint, then on to the reverse legs
+    expect(n.position.y).toBeLessThan(y0);
+    expect(n.position.x).toBeLessThan(192);
+  });
+
+  it('clears duel state on reset', () => {
+    const n = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
+    n.combatTargetId = 'enemy_basic_1';
+    n.meleeFocus = { x: 10, y: 10 };
+    n.reset('ninja', simplePath);
+    expect(n.combatTargetId).toBeNull();
+    expect(n.meleeFocus).toBeNull();
   });
 });

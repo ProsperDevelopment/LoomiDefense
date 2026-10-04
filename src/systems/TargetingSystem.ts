@@ -6,6 +6,8 @@ export interface TargetableEntity {
   position: Position;
   health: Health;
   id: string;
+  /** Distance left to the base — drives "first" targeting. */
+  pathRemaining?: number;
 }
 
 /**
@@ -48,13 +50,17 @@ export class TargetingSystem {
   }
 
   /**
-   * "First" - target the enemy closest to the base (assumed to be furthest along path).
-   * Simplified: use the one with the lowest HP ratio (proxy for being further along).
+   * "First" - the enemy closest to the base (furthest along the path).
+   * Falls back to the HP-ratio proxy when no path data is provided.
    */
   private static findFirst(enemies: TargetableEntity[]): TargetableEntity {
-    // In a real game you'd track path progress; here we use HP ratio as proxy
+    if (enemies.some((e) => e.pathRemaining === undefined)) {
+      return enemies.reduce((best, e) =>
+        e.health.getHealthPercent() < best.health.getHealthPercent() ? e : best
+      );
+    }
     return enemies.reduce((best, e) =>
-      e.health.getHealthPercent() < best.health.getHealthPercent() ? e : best
+      (e.pathRemaining as number) < (best.pathRemaining as number) ? e : best
     );
   }
 

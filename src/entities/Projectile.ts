@@ -7,7 +7,8 @@ import { Enemy } from './Enemy';
 /**
  * Projectile type to sprite mapping
  */
-const PROJECTILE_SPRITES: Record<TowerType, string> = {
+// Partial: non-shooting towers (farm) have no projectile sprite.
+const PROJECTILE_SPRITES: Partial<Record<TowerType, string>> = {
   arrow: 'projectile_arrow',
   cannon: 'projectile_cannon',
   frost: 'projectile_frost',
@@ -72,12 +73,12 @@ export class Projectile {
     const spriteKey = PROJECTILE_SPRITES[this.towerType];
 
     // Try to use sprite image, fall back to circle
-    if (scene.textures.exists(spriteKey)) {
+    if (spriteKey && scene.textures.exists(spriteKey)) {
       this.sprite = scene.add.image(this.position.x, this.position.y, spriteKey);
       // Shrapnel reads as an oval stretched along its flight line —
       // update() keeps the rotation on the travel direction
       this.sprite.setDisplaySize(this.isShrapnel() ? 15 : 12, this.isShrapnel() ? 6 : 12);
-      this.sprite.setDepth(15);
+      this.sprite.setDepth(26);
     } else {
       // Fallback to circle if sprite not loaded
       this.sprite = scene.add.circle(
@@ -86,7 +87,7 @@ export class Projectile {
         3,
         this.color,
       );
-      this.sprite.setDepth(15);
+      this.sprite.setDepth(26);
     }
   }
 

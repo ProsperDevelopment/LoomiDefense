@@ -93,6 +93,47 @@ export const TOWER_DEFINITIONS: Record<string, TowerData> = {
     description: 'Lobs grenades that burst into shrapnel',
     shrapnelCount: 5,
   },
+  farm: {
+    type: 'farm',
+    name: 'Farm Tower',
+    cost: 100,
+    damage: 0,
+    fireRate: 0,
+    range: 0,
+    splashRadius: 0,
+    slowFactor: 1.0,
+    slowDuration: 0,
+    color: '#66BB6A',
+    description: 'Generates gold each wave instead of shooting',
+    incomePerWave: 50,
+  },
+  beacon: {
+    type: 'beacon',
+    name: 'Beacon Tower',
+    cost: 120,
+    damage: 0,
+    fireRate: 0,
+    range: 150,
+    splashRadius: 0,
+    slowFactor: 1.0,
+    slowDuration: 0,
+    color: '#FDD835',
+    description: 'Boosts the fire rate of towers in its range',
+    fireRateBuff: 0.3,
+  },
+  ninja: {
+    type: 'ninja',
+    name: 'Ninja Tower',
+    cost: 150,
+    damage: 0,
+    fireRate: 0.25,   // seconds between summons (one ninja every 4s)
+    range: 0,         // summons at the base — never shoots
+    splashRadius: 0,
+    slowFactor: 1.0,
+    slowDuration: 0,
+    color: '#37474F',
+    description: 'Summons ninjas from your base that fight along the path',
+  },
 };
 
 export const TOWER_UPGRADES: TowerUpgradeData[] = [
@@ -107,6 +148,22 @@ export const TOWER_UPGRADES: TowerUpgradeData[] = [
 export const MAX_TOWER_LEVEL = TOWER_UPGRADES[TOWER_UPGRADES.length - 1].level;
 
 export const TOWER_LIST = Object.values(TOWER_DEFINITIONS);
+
+/** Farm income multipliers per upgrade level: 50g at L1 up to 500g at L5. */
+const FARM_INCOME_SCALE = [1, 3, 5, 7, 10];
+
+/** Gold a Farm pays its owner when a wave starts. */
+export function farmIncome(level: number): number {
+  const base = TOWER_DEFINITIONS.farm?.incomePerWave ?? 50;
+  return base * (FARM_INCOME_SCALE[Math.min(level, FARM_INCOME_SCALE.length) - 1] ?? 1);
+}
+
+/** Fire-rate aura of a Beacon: +30% at L1 up to +54% at L5. */
+export function beaconFireRateBuff(level: number): number {
+  const base = TOWER_DEFINITIONS.beacon?.fireRateBuff ?? 0;
+  const up = TOWER_UPGRADES[Math.min(Math.max(level, 1), MAX_TOWER_LEVEL) - 1];
+  return base * (up?.fireRateMultiplier ?? 1);
+}
 
 /** The three basic towers — their combined build budget is shared. */
 export const BASIC_TOWERS: TowerType[] = ['arrow', 'cannon', 'frost'];
@@ -123,4 +180,7 @@ export const DEFAULT_TOWER_LIMITS: Record<TowerType, number> = {
   mortar: 1,
   tesla: 1,
   grenade: 1,
+  farm: 5,
+  beacon: 3,
+  ninja: 3,
 };

@@ -34,7 +34,17 @@ describe('TargetingSystem', () => {
     expect(result?.id).toBe('e2');
   });
 
-  it('finds first enemy (lowest HP ratio)', () => {
+  it('first = closest to the base, using real path progress', () => {
+    const e1 = makeEnemy('e1', 250, 200, 100);
+    e1.pathRemaining = 300; // far from the base
+    const e2 = makeEnemy('e2', 350, 200, 100);
+    e2.pathRemaining = 40; // almost there — and full HP
+    const result = TargetingSystem.findTarget(towerPos, 200, [e1, e2], 'first');
+    // Path progress wins over the HP-ratio proxy
+    expect(result?.id).toBe('e2');
+  });
+
+  it('finds first enemy by HP ratio when path data is missing', () => {
     const e1 = makeEnemy('e1', 250, 200, 100);
     e1.health.current = 10; // 10% HP
     const e2 = makeEnemy('e2', 250, 200, 100);

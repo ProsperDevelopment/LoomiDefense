@@ -39,6 +39,19 @@ describe('WaveManager', () => {
     expect(wm.isWaveActive()).toBe(true);
   });
 
+  it('schedules wave 1 behind the countdown with an early-start bonus', () => {
+    wm.scheduleFirstWave();
+    expect(wm.isWaitingForNextWave()).toBe(true);
+    expect(wm.getAutoStartTimer()).toBe(15); // seconds until auto-start
+    // The same button/path as later waves grants the bonus; the caller
+    // starts the wave through the shared start path
+    expect(wm.startWaveEarly()).toBeGreaterThan(0);
+    expect(wm.isWaveActive()).toBe(false);
+    expect(wm.startWave()).toBe(true);
+    expect(wm.isWaveActive()).toBe(true);
+    expect(wm.isWaitingForNextWave()).toBe(false);
+  });
+
   it('cannot start wave twice', () => {
     wm.startWave();
     const result = wm.startWave();

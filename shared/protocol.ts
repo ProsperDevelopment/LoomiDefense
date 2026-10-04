@@ -162,4 +162,14 @@ export interface NetCommandMsg {
   cmd: NetCommand;
 }
 
-export type GameNetMessage = NetSnapshot | NetCommandMsg;
+/** Which death animation a killed enemy should play. */
+export type DeathVariant = 'bleed' | 'tip' | 'burst';
+
+/** Host -> guests: the enemy with this id died — play its variant. */
+export interface NetDiedMsg {
+  kind: 'died';
+  id: string;
+  variant: DeathVariant;
+}
+
+export type GameNetMessage = NetSnapshot | NetCommandMsg | NetDiedMsg;

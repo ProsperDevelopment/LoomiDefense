@@ -144,6 +144,18 @@ export const ENEMY_DEFINITIONS: Record<string, EnemyData> = {
     // A flying bat: only arrows and snipers can hit it
     immuneTo: ['cannon', 'frost', 'mortar', 'tesla', 'grenade'],
   },
+  // Summoned unit (Ninja Tower) — walks the path in reverse, never placed in waves
+  ninja: {
+    type: 'ninja',
+    name: 'Ninja',
+    hp: 45,
+    speed: 100,
+    armor: 0,
+    reward: 0,
+    color: '#37474F',
+    size: 14,
+    contactDamage: 8,
+  },
 };
 
 export const ENEMY_LIST = Object.values(ENEMY_DEFINITIONS);

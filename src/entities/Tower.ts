@@ -20,6 +20,9 @@ export const TOWER_SPRITE_FRAMES: Record<TowerType, number> = {
   sniper: 18, // watchtower with crystal scope
   tesla: 30,  // dark teal tower with energy crystals
   grenade: 24, // olive lobber (free frame group)
+  farm: 21, // unused frame group
+  beacon: 27, // unused frame group
+  ninja: 9, // unused frame group
 };
 
 /**
@@ -187,12 +190,14 @@ export class Tower {
     return true;
   }
 
-  update(deltaMs: number): void {
-    this.fireTimer -= deltaMs;
+  update(deltaMs: number, rateMult: number = 1): void {
+    // rateMult > 1 = beacon auras speeding the timer up
+    this.fireTimer -= deltaMs * rateMult;
   }
 
   canFire(): boolean {
-    return this.fireTimer <= 0;
+    // Support towers (fire rate 0) never shoot
+    return this.fireRate > 0 && this.fireTimer <= 0;
   }
 
   fire(): void {
