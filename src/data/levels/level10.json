@@ -2459,15 +2459,15 @@
     ]
   ],
   "difficulty": "easy",
-  "startGold": 800,
+  "startGold": 900,
   "towerLimits": {
     "arrow": 11,
     "cannon": 10,
     "frost": 10,
-    "sniper": 3,
+    "sniper": 4,
     "mortar": 3,
     "tesla": 2,
-    "grenade": 1
+    "grenade": 2
   },
   "waves": [
     {
@@ -2725,12 +2725,6 @@
         },
         {
           "enemyType": "phantom",
-          "count": 5,
-          "spawnDelay": 500,
-          "waveDelay": 0
-        },
-        {
-          "enemyType": "splitter",
           "count": 5,
           "spawnDelay": 500,
           "waveDelay": 0

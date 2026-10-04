@@ -6,7 +6,7 @@ export const GAME_HEIGHT = 768;
 export const BACKGROUND_COLOR = 0x1a1a2e;
 
 // --- Dev Mode ---
-export const DEV_MODE = true;
+export const DEV_MODE = false;
 /** Coins dev accounts carry — seeded at register/login on the server. */
 export const DEV_COINS = 9000;
 
