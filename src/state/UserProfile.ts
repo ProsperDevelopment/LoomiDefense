@@ -269,7 +269,7 @@ class UserProfile {
   }
 
   async setLoadout(types: string[]): Promise<boolean> {
-    if (types.length < 3 || types.length > 4) return false;
+    if (types.length < 3 || types.length > 5) return false;
     const owned = this.ownedTowers;
     if (!types.every((t) => owned.includes(t))) return false;
     await this.saveProgress({ loadout: [...new Set(types)] });

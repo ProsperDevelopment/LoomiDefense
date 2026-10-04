@@ -46,6 +46,20 @@ function authMiddleware(req: AuthedRequest, res: Response, next: NextFunction): 
 }
 
 const app = express();
+// Cross-origin access for dev tools served from other origins (the
+// level editor opened via a static server or a LAN address). The API
+// authenticates with bearer tokens, so `*` is safe here.
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  if (_req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 app.use(express.json({ limit: '256kb' }));
 
 // --- Auth ---
@@ -165,7 +179,7 @@ app.put('/api/progress', authMiddleware, (req: AuthedRequest, res: Response) => 
       (t: unknown): t is string => typeof t === 'string' && p.ownedTowers.includes(t),
     ) as string[];
     const unique = Array.from(new Set(valid));
-    if (unique.length === 3 || unique.length === 4) {
+    if (unique.length >= 3 && unique.length <= 5) {
       p.loadout = unique;
     }
   }
@@ -295,6 +309,83 @@ app.post('/api/store/buy', authMiddleware, (req: AuthedRequest, res: Response) =
     ownedTowers: user.progress.ownedTowers,
     catalog: STORE_CATALOG,
   });
+});
+
+// --- Server-saved levels (edited in the level editor, played in-game) ---
+
+function isValidLevelData(data: unknown): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+  const d = data as Record<string, unknown>;
+  return Number.isFinite(Number(d.width)) && Number.isFinite(Number(d.height)) && Array.isArray(d.path);
+}
+
+// Public list: the game's second level chooser reads this
+app.get('/api/levels', (_req: Request, res: Response) => {
+  res.json({ levels: store.listLevels() });
+});
+
+app.get('/api/levels/:id', (req: Request, res: Response) => {
+  const level = store.getLevel(Number(req.params.id));
+  if (!level) {
+    res.status(404).json({ error: 'Level not found' });
+    return;
+  }
+  res.json({ level });
+});
+
+app.post('/api/levels', authMiddleware, (req: AuthedRequest, res: Response) => {
+  const { name, description, data } = req.body ?? {};
+  if (!isValidLevelData(data)) {
+    res.status(400).json({ error: 'Invalid level data' });
+    return;
+  }
+  const level = store.createLevel({
+    ownerId: req.user!.id,
+    ownerName: req.user!.displayName,
+    name: String(name ?? 'Untitled Level').slice(0, 80) || 'Untitled Level',
+    description: String(description ?? '').slice(0, 300),
+    data,
+  });
+  res.json({ level });
+});
+
+app.put('/api/levels/:id', authMiddleware, (req: AuthedRequest, res: Response) => {
+  const { name, description, data } = req.body ?? {};
+  if (!isValidLevelData(data)) {
+    res.status(400).json({ error: 'Invalid level data' });
+    return;
+  }
+  const id = Number(req.params.id);
+  const existing = store.getLevel(id);
+  if (!existing) {
+    res.status(404).json({ error: 'Level not found' });
+    return;
+  }
+  if (existing.ownerId !== req.user!.id) {
+    res.status(403).json({ error: 'Not your level' });
+    return;
+  }
+  const level = store.updateLevel(id, req.user!.id, {
+    name: String(name ?? existing.name).slice(0, 80) || existing.name,
+    description: String(description ?? existing.description).slice(0, 300),
+    data,
+  });
+  res.json({ level });
+});
+
+app.delete('/api/levels/:id', authMiddleware, (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  const existing = store.getLevel(id);
+  if (!existing) {
+    res.status(404).json({ error: 'Level not found' });
+    return;
+  }
+  if (existing.ownerId !== req.user!.id) {
+    res.status(403).json({ error: 'Not your level' });
+    return;
+  }
+  store.deleteLevel(id, req.user!.id);
+  res.json({ ok: true });
 });
 
 // JSON error handler: any unexpected throw becomes a JSON error, never a stack

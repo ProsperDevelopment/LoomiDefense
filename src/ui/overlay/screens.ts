@@ -337,12 +337,12 @@ export function showStorePanel(): void {
 }
 
 // ------------------------------------------------------------
-// Loadout: pick 3 or 4 owned towers
+// Loadout: pick 3 to 5 owned towers
 // ------------------------------------------------------------
 export function showLoadoutPanel(): void {
   showPanel((body, close) => {
     body.append(el('h2', undefined, 'Loadout'));
-    body.append(el('p', 'hint', 'Choose 3 or 4 towers to bring into battle.'));
+    body.append(el('p', 'hint', 'Choose 3 to 5 towers to bring into battle.'));
 
     const owned = userProfile.ownedTowers;
     let selected: string[] = [...userProfile.loadout];
@@ -352,8 +352,8 @@ export function showLoadoutPanel(): void {
     const error = el('div', 'ov-error');
     const saveBtn = button('Save Loadout', async () => {
       error.textContent = '';
-      if (selected.length < 3 || selected.length > 4) {
-        error.textContent = 'Select 3 or 4 towers';
+      if (selected.length < 3 || selected.length > 5) {
+        error.textContent = 'Select 3 to 5 towers';
         return;
       }
       saveBtn.setAttribute('disabled', 'true');
@@ -385,10 +385,10 @@ export function showLoadoutPanel(): void {
         card.addEventListener('click', () => {
           if (isSelected) {
             selected = selected.filter((t) => t !== type);
-          } else if (selected.length < 4) {
+          } else if (selected.length < 5) {
             selected = [...selected, type];
           } else {
-            error.textContent = 'Deselect a tower first (max 4)';
+            error.textContent = 'Deselect a tower first (max 5)';
             return;
           }
           error.textContent = '';
@@ -396,7 +396,7 @@ export function showLoadoutPanel(): void {
         });
         cards.append(card);
       }
-      status.textContent = `${selected.length}/4 selected`;
+      status.textContent = `${selected.length}/5 selected`;
     }
 
     body.append(cards, status, error);

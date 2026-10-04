@@ -64,7 +64,7 @@ export interface RoomPlayer {
   username: string;
   displayName: string;
   color: string;
-  /** The player's own chosen loadout (3 tower types). */
+  /** The player's own chosen loadout (3-5 tower types). */
   loadout: string[];
   ready: boolean;
   host: boolean;
@@ -134,6 +134,23 @@ export interface NetProjectileSnap {
   y: number;
   /** Grenade fragments — guests must not mirror their detonation. */
   shrapnel?: boolean;
+}
+
+/** Summary of a level saved to the game server (no payload). */
+export interface ServerLevelSummary {
+  id: number;
+  ownerId: string;
+  ownerName: string;
+  name: string;
+  description: string;
+  difficulty: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Full server-saved level including the editor-format JSON payload. */
+export interface ServerLevel extends ServerLevelSummary {
+  data: unknown;
 }
 
 export type NetStatus = 'playing' | 'won' | 'lost';

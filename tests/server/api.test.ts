@@ -221,3 +221,77 @@ describe('store', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('levels', () => {
+  const validLevel = {
+    width: 8,
+    height: 6,
+    path: [{ x: 0, y: 1 }, { x: 7, y: 1 }],
+    spawnPoints: [{ x: 0, y: 1 }],
+    basePoints: [{ x: 7, y: 1 }],
+    difficulty: 'hard',
+    bgTiles: [],
+  };
+
+  it('lists server-saved levels publicly (empty at first)', async () => {
+    const res = await req('GET', '/api/levels');
+    expect(res.status).toBe(200);
+    expect(res.json.levels).toEqual([]);
+  });
+
+  it('requires auth to save', async () => {
+    const res = await req('POST', '/api/levels', { name: 'Nope', data: validLevel });
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects malformed level data', async () => {
+    const { token } = await registerUser('builder1');
+    const res = await req('POST', '/api/levels', { name: 'Bad', data: { nope: true } }, token);
+    expect(res.status).toBe(400);
+  });
+
+  it('saves a level, lists its summary, and serves the payload back', async () => {
+    const { token } = await registerUser('builder2');
+    const save = await req('POST', '/api/levels', { name: 'My Level', description: 'fun', data: validLevel }, token);
+    expect(save.status).toBe(200);
+    const id = save.json.level.id as number;
+    expect(id).toBeGreaterThanOrEqual(1_000_000); // never clashes with campaign ids
+    expect(save.json.level.difficulty).toBe('hard');
+    expect(save.json.level.ownerName).toBe('builder2');
+
+    const list = await req('GET', '/api/levels');
+    expect(list.json.levels).toHaveLength(1);
+    expect(list.json.levels[0].name).toBe('My Level');
+    expect(list.json.levels[0].data).toBeUndefined(); // summary only
+
+    const one = await req('GET', `/api/levels/${id}`);
+    expect(one.status).toBe(200);
+    expect(one.json.level.data).toEqual(validLevel);
+
+    const missing = await req('GET', '/api/levels/999999999');
+    expect(missing.status).toBe(404);
+  });
+
+  it('only the owner may update or delete', async () => {
+    const { token: ownerToken } = await registerUser('owner1');
+    const { token: otherToken } = await registerUser('intruder');
+    const save = await req('POST', '/api/levels', { name: 'Mine', data: validLevel }, ownerToken);
+    const id = save.json.level.id as number;
+
+    const forbidden = await req('PUT', `/api/levels/${id}`, { name: 'Stolen', data: validLevel }, otherToken);
+    expect(forbidden.status).toBe(403);
+
+    const update = await req('PUT', `/api/levels/${id}`, { name: 'Mine v2', description: 'tuned', data: { ...validLevel, difficulty: 'easy' } }, ownerToken);
+    expect(update.status).toBe(200);
+    expect(update.json.level.name).toBe('Mine v2');
+    expect(update.json.level.difficulty).toBe('easy');
+
+    const delOther = await req('DELETE', `/api/levels/${id}`, undefined, otherToken);
+    expect(delOther.status).toBe(403);
+
+    const del = await req('DELETE', `/api/levels/${id}`, undefined, ownerToken);
+    expect(del.status).toBe(200);
+    const after = await req('GET', `/api/levels/${id}`);
+    expect(after.status).toBe(404);
+  });
+});

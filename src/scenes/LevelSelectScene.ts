@@ -1,11 +1,20 @@
 import Phaser from 'phaser';
 import { MAP_DEFINITIONS } from '../data/maps';
 import { DEV_MODE } from '../config/constants';
+import { api } from '../api/client';
+import { fetchServerLevel } from '../data/serverLevels';
 
 export class LevelSelectScene extends Phaser.Scene {
   private unlockedLevels: Set<number> = new Set();
   private completedLevels: Set<number> = new Set();
   private hexNodes: { id: number; graphics: Phaser.GameObjects.Graphics; label: Phaser.GameObjects.Text; status: Phaser.GameObjects.Text; x: number; y: number }[] = [];
+  /** Which chooser is on screen: the built-in campaign or server levels. */
+  private tab: 'campaign' | 'server' = 'campaign';
+  /** Everything created by the active tab — destroyed on tab switches. */
+  private tabObjects: Phaser.GameObjects.GameObject[] = [];
+  private campaignBtn: Phaser.GameObjects.Text | null = null;
+  private serverBtn: Phaser.GameObjects.Text | null = null;
+  private startingServer = false;
 
   constructor() {
     super({ key: 'LevelSelectScene' });
@@ -30,8 +39,9 @@ export class LevelSelectScene extends Phaser.Scene {
       }).setOrigin(0.5);
     }
 
-    // Create hexagonal grid
-    this.createHexGrid();
+    // Two choosers: built-in campaign and levels saved on the server
+    this.campaignBtn = this.makeTabButton(70, 44, 'CAMPAIGN', 'campaign');
+    this.serverBtn = this.makeTabButton(width - 85, 44, 'SERVER LEVELS', 'server');
 
     // Back button
     const backBtn = this.add.text(50, height - 40, 'BACK', {
@@ -47,6 +57,110 @@ export class LevelSelectScene extends Phaser.Scene {
     this.add.text(width / 2, height - 40, '🔵 Unlocked  🟢 Completed  ⬛ Locked', {
       fontSize: '12px', color: '#666666',
     }).setOrigin(0.5);
+
+    // Default to the campaign chooser
+    this.setTab('campaign');
+  }
+
+  private makeTabButton(x: number, y: number, label: string, tabKey: 'campaign' | 'server'): Phaser.GameObjects.Text {
+    const btn = this.add.text(x, y, label, {
+      fontSize: '13px', color: '#ffffff', backgroundColor: '#333355',
+      padding: { x: 12, y: 6 },
+    }).setOrigin(0.5);
+    btn.setInteractive({ useHandCursor: true });
+    btn.on('pointerdown', () => this.setTab(tabKey));
+    btn.on('pointerover', () => { if (this.tab !== tabKey) btn.setBackgroundColor('#444466'); });
+    btn.on('pointerout', () => { if (this.tab !== tabKey) btn.setBackgroundColor('#333355'); });
+    return btn;
+  }
+
+  private setTab(tab: 'campaign' | 'server'): void {
+    // Already showing it with content on screen — nothing to do
+    if (this.tab === tab && this.tabObjects.length > 0) return;
+    this.tab = tab;
+    this.campaignBtn?.setBackgroundColor(tab === 'campaign' ? '#4CAF50' : '#333355');
+    this.serverBtn?.setBackgroundColor(tab === 'server' ? '#4CAF50' : '#333355');
+    this.clearTabObjects();
+    if (tab === 'campaign') {
+      this.createHexGrid();
+    } else {
+      this.renderServerTab();
+    }
+  }
+
+  private clearTabObjects(): void {
+    for (const obj of this.tabObjects) obj.destroy();
+    this.tabObjects = [];
+    this.hexNodes = [];
+  }
+
+  /** Second chooser: a list of levels saved to the game server. */
+  private renderServerTab(): void {
+    const width = this.cameras.main.width;
+    const height = this.cameras.main.height;
+
+    const statusMsg = (msg: string, color: string): void => {
+      if (this.tab !== 'server') return;
+      const t = this.add.text(width / 2, height / 2 - 40, msg, {
+        fontSize: '15px', color,
+      }).setOrigin(0.5);
+      this.tabObjects.push(t);
+    };
+
+    const loading = this.add.text(width / 2, height / 2 - 40, 'Loading levels from server…', {
+      fontSize: '15px', color: '#aaaaaa',
+    }).setOrigin(0.5);
+    this.tabObjects.push(loading);
+
+    api.listLevels().then((levels) => {
+      loading.destroy();
+      this.tabObjects = this.tabObjects.filter((o) => o !== loading);
+      if (this.tab !== 'server') return; // switched tabs meanwhile
+      if (levels.length === 0) {
+        statusMsg('No levels saved on the server yet.\nUse the level editor\'s "Save to Server" button.', '#666666');
+        return;
+      }
+      levels.slice(0, 16).forEach((lvl, i) => {
+        const y = 100 + i * 30;
+        const date = new Date(lvl.updatedAt).toLocaleDateString();
+        const row = this.add.text(width / 2, y, `${lvl.name}  —  ${lvl.ownerName} · ${lvl.difficulty} · ${date}`, {
+          fontSize: '14px', color: '#cccccc', backgroundColor: '#1a1a3a',
+          padding: { x: 12, y: 4 },
+        }).setOrigin(0.5);
+        row.setInteractive({ useHandCursor: true });
+        row.on('pointerover', () => row.setColor('#ffffff'));
+        row.on('pointerout', () => row.setColor('#cccccc'));
+        row.on('pointerdown', () => this.playServerLevel(lvl.id, row));
+        this.tabObjects.push(row);
+      });
+    }).catch(() => {
+      loading.destroy();
+      this.tabObjects = this.tabObjects.filter((o) => o !== loading);
+      if (this.tab !== 'server') return;
+      statusMsg('Cannot reach the game server.\nStart it with: npm run server', '#cc6666');
+    });
+  }
+
+  private playServerLevel(levelId: number, row: Phaser.GameObjects.Text): void {
+    if (this.startingServer) return;
+    // Same guard as the hex nodes: never fire while a game or dialog is up
+    if (
+      this.scene.isActive('GameScene') ||
+      this.scene.isActive('GameOverScene') ||
+      document.querySelector('.ov-backdrop')
+    ) {
+      return;
+    }
+    this.startingServer = true;
+    row.setText('Loading…');
+    fetchServerLevel(levelId).then((map) => {
+      this.startingServer = false;
+      if (!map) {
+        row.setText('Failed to load — click to retry');
+        return;
+      }
+      this.scene.start('GameScene', { levelId, map });
+    });
   }
 
   private createHexGrid(): void {
@@ -118,10 +232,12 @@ export class LevelSelectScene extends Phaser.Scene {
     graphics.strokePath();
 
     this.hexNodes.push({ id: levelId, graphics, label, status, x, y });
+    this.tabObjects.push(graphics, label, status);
 
     // Make clickable if unlocked
     if (unlocked) {
       const hitZone = this.add.zone(x, y, size * 2, size * 2);
+      this.tabObjects.push(hitZone);
       hitZone.setInteractive({ useHandCursor: true });
       hitZone.on('pointerdown', () => {
         // Same guard as MenuScene: never fire while a game runs behind us

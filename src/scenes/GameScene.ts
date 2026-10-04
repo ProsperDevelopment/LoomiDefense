@@ -25,6 +25,7 @@ import { CELL_SIZE, STARTING_LIVES, COLORS, DEV_MODE, STARTING_GOLD, GRID_OFFSET
 import { eventBus } from '../utils/EventBus';
 import { bindGameAudio, playSfx } from '../audio/GameAudio';
 import { isWaveResolved } from '../utils/waveCompletion';
+import { cachedServerLevel } from '../data/serverLevels';
 import { canDamageEnemy, canNinjaThrowHit } from '../utils/damageRules';
 
 /** Bodies that share the blood landing pipeline (blood arcs, death debris images). */
@@ -113,7 +114,7 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
-  create(data: { levelId?: number; netRole?: 'host' | 'guest' }): void {
+  create(data: { levelId?: number; netRole?: 'host' | 'guest'; map?: MapData }): void {
     this.cameras.main.setBackgroundColor(COLORS.BACKGROUND);
     this.resetState();
 
@@ -156,7 +157,10 @@ export class GameScene extends Phaser.Scene {
     const levelId = data.levelId !== undefined ? data.levelId : 1;
     this.currentLevelId = levelId;
     const mapIndex = MAP_DEFINITIONS.findIndex(m => m.id === levelId);
-    const mapData = MAP_DEFINITIONS[mapIndex >= 0 ? mapIndex : 0];
+    // Server-saved levels arrive as data.map (or from the fetch cache,
+    // so PLAY AGAIN works without a second download)
+    const mapData = data.map
+      ?? (mapIndex >= 0 ? MAP_DEFINITIONS[mapIndex] : cachedServerLevel(levelId) ?? MAP_DEFINITIONS[0]);
 
     this.grid = new Grid(mapData);
     this.blockSmoothRoadCells();

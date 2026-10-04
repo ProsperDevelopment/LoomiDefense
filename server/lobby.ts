@@ -26,7 +26,7 @@ interface Room {
 const rooms = new Map<string, Room>(); // code -> room
 const userRooms = new Map<string, string>(); // userId -> room code
 const userColors = new Map<string, string>(); // userId -> tower color
-const userLoadouts = new Map<string, string[]>(); // userId -> chosen loadout (3 tower types)
+const userLoadouts = new Map<string, string[]>(); // userId -> chosen loadout (3-5 tower types)
 
 function generateCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

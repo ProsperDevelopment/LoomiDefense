@@ -8,6 +8,8 @@ import type {
   UserProgress,
   UserSearchResult,
   StoreCatalogItem,
+  ServerLevelSummary,
+  ServerLevel,
 } from '../../shared/protocol';
 
 const TOKEN_KEY = 'loomi_token';
@@ -187,5 +189,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ towerType }),
     });
+  },
+
+  // --- server-saved levels ---
+  async listLevels(): Promise<ServerLevelSummary[]> {
+    const data = await request<{ levels: ServerLevelSummary[] }>('/api/levels');
+    return data.levels;
+  },
+
+  async getLevel(id: number): Promise<ServerLevel> {
+    const data = await request<{ level: ServerLevel }>(`/api/levels/${id}`);
+    return data.level;
   },
 };

@@ -179,6 +179,8 @@
     <button class="btn" onclick="exportJSON()">Export JSON</button>
     <button class="btn secondary" onclick="importJSON()">Import JSON</button>
     <button class="btn secondary" onclick="exportImage()">Export Image</button>
+    <button class="btn" onclick="saveToServer()">Save to Server</button>
+    <button class="btn secondary" onclick="openFromServer()">Open from Server</button>
     <button class="btn danger" onclick="clearGrid()">Clear Grid</button>
     
     <h3>Preview</h3>
@@ -243,6 +245,38 @@
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn secondary" onclick="closeStampDialog()">Cancel</button>
       <button class="btn" onclick="confirmSaveStamp()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Server level picker -->
+<div id="serverPickerOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:1000; align-items:center; justify-content:center;" onclick="closeServerPicker()">
+  <div style="background:#1a1a3a; border:1px solid #4a4a6a; padding:16px; width:440px; max-height:70vh; display:flex; flex-direction:column;" onclick="event.stopPropagation()">
+    <h3 style="margin:0 0 10px">Levels on the Server</h3>
+    <div id="serverPickerList" style="overflow-y:auto; flex:1; border:1px solid #333;"></div>
+    <div style="display:flex; justify-content:flex-end; margin-top:10px">
+      <button class="btn secondary" onclick="closeServerPicker()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Editor login (used when there is no game session on this origin) -->
+<div id="loginDialogOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:1000; align-items:center; justify-content:center;" onclick="closeLoginDialog()">
+  <div style="background:#1a1a3a; border:1px solid #4a4a6a; padding:16px; width:340px;" onclick="event.stopPropagation()">
+    <h3 style="margin:0 0 10px">Log in to the game server</h3>
+    <p style="margin:0 0 10px; font-size:12px; color:#8888aa;">Saving a level to the server needs your game account. Log in once here — the editor remembers it.</p>
+    <div style="margin-bottom:8px">
+      <label>Username</label>
+      <input type="text" id="loginUsername" autocomplete="username" style="width:100%;margin-top:4px">
+    </div>
+    <div style="margin-bottom:8px">
+      <label>Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" style="width:100%;margin-top:4px">
+    </div>
+    <div id="loginError" style="color:#ff7766; font-size:12px; min-height:16px; margin-bottom:6px;"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end">
+      <button class="btn secondary" onclick="closeLoginDialog()">Cancel</button>
+      <button class="btn" onclick="confirmEditorLogin()">Log in</button>
     </div>
   </div>
 </div>
@@ -1495,9 +1529,11 @@ function colorToNum(hex, fallback) {
   return fallback;
 }
 
-function exportJSON() {
+let currentServerLevelId = null; // set while editing a level loaded from the server
+
+function buildLevelData() {
   const limits = readTowerLimits();
-  const data = {
+  return {
     version: 1,
     name: 'Untitled Level',
     description: '',
@@ -1520,8 +1556,10 @@ function exportJSON() {
     roadColor: colorToNum(roadColor, 0x7a7a7a),
     roadColorDark: colorToNum(roadColorDark, 0x4a4a4a),
   };
-  
-  const json = JSON.stringify(data, null, 2);
+}
+
+function exportJSON() {
+  const json = JSON.stringify(buildLevelData(), null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1535,6 +1573,76 @@ function importJSON() {
   document.getElementById('fileInput').click();
 }
 
+async function applyLevelData(data) {
+  gridWidth = data.width;
+  gridHeight = data.height;
+  // Background tiles use GLOBAL ids; legacy exports (declared a
+  // tileset with local indices) are converted here. Foreground
+  // 'tiles' from old files are ignored.
+  bgGrid = convertLegacyBgGrid(data.bgTiles, data.tileset);
+
+  // Load area overlay (background resolution; legacy grid-resolution
+  // layers are expanded cell -> 2x2 block)
+  areas = loadAreas(data.areas);
+
+  // Load foreground markers (fall back to an empty layer)
+  fgAreas = (Array.isArray(data.fgAreas) && data.fgAreas.length === gridHeight * 2)
+    ? Array.from({ length: gridHeight * 2 }, (_, y) =>
+        Array.from({ length: gridWidth * 2 }, (_, x) =>
+          data.fgAreas[y]?.[x] === 'fg' ? 'fg' : 'none'))
+    : makeFgAreas(gridWidth, gridHeight);
+
+  // Load difficulty (unknown values fall back to easy)
+  difficulty = ['easy', 'medium', 'hard'].includes(data.difficulty) ? data.difficulty : 'easy';
+  document.getElementById('difficulty').value = difficulty;
+
+  // Load start gold (missing/invalid falls back to 500)
+  const importedGold = Math.floor(Number(data.startGold));
+  startGold = Number.isFinite(importedGold) && importedGold >= 0 ? importedGold : 500;
+  document.getElementById('startGold').value = startGold;
+  // Tower limits (empty fields keep the defaults)
+  const limits = data.towerLimits && typeof data.towerLimits === 'object' ? data.towerLimits : {};
+  for (const t of TOWER_LIMIT_TYPES) {
+    const v = limits[t];
+    const n = Math.floor(Number(v));
+    document.getElementById('limit_' + t).value =
+      v !== undefined && v !== null && Number.isFinite(n) && n >= 0 ? String(n) : '';
+  }
+
+  // Load custom wave definitions (invalid data falls back to defaults)
+  waves = normalizeWaves(data.waves);
+  updateWavesSummary();
+  
+  pathPoints = data.path || [];
+  spawnPoints = data.spawnPoints || [];
+  basePoints = data.basePoints || [];
+  
+  document.getElementById('gridWidth').value = gridWidth;
+  document.getElementById('gridHeight').value = gridHeight;
+  
+  // Load colors (native numbers or "#rrggbb" strings)
+  const toHex = (v, def) => {
+    if (typeof v === 'number' && isFinite(v)) return '#' + (v >>> 0).toString(16).padStart(6, '0');
+    if (typeof v === 'string' && (/^#[0-9a-fA-F]{6}$/.test(v) || /^[0-9a-fA-F]{6}$/.test(v))) {
+      return v.startsWith('#') ? v : '#' + v;
+    }
+    return def;
+  };
+  // Legacy exports used `grassColor`
+  groundColor = toHex(data.groundColor ?? data.grassColor, groundColor);
+  groundColorDark = toHex(data.groundColorDark ?? data.grassColorDark, groundColorDark);
+  roadColor = toHex(data.roadColor, roadColor);
+  roadColorDark = toHex(data.roadColorDark, roadColorDark);
+  document.getElementById('groundColor').value = groundColor;
+  document.getElementById('groundColorDark').value = groundColorDark;
+  document.getElementById('roadColor').value = roadColor;
+  document.getElementById('roadColorDark').value = roadColorDark;
+  
+  await ensureTilesLoaded(bgGrid);
+  render();
+}
+
+
 function handleFileImport(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -1543,72 +1651,9 @@ function handleFileImport(e) {
   reader.onload = async (event) => {
     try {
       const data = JSON.parse(event.target.result);
-      gridWidth = data.width;
-      gridHeight = data.height;
-      // Background tiles use GLOBAL ids; legacy exports (declared a
-      // tileset with local indices) are converted here. Foreground
-      // 'tiles' from old files are ignored.
-      bgGrid = convertLegacyBgGrid(data.bgTiles, data.tileset);
-
-      // Load area overlay (background resolution; legacy grid-resolution
-      // layers are expanded cell -> 2x2 block)
-      areas = loadAreas(data.areas);
-
-      // Load foreground markers (fall back to an empty layer)
-      fgAreas = (Array.isArray(data.fgAreas) && data.fgAreas.length === gridHeight * 2)
-        ? Array.from({ length: gridHeight * 2 }, (_, y) =>
-            Array.from({ length: gridWidth * 2 }, (_, x) =>
-              data.fgAreas[y]?.[x] === 'fg' ? 'fg' : 'none'))
-        : makeFgAreas(gridWidth, gridHeight);
-
-      // Load difficulty (unknown values fall back to easy)
-      difficulty = ['easy', 'medium', 'hard'].includes(data.difficulty) ? data.difficulty : 'easy';
-      document.getElementById('difficulty').value = difficulty;
-
-      // Load start gold (missing/invalid falls back to 500)
-      const importedGold = Math.floor(Number(data.startGold));
-      startGold = Number.isFinite(importedGold) && importedGold >= 0 ? importedGold : 500;
-      document.getElementById('startGold').value = startGold;
-      // Tower limits (empty fields keep the defaults)
-      const limits = data.towerLimits && typeof data.towerLimits === 'object' ? data.towerLimits : {};
-      for (const t of TOWER_LIMIT_TYPES) {
-        const v = limits[t];
-        const n = Math.floor(Number(v));
-        document.getElementById('limit_' + t).value =
-          v !== undefined && v !== null && Number.isFinite(n) && n >= 0 ? String(n) : '';
-      }
-
-      // Load custom wave definitions (invalid data falls back to defaults)
-      waves = normalizeWaves(data.waves);
-      updateWavesSummary();
-      
-      pathPoints = data.path || [];
-      spawnPoints = data.spawnPoints || [];
-      basePoints = data.basePoints || [];
-      
-      document.getElementById('gridWidth').value = gridWidth;
-      document.getElementById('gridHeight').value = gridHeight;
-      
-      // Load colors (native numbers or "#rrggbb" strings)
-      const toHex = (v, def) => {
-        if (typeof v === 'number' && isFinite(v)) return '#' + (v >>> 0).toString(16).padStart(6, '0');
-        if (typeof v === 'string' && (/^#[0-9a-fA-F]{6}$/.test(v) || /^[0-9a-fA-F]{6}$/.test(v))) {
-          return v.startsWith('#') ? v : '#' + v;
-        }
-        return def;
-      };
-      // Legacy exports used `grassColor`
-      groundColor = toHex(data.groundColor ?? data.grassColor, groundColor);
-      groundColorDark = toHex(data.groundColorDark ?? data.grassColorDark, groundColorDark);
-      roadColor = toHex(data.roadColor, roadColor);
-      roadColorDark = toHex(data.roadColorDark, roadColorDark);
-      document.getElementById('groundColor').value = groundColor;
-      document.getElementById('groundColorDark').value = groundColorDark;
-      document.getElementById('roadColor').value = roadColor;
-      document.getElementById('roadColorDark').value = roadColorDark;
-      
-      await ensureTilesLoaded(bgGrid);
-      render();
+      // Editing a file from disk starts a fresh server-less copy
+      currentServerLevelId = null;
+      await applyLevelData(data);
     } catch (err) {
       alert('Error loading file: ' + err.message);
     }
@@ -1623,6 +1668,203 @@ function exportImage() {
   a.href = canvas.toDataURL('image/png');
   a.download = 'level.png';
   a.click();
+}
+
+// ============================================================
+// Server save/load (levels live in the game server's database)
+// ============================================================
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+function serverToken() {
+  return localStorage.getItem('loomi_token');
+}
+
+// The API lives on the game server. Same origin works through the
+// Vite proxy; when this page is served by something else (a static
+// server, Live Server, a LAN address...) we fall back to the backend
+// directly at localhost:4000 (the API sends CORS headers for this).
+let apiBase = null; // null = not probed yet, '' = same origin
+
+async function resolveApiBase() {
+  if (apiBase !== null) return apiBase;
+  // Only trust same origin when it answers with REAL JSON — static
+  // servers and SPA fallbacks happily return HTML with status 200/404
+  try {
+    const res = await fetch('/api/levels');
+    const type = res.headers.get('content-type') || '';
+    if (res.ok && type.includes('application/json')) { apiBase = ''; return apiBase; }
+  } catch {
+    // Origin can't reach an API at all (e.g. file://) — go direct
+  }
+  apiBase = 'http://localhost:4000';
+  return apiBase;
+}
+
+async function apiFetch(path, opts) {
+  const base = await resolveApiBase();
+  return fetch(base + path, opts);
+}
+
+let loginResolver = null; // resolves the pending editor login (token or null)
+
+function closeLoginDialog() {
+  document.getElementById('loginDialogOverlay').style.display = 'none';
+  if (loginResolver) { loginResolver(null); loginResolver = null; }
+}
+
+async function confirmEditorLogin() {
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  if (!username || !password) { errEl.textContent = 'Enter username and password.'; return; }
+  try {
+    const res = await apiFetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      errEl.textContent = json.error || `Login failed (HTTP ${res.status}) — register an account in the game first.`;
+      return;
+    }
+    localStorage.setItem('loomi_token', json.token);
+    // Resolve BEFORE hiding the dialog — closeLoginDialog() would
+    // otherwise resolve null first and silently abort the save
+    document.getElementById('loginDialogOverlay').style.display = 'none';
+    const resolver = loginResolver;
+    loginResolver = null;
+    if (resolver) resolver(json.token);
+  } catch (err) {
+    errEl.textContent = 'Cannot reach the game server: ' + err.message;
+  }
+}
+
+function promptEditorLogin() {
+  document.getElementById('loginError').textContent = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginDialogOverlay').style.display = 'flex';
+  document.getElementById('loginUsername').focus();
+  return new Promise((resolve) => { loginResolver = resolve; });
+}
+
+/** Valid session token on this origin, or null (opens the login dialog). */
+async function ensureEditorToken() {
+  const token = serverToken();
+  if (token) {
+    // Confirm it still works — stale sessions get re-authenticated
+    try {
+      const res = await apiFetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) return token;
+    } catch {
+      // Server unreachable — let the save attempt report that
+      return token;
+    }
+  }
+  // No (or stale) session on THIS origin — could be guest mode or a
+  // different address than the game runs on; log in right here
+  return promptEditorLogin();
+}
+
+async function saveToServer() {
+  const token = await ensureEditorToken();
+  if (!token) return; // cancelled the login dialog
+  const data = buildLevelData();
+  const suggested = data.name && data.name !== 'Untitled Level' ? data.name : 'Untitled Level';
+  const input = prompt('Level name:', suggested);
+  if (input === null) return;
+  const name = input.trim() || 'Untitled Level';
+  data.name = name;
+  try {
+    const url = currentServerLevelId ? `/api/levels/${currentServerLevelId}` : '/api/levels';
+    const res = await apiFetch(url, {
+      method: currentServerLevelId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        name,
+        ...(data.description ? { description: data.description } : {}),
+        data,
+      }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert('Save failed: ' + (json.error || `HTTP ${res.status}`));
+      return;
+    }
+    currentServerLevelId = json.level.id;
+    document.getElementById('status').textContent =
+      `Saved "${name}" to the server (level ${json.level.id})`;
+  } catch (err) {
+    alert('Cannot reach the game server: ' + err.message);
+  }
+}
+
+async function openFromServer() {
+  let json;
+  try {
+    const res = await apiFetch('/api/levels');
+    const type = res.headers.get('content-type') || '';
+    if (!type.includes('application/json')) {
+      const base = await resolveApiBase();
+      alert('The game server did not answer with JSON (via ' + (base || 'same origin') + ').\n' +
+        'Make sure the server is running (npm run dev), then reload this page.');
+      apiBase = null; // re-probe next time
+      return;
+    }
+    json = await res.json();
+  } catch (err) {
+    alert('Cannot reach the game server: ' + err.message);
+    return;
+  }
+  const levels = (json && json.levels) || [];
+  if (levels.length === 0) {
+    alert('No levels saved on the server yet.\nUse "Save to Server" first.');
+    return;
+  }
+  const list = document.getElementById('serverPickerList');
+  list.innerHTML = '';
+  for (const lvl of levels) {
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:8px 10px; cursor:pointer; border-bottom:1px solid #333; display:flex; justify-content:space-between; gap:10px;';
+    const left = document.createElement('span');
+    left.innerHTML = `${escapeHtml(lvl.name)} <span style="color:#888">— ${escapeHtml(lvl.ownerName)}</span>`;
+    const right = document.createElement('span');
+    right.style.color = '#666';
+    right.textContent = new Date(lvl.updatedAt).toLocaleDateString();
+    row.append(left, right);
+    row.onmouseenter = () => { row.style.background = '#2a2a4a'; };
+    row.onmouseleave = () => { row.style.background = ''; };
+    row.onclick = () => loadServerLevel(lvl.id);
+    list.appendChild(row);
+  }
+  document.getElementById('serverPickerOverlay').style.display = 'flex';
+}
+
+function closeServerPicker() {
+  document.getElementById('serverPickerOverlay').style.display = 'none';
+}
+
+async function loadServerLevel(id) {
+  try {
+    const res = await apiFetch('/api/levels/' + id);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert('Load failed: ' + (json.error || `HTTP ${res.status}`));
+      return;
+    }
+    await applyLevelData(json.level.data);
+    currentServerLevelId = json.level.id;
+    closeServerPicker();
+    document.getElementById('status').textContent =
+      `Loaded "${json.level.name}" from the server (level ${id})`;
+  } catch (err) {
+    alert('Cannot reach the game server: ' + err.message);
+  }
 }
 
 // ============================================================
