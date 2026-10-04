@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { TowerType, EnemyType, TargetMode, MapData } from '../types';
+import type { TowerType, EnemyType, TargetMode, MapData, Difficulty } from '../types';
 import { TARGET_MODES } from '../types';
 import { Grid } from '../utils/Grid';
 import { Pathfinding } from '../utils/Pathfinding';
@@ -26,6 +26,7 @@ import { eventBus } from '../utils/EventBus';
 import { bindGameAudio, playSfx, startGameMusic, stopGameMusic } from '../audio/GameAudio';
 import { isWaveResolved } from '../utils/waveCompletion';
 import { cachedServerLevel } from '../data/serverLevels';
+import { selectWaves } from '../data/LevelLoader';
 import { canDamageEnemy, canNinjaThrowHit } from '../utils/damageRules';
 
 /** Bodies that share the blood landing pipeline (blood arcs, death debris images). */
@@ -82,6 +83,8 @@ export class GameScene extends Phaser.Scene {
   private hoverRow: number = -1;
   private enemiesSpawnedInWave: number = 0;
   private currentLevelId: number = 1;
+  /** Difficulty this match runs at (selector choice or the level's own). */
+  private currentDifficulty: Difficulty | undefined;
   private selectedEnemy: Enemy | null = null;
   private targetSight: Phaser.GameObjects.Graphics | null = null;
   private pendingBuildPos: { col: number; row: number } | null = null;
@@ -114,7 +117,7 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
-  create(data: { levelId?: number; netRole?: 'host' | 'guest'; map?: MapData }): void {
+  create(data: { levelId?: number; netRole?: 'host' | 'guest'; map?: MapData; difficulty?: Difficulty }): void {
     this.cameras.main.setBackgroundColor(COLORS.BACKGROUND);
     this.resetState();
 
@@ -159,15 +162,24 @@ export class GameScene extends Phaser.Scene {
     const mapIndex = MAP_DEFINITIONS.findIndex(m => m.id === levelId);
     // Server-saved levels arrive as data.map (or from the fetch cache,
     // so PLAY AGAIN works without a second download)
-    const mapData = data.map
+    const baseMap = data.map
       ?? (mapIndex >= 0 ? MAP_DEFINITIONS[mapIndex] : cachedServerLevel(levelId) ?? MAP_DEFINITIONS[0]);
+    // The level selector's difficulty choice overrides the level's own;
+    // shallow-clone so the shared catalog entry is never mutated.
+    // (Multiplayer guests never pass one — both peers then agree on the
+    // authored difficulty.)
+    this.currentDifficulty = data.difficulty ?? baseMap.difficulty;
+    const mapData = data.difficulty && data.difficulty !== baseMap.difficulty
+      ? { ...baseMap, difficulty: data.difficulty }
+      : baseMap;
 
     this.grid = new Grid(mapData);
     this.blockSmoothRoadCells();
     this.pathfinding = new Pathfinding(this.grid);
 
-    // Level-defined waves first; dev demo keeps its special set
-    const waves = mapData.waves;
+    // Per-difficulty wave set first, then the level's own waves, then
+    // the built-in defaults; dev demo keeps its special set
+    const waves = selectWaves(mapData, mapData.difficulty);
     this.waveManager = new WaveManager(waves);
 
     // Starting gold comes from the level JSON (default 500); multiplayer
@@ -3182,11 +3194,15 @@ export class GameScene extends Phaser.Scene {
       this.scene.start('GameOverScene', {
         victory, score: this.score, wave: this.finalWaveNumber(),
         levelId: this.currentLevelId, firstCompletion,
+        difficulty: this.currentDifficulty,
       });
       return;
     }
 
-    this.scene.start('GameOverScene', { victory, score: this.score, wave: this.finalWaveNumber(), levelId: this.currentLevelId });
+    this.scene.start('GameOverScene', {
+      victory, score: this.score, wave: this.finalWaveNumber(),
+      levelId: this.currentLevelId, difficulty: this.currentDifficulty,
+    });
   }
 
   /** Guests mirror the host's wave number; hosts/solo use the wave manager. */

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { MAP_DEFINITIONS } from '../data/maps';
 import { userProfile, onProfile } from '../state/UserProfile';
 import { COINS_PER_LEVEL_WIN } from '../config/constants';
+import type { Difficulty } from '../types';
 import { playSfx } from '../audio/GameAudio';
 
 interface GameOverData {
@@ -10,6 +11,8 @@ interface GameOverData {
   wave: number;
   levelId?: number;
   firstCompletion?: boolean;
+  /** Keep the chosen difficulty across PLAY AGAIN / NEXT LEVEL. */
+  difficulty?: Difficulty;
 }
 
 /**
@@ -80,14 +83,14 @@ export class GameOverScene extends Phaser.Scene {
       const hasNextLevel = MAP_DEFINITIONS.some(m => m.id === nextLevelId);
       if (hasNextLevel) {
         this.createButton(width / 2, height / 2 + 60, 'NEXT LEVEL', () => {
-          this.scene.start('GameScene', { levelId: nextLevelId });
+          this.scene.start('GameScene', { levelId: nextLevelId, difficulty: data.difficulty });
         });
       }
     }
 
     // Play Again button
     this.createButton(width / 2, height / 2 + 120, 'PLAY AGAIN', () => {
-      this.scene.start('GameScene', { levelId });
+      this.scene.start('GameScene', { levelId, difficulty: data.difficulty });
     });
 
     // Level Select button

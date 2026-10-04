@@ -42,6 +42,8 @@ export interface MapData {
   /** Optional per-type build caps (absent types use the defaults). */
   towerLimits?: Partial<Record<TowerType, number>>;
   waves?: WaveData[];    // Custom wave definitions (default: game's built-in waves)
+  /** Custom wave sets per difficulty; unset keys fall back to `waves`, then built-ins. */
+  difficultyWaves?: Partial<Record<Difficulty, WaveData[]>>;
   groundColor?: number;    // Fill color for light ground chessboard squares (0xRRGGBB)
   groundColorDark?: number; // Fill color for dark ground chessboard squares (0xRRGGBB)
   roadColor?: number;    // Tint for road fill (0xRRGGBB)

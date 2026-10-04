@@ -106,7 +106,7 @@ export class Enemy {
     this.data = this.isMini
       ? {
           ...base,
-          hp: Math.max(1, Math.round(base.hp * 0.25)),
+          hp: Math.max(1, Math.round(base.hp * 0.125)),
           armor: Math.max(0, base.armor - 3),
           speed: base.speed + 25,
           size: Math.max(8, Math.round(base.size * 0.5)),

@@ -215,10 +215,19 @@
       <h2>Wave Definitions</h2>
       <button class="btn secondary" onclick="closeWavesDialog()">Close</button>
     </div>
+    <div class="waves-tabs" style="display:flex; gap:6px; margin:6px 0 2px;">
+      <button class="btn secondary" data-wtab="default" onclick="setWaveTab('default')">Default</button>
+      <button class="btn secondary" data-wtab="easy" onclick="setWaveTab('easy')">Easy</button>
+      <button class="btn secondary" data-wtab="medium" onclick="setWaveTab('medium')">Medium</button>
+      <button class="btn secondary" data-wtab="hard" onclick="setWaveTab('hard')">Hard</button>
+    </div>
     <p class="waves-hint">
       Custom waves replace the game's built-in waves for this level.
-      Leave the list empty to keep the defaults. Spawn ms = delay between
-      spawns of an entry; wave ms = delay before the entry starts.
+      Difficulty tabs add extra sets on top: a level played on EASY uses
+      the Easy tab's waves, and an empty difficulty tab inherits the
+      Default tab (which falls back to the game's built-ins).
+      Spawn ms = delay between spawns of an entry; wave ms = delay
+      before the entry starts.
     </p>
     <div id="wavesList"></div>
     <div class="waves-actions">
@@ -1410,17 +1419,37 @@ function enemyIconHtml(type) {
   const file = ENEMY_ICON_FILES[type] ?? 'slime';
   return `<span class="enemy-icon" title="${type}" style="background-image:url('assets/enemies/${file}.png')"></span>`;
 }
-// Custom waves for this level: [{ entries: [{enemyType, count, spawnDelay, waveDelay}] }]
-// Empty list = the level uses the game's built-in waves.
-let waves = [];
+// Wave sets for this level: 'default' replaces the game's built-ins;
+// difficulty sets only apply when the level plays at that difficulty
+// (an empty difficulty set inherits default).
+const WAVE_SET_KEYS = ['default', 'easy', 'medium', 'hard'];
+let waveSets = { default: [], easy: [], medium: [], hard: [] };
+let activeWaveTab = 'default';
+
+function activeWaves() {
+  return waveSets[activeWaveTab];
+}
+
+function setWaveTab(tab) {
+  if (!WAVE_SET_KEYS.includes(tab)) return;
+  activeWaveTab = tab;
+  for (const btn of document.querySelectorAll('[data-wtab]')) {
+    btn.style.background = btn.getAttribute('data-wtab') === tab ? '#4CAF50' : '';
+  }
+  renderWavesDialog();
+}
 
 function updateWavesSummary() {
-  document.getElementById('wavesSummary').textContent =
-    waves.length ? `${waves.length} custom wave${waves.length > 1 ? 's' : ''}` : 'default';
+  const parts = [];
+  if (waveSets.default.length) parts.push(`${waveSets.default.length} default`);
+  for (const k of ['easy', 'medium', 'hard']) {
+    if (waveSets[k].length) parts.push(`${waveSets[k].length} ${k}`);
+  }
+  document.getElementById('wavesSummary').textContent = parts.length ? parts.join(' · ') : 'default';
 }
 
 function openWavesDialog() {
-  renderWavesDialog();
+  setWaveTab(activeWaveTab);
   document.getElementById('wavesOverlay').style.display = 'flex';
 }
 
@@ -1430,8 +1459,11 @@ function closeWavesDialog() {
 
 function renderWavesDialog() {
   const list = document.getElementById('wavesList');
+  const waves = activeWaves();
   if (!waves.length) {
-    list.innerHTML = '<p class="waves-hint">No custom waves — this level will use the game\'s default waves.</p>';
+    list.innerHTML = activeWaveTab === 'default'
+      ? '<p class="waves-hint">No custom waves — this level will use the game\'s default waves.</p>'
+      : `<p class="waves-hint">No ${activeWaveTab} waves — this difficulty inherits the Default set.</p>`;
     return;
   }
   list.innerHTML = waves.map((wave, wi) => `
@@ -1456,27 +1488,27 @@ function renderWavesDialog() {
 }
 
 function addWave() {
-  waves.push({ entries: [{ enemyType: 'basic', count: 10, spawnDelay: 500, waveDelay: 0 }] });
+  activeWaves().push({ entries: [{ enemyType: 'basic', count: 10, spawnDelay: 500, waveDelay: 0 }] });
   renderWavesDialog();
 }
 
 function removeWave(wi) {
-  waves.splice(wi, 1);
+  activeWaves().splice(wi, 1);
   renderWavesDialog();
 }
 
 function addWaveEntry(wi) {
-  waves[wi].entries.push({ enemyType: 'basic', count: 5, spawnDelay: 500, waveDelay: 0 });
+  activeWaves()[wi].entries.push({ enemyType: 'basic', count: 5, spawnDelay: 500, waveDelay: 0 });
   renderWavesDialog();
 }
 
 function removeWaveEntry(wi, ei) {
-  waves[wi].entries.splice(ei, 1);
+  activeWaves()[wi].entries.splice(ei, 1);
   renderWavesDialog();
 }
 
 function setWaveEntry(wi, ei, field, value) {
-  const entry = waves[wi].entries[ei];
+  const entry = activeWaves()[wi].entries[ei];
   if (field === 'enemyType') {
     entry.enemyType = ENEMY_TYPES.includes(value) ? value : 'basic';
     renderWavesDialog(); // refresh the enemy icon
@@ -1488,13 +1520,13 @@ function setWaveEntry(wi, ei, field, value) {
 }
 
 function clearWaves() {
-  waves = [];
+  waveSets[activeWaveTab] = [];
   renderWavesDialog();
 }
 
 function saveWaves() {
   // Drop empty waves and invalid entries
-  waves = waves
+  waveSets[activeWaveTab] = activeWaves()
     .map(w => ({ entries: w.entries.filter(e => e.count >= 1) }))
     .filter(w => w.entries.length > 0);
   updateWavesSummary();
@@ -1533,6 +1565,12 @@ let currentServerLevelId = null; // set while editing a level loaded from the se
 
 function buildLevelData() {
   const limits = readTowerLimits();
+  const difficultyWavesOut = {};
+  for (const k of ['easy', 'medium', 'hard']) {
+    if (waveSets[k].length) {
+      difficultyWavesOut[k] = waveSets[k].map((w, i) => ({ waveNumber: i + 1, entries: w.entries }));
+    }
+  }
   return {
     version: 1,
     name: 'Untitled Level',
@@ -1545,9 +1583,10 @@ function buildLevelData() {
     difficulty: difficulty,
     startGold: startGold,
     ...(limits ? { towerLimits: limits } : {}),
-    ...(waves.length > 0 && {
-      waves: waves.map((w, i) => ({ waveNumber: i + 1, entries: w.entries })),
+    ...(waveSets.default.length > 0 && {
+      waves: waveSets.default.map((w, i) => ({ waveNumber: i + 1, entries: w.entries })),
     }),
+    ...(Object.keys(difficultyWavesOut).length > 0 && { difficultyWaves: difficultyWavesOut }),
     path: pathPoints,
     spawnPoints: spawnPoints,
     basePoints: basePoints,
@@ -1610,7 +1649,12 @@ async function applyLevelData(data) {
   }
 
   // Load custom wave definitions (invalid data falls back to defaults)
-  waves = normalizeWaves(data.waves);
+  waveSets.default = normalizeWaves(data.waves);
+  const dw = (data.difficultyWaves && typeof data.difficultyWaves === 'object') ? data.difficultyWaves : {};
+  waveSets.easy = normalizeWaves(dw.easy);
+  waveSets.medium = normalizeWaves(dw.medium);
+  waveSets.hard = normalizeWaves(dw.hard);
+  activeWaveTab = 'default';
   updateWavesSummary();
   
   pathPoints = data.path || [];

@@ -80,6 +80,28 @@ function parseWaves(value: unknown): WaveData[] | undefined {
   return waves.length > 0 ? waves : undefined;
 }
 
+/** Per-difficulty wave sets; only valid non-empty sets are kept. */
+function parseDifficultyWaves(value: unknown): Partial<Record<Difficulty, WaveData[]>> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const out: Partial<Record<Difficulty, WaveData[]>> = {};
+  for (const key of ['easy', 'medium', 'hard'] as const) {
+    const parsed = parseWaves((value as Record<string, unknown>)[key]);
+    if (parsed) out[key] = parsed;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Waves to play: the authored set for this difficulty when present,
+ * else the level's own waves (undefined = built-in defaults).
+ */
+export function selectWaves(
+  map: Pick<MapData, 'difficultyWaves' | 'waves'>,
+  difficulty?: Difficulty,
+): WaveData[] | undefined {
+  return (difficulty ? map.difficultyWaves?.[difficulty] : undefined) ?? map.waves;
+}
+
 /**
  * Load a level from JSON file data
  */
@@ -133,6 +155,7 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
     startGold: parseStartGold(jsonData.startGold),
     towerLimits: parseTowerLimits(jsonData.towerLimits),
     waves: parseWaves(jsonData.waves),
+    difficultyWaves: parseDifficultyWaves(jsonData.difficultyWaves),
     // Legacy exports used `grassColor` — fall back so old files keep their colors
     groundColor: parseColor(jsonData.groundColor ?? jsonData.grassColor),
     groundColorDark: parseColor(jsonData.groundColorDark ?? jsonData.grassColorDark),

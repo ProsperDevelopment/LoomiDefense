@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { Difficulty } from '../types';
 import { MAP_DEFINITIONS } from '../data/maps';
 import { DEV_MODE } from '../config/constants';
 import { api } from '../api/client';
@@ -15,6 +16,10 @@ export class LevelSelectScene extends Phaser.Scene {
   private campaignBtn: Phaser.GameObjects.Text | null = null;
   private serverBtn: Phaser.GameObjects.Text | null = null;
   private startingServer = false;
+  /** Difficulty the levels play at (null = each level's own setting). */
+  private difficultyChoice: Difficulty | null = null;
+  private diffButtons: { key: Difficulty; bg: string; btn: Phaser.GameObjects.Text }[] = [];
+  private diffCaption: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super({ key: 'LevelSelectScene' });
@@ -42,6 +47,33 @@ export class LevelSelectScene extends Phaser.Scene {
     // Two choosers: built-in campaign and levels saved on the server
     this.campaignBtn = this.makeTabButton(70, 44, 'CAMPAIGN', 'campaign');
     this.serverBtn = this.makeTabButton(width - 85, 44, 'SERVER LEVELS', 'server');
+
+    // Difficulty choice for whatever you pick below (toggle off = the
+    // level's own difficulty from its JSON)
+    const diffs: { key: Difficulty; label: string; bg: string }[] = [
+      { key: 'easy', label: 'EASY', bg: '#4CAF50' },
+      { key: 'medium', label: 'MEDIUM', bg: '#FF9800' },
+      { key: 'hard', label: 'HARD', bg: '#f44336' },
+    ];
+    const makeBtn = (label: string): Phaser.GameObjects.Text =>
+      this.add.text(0, 92, label, {
+        fontSize: '12px', color: '#ffffff', backgroundColor: '#333355',
+        padding: { x: 12, y: 5 },
+      }).setOrigin(0, 0.5);
+    const buttons = diffs.map((d) => ({ key: d.key, bg: d.bg, btn: makeBtn(d.label) }));
+    const total = buttons.reduce((n, b) => n + b.btn.width + 8, 0) - 8;
+    let bx = width / 2 - total / 2;
+    for (const b of buttons) {
+      b.btn.setX(bx);
+      bx += b.btn.width + 8;
+      b.btn.setInteractive({ useHandCursor: true });
+      b.btn.on('pointerdown', () => this.setDifficultyChoice(this.difficultyChoice === b.key ? null : b.key));
+      this.diffButtons.push(b);
+    }
+    this.diffCaption = this.add.text(width / 2, 110, '', {
+      fontSize: '11px', color: '#666666',
+    }).setOrigin(0.5);
+    this.setDifficultyChoice(null);
 
     // Back button
     const backBtn = this.add.text(50, height - 40, 'BACK', {
@@ -72,6 +104,14 @@ export class LevelSelectScene extends Phaser.Scene {
     btn.on('pointerover', () => { if (this.tab !== tabKey) btn.setBackgroundColor('#444466'); });
     btn.on('pointerout', () => { if (this.tab !== tabKey) btn.setBackgroundColor('#333355'); });
     return btn;
+  }
+
+  private setDifficultyChoice(choice: Difficulty | null): void {
+    this.difficultyChoice = choice;
+    for (const b of this.diffButtons) {
+      b.btn.setBackgroundColor(this.difficultyChoice === b.key ? b.bg : '#333355');
+    }
+    this.diffCaption?.setText(choice ? `Playing at ${choice}` : 'Level default difficulty');
   }
 
   private setTab(tab: 'campaign' | 'server'): void {
@@ -121,7 +161,7 @@ export class LevelSelectScene extends Phaser.Scene {
         return;
       }
       levels.slice(0, 16).forEach((lvl, i) => {
-        const y = 100 + i * 30;
+        const y = 124 + i * 30;
         const date = new Date(lvl.updatedAt).toLocaleDateString();
         const row = this.add.text(width / 2, y, `${lvl.name}  —  ${lvl.ownerName} · ${lvl.difficulty} · ${date}`, {
           fontSize: '14px', color: '#cccccc', backgroundColor: '#1a1a3a',
@@ -159,7 +199,7 @@ export class LevelSelectScene extends Phaser.Scene {
         row.setText('Failed to load — click to retry');
         return;
       }
-      this.scene.start('GameScene', { levelId, map });
+      this.scene.start('GameScene', { levelId, map, difficulty: this.difficultyChoice ?? undefined });
     });
   }
 
@@ -182,7 +222,7 @@ export class LevelSelectScene extends Phaser.Scene {
     const rows = Math.ceil(levelCount / cols);
 
     const startX = width / 2 - (cols * hexWidth * 0.75) / 2;
-    const startY = 100;
+    const startY = 124;
 
     let levelIndex = 0;
 
@@ -249,7 +289,7 @@ export class LevelSelectScene extends Phaser.Scene {
         ) {
           return;
         }
-        this.scene.start('GameScene', { levelId });
+        this.scene.start('GameScene', { levelId, difficulty: this.difficultyChoice ?? undefined });
       });
       hitZone.on('pointerover', () => {
         graphics.clear();

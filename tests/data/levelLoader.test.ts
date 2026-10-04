@@ -198,3 +198,43 @@ describe('LevelLoader tower limits', () => {
     expect(level.towerLimits).toEqual({ tesla: 2, frost: 0 });
   });
 });
+
+describe('difficulty wave sets', () => {
+  const waveset = (enemyType: string) => [
+    { entries: [{ enemyType, count: 4, spawnDelay: 400, waveDelay: 0 }] },
+  ];
+
+  it('parses per-difficulty sets and keeps only valid ones', () => {
+    const level = loadLevelFromJSON({
+      ...baseLevel,
+      difficultyWaves: {
+        easy: waveset('basic'),
+        hard: waveset('boss'),
+        medium: [{ entries: [] }],        // empty -> dropped
+        bogus: waveset('fast'),           // unknown difficulty -> ignored
+      },
+    }, 1);
+
+    expect(level.difficultyWaves?.easy).toHaveLength(1);
+    expect(level.difficultyWaves?.easy![0].entries[0].enemyType).toBe('basic');
+    expect(level.difficultyWaves?.hard![0].entries[0].enemyType).toBe('boss');
+    expect(level.difficultyWaves?.medium).toBeUndefined();
+    expect((level.difficultyWaves as Record<string, unknown> | undefined)?.bogus).toBeUndefined();
+  });
+
+  it('selectWaves prefers the difficulty set, then level waves, then built-ins', async () => {
+    const { selectWaves } = await import('../../src/data/LevelLoader');
+    const level = loadLevelFromJSON({
+      ...baseLevel,
+      waves: waveset('fast'),
+      difficultyWaves: { hard: waveset('boss') },
+    }, 1);
+
+    expect(selectWaves(level, 'hard')![0].entries[0].enemyType).toBe('boss');
+    expect(selectWaves(level, 'easy')![0].entries[0].enemyType).toBe('fast'); // no easy set
+    expect(selectWaves(level, undefined)![0].entries[0].enemyType).toBe('fast');
+
+    const plain = loadLevelFromJSON(baseLevel, 1);
+    expect(selectWaves(plain, 'hard')).toBeUndefined(); // built-in defaults
+  });
+});

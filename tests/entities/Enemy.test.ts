@@ -120,6 +120,8 @@ describe('splitter enemy', () => {
     const mini = new Enemy('splitter', longPath, undefined, { mini: true });
     expect(mini.isMini).toBe(true);
     expect(mini.data.hp).toBeLessThan(parent.data.hp);
+    // Minis are half as tough as they used to be: 12.5% of the parent
+    expect(mini.data.hp).toBe(81); // 650 * 0.125
     expect(mini.data.size).toBeLessThan(parent.data.size);
     expect(mini.data.speed).toBeGreaterThan(parent.data.speed);
     // Parent keeps its own stats (definitions are never mutated)
