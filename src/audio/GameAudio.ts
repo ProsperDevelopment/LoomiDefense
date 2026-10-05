@@ -1,5 +1,5 @@
 // ============================================================
-// Event-driven sound effects.
+// Event-driven sound effects and in-game music.
 //
 // bindGameAudio() subscribes gameplay sounds to the event bus —
 // call it after eventBus.clear() in the scene's create().
@@ -20,41 +20,89 @@ const SHOT_SFX: Partial<Record<TowerType, { key: string; volume: number }>> = {
 
 const DEATH_SFX = ['sfx_hit1', 'sfx_hit5', 'sfx_hit9'];
 
-const MUTED_KEY = 'loomi_sfx_muted';
+// --- Volumes (persisted0..100) ----------------------------------
+const SFX_VOL_KEY = 'loomi_sfx_vol';
+const MUSIC_VOL_KEY = 'loomi_music_vol';
+const LEGACY_MUTED_KEY = 'loomi_sfx_muted'; // pre-volume builds
 
-export function isSfxMuted(): boolean {
+function loadVolumePct(key: string, def: number): number {
   try {
-    return localStorage.getItem(MUTED_KEY) === '1';
+    const raw = localStorage.getItem(key);
+    if (raw !== null) {
+      const n = Math.round(Number(raw));
+      if (Number.isFinite(n)) return Math.max(0, Math.min(100, n));
+    }
+    // One-time migration from the old on/off toggle
+    if (localStorage.getItem(LEGACY_MUTED_KEY) === '1') return 0;
   } catch {
-    return false;
+    // storage unavailable — defaults win
+  }
+  return def;
+}
+
+let sfxVolumePct = loadVolumePct(SFX_VOL_KEY, 100);
+let musicVolumePct = loadVolumePct(MUSIC_VOL_KEY, 30);
+
+export function getSfxVolume(): number {
+  return sfxVolumePct;
+}
+
+export function setSfxVolume(pct: number): void {
+  sfxVolumePct = Math.max(0, Math.min(100, Math.round(pct)));
+  try {
+    localStorage.setItem(SFX_VOL_KEY, String(sfxVolumePct));
+  } catch {
+    // storage unavailable — the level just won't persist
   }
 }
 
-export function setSfxMuted(muted: boolean): void {
+export function getMusicVolume(): number {
+  return musicVolumePct;
+}
+
+export function setMusicVolume(pct: number): void {
+  musicVolumePct = Math.max(0, Math.min(100, Math.round(pct)));
   try {
-    localStorage.setItem(MUTED_KEY, muted ? '1' : '0');
+    localStorage.setItem(MUSIC_VOL_KEY, String(musicVolumePct));
   } catch {
-    // storage unavailable — mute just won't persist
+    // storage unavailable — the level just won't persist
   }
-  // Keep the music in sync with the toggle while a game is running
-  if (muted) pauseMusicNow();
-  else if (musicWanted) playMusicNow();
+  applyMusicVolumeNow();
+}
+
+/** Push the music setting onto the live element (pause at0, resume above). */
+function applyMusicVolumeNow(): void {
+  const target = musicVolumePct / 100;
+  if (!musicEl) {
+    // Volume raised during a game that never got music (was at zero)
+    if (target > 0 && musicWanted) startFreshTrack();
+    return;
+  }
+  if (target <= 0) {
+    stopMusicFade();
+    musicEl.pause();
+    return;
+  }
+  musicEl.volume = target;
+  if (musicWanted && musicEl.paused && !musicEl.ended) {
+    void musicEl.play().catch(() => undefined);
+  }
 }
 
 // --- In-game music -------------------------------------------------
 // Two long tracks streamed through HTML5 Audio (an hour of PCM would
-// never fit in a WebAudio buffer). Every game start picks a random
-// track, begins at a random position and fades in; when a track runs
-// out a fresh random pick takes over.
+// never fit in a WebAudio buffer). Every game start sounds an alert,
+// then a second later picks a random track at a random position and
+// fades it in; wave changes mix over to the other soundtrack.
 const MUSIC_SRC = [
   'assets/audio/pow-pow.mp3',
   'assets/audio/Brainkillers - Weekend Rush 92.3 (July 31, 1994).mp3',
 ];
-const MUSIC_VOLUME = 0.3;
 const MUSIC_FADE_MS = 1500;
 let musicEl: HTMLAudioElement | null = null;
 let musicWanted = false;
 let musicFadeTimer: ReturnType<typeof setInterval> | null = null;
+let alertStartTimer: ReturnType<typeof setTimeout> | null = null;
 
 function stopMusicFade(): void {
   if (musicFadeTimer !== null) {
@@ -63,21 +111,30 @@ function stopMusicFade(): void {
   }
 }
 
-/** Ramp the element's volume up over MUSIC_FADE_MS. */
+function clearAlertStart(): void {
+  if (alertStartTimer !== null) {
+    clearTimeout(alertStartTimer);
+    alertStartTimer = null;
+  }
+}
+
+/** Ramp the element's volume up to the music setting over MUSIC_FADE_MS. */
 function fadeMusicIn(el: HTMLAudioElement, fromZero: boolean = true): void {
   stopMusicFade();
   if (fromZero) el.volume = 0;
   const steps = Math.max(1, MUSIC_FADE_MS / 50);
-  const delta = MUSIC_VOLUME / steps;
   musicFadeTimer = setInterval(() => {
     if (musicEl !== el) { stopMusicFade(); return; }
-    el.volume = Math.min(MUSIC_VOLUME, el.volume + delta);
-    if (el.volume >= MUSIC_VOLUME) stopMusicFade();
+    const target = musicVolumePct / 100;
+    if (target <= 0) { stopMusicFade(); return; }
+    if (el.volume > target) el.volume = target;
+    else el.volume = Math.min(target, el.volume + target / steps);
+    if (el.volume >= target) stopMusicFade();
   }, 50);
 }
 
-/** Pick a random track and start it at a random position, faded in. */
-function startFreshTrack(): void {
+/** Start a track (random unless srcOverride) at a random position, faded in. */
+function startFreshTrack(srcOverride?: string): void {
   stopMusicFade();
   musicEl?.pause();
   const el = new Audio();
@@ -108,52 +165,82 @@ function startFreshTrack(): void {
   });
   // A finished track hands over to another random pick
   el.addEventListener('ended', () => {
-    if (musicWanted && !isSfxMuted() && musicEl === el) startFreshTrack();
+    if (musicWanted && musicVolumePct > 0 && musicEl === el) startFreshTrack();
   });
-  el.src = encodeURI(MUSIC_SRC[Math.floor(Math.random() * MUSIC_SRC.length)]);
+  el.src = encodeURI(
+    srcOverride ?? MUSIC_SRC[Math.floor(Math.random() * MUSIC_SRC.length)],
+  );
 }
 
-/** Resume the current track (unmute) or start one if none exists. */
-function playMusicNow(): void {
-  if (!musicEl || musicEl.ended) { startFreshTrack(); return; }
-  if (musicEl.paused) {
-    void musicEl.play().then(() => {
-      // A mute during a fade left the volume short — ramp the rest in
-      if (musicEl && musicEl.volume < MUSIC_VOLUME) fadeMusicIn(musicEl, false);
-    }).catch(() => undefined);
+/** Mix over to the OTHER soundtrack (called when a wave starts). */
+function crossfadeToOtherTrack(): void {
+  if (!musicWanted || musicVolumePct <= 0) return;
+  if (!musicEl) {
+    // Music never got going (alert window) — begin it now
+    startFreshTrack();
+    return;
   }
+  const old = musicEl;
+  const curName = decodeURIComponent(old.src.split('/').pop() ?? '');
+  const other = MUSIC_SRC.find(
+    (src) => decodeURIComponent(src.split('/').pop() ?? '') !== curName,
+  );
+  if (!other) return;
+  // Fade the current track out on its own timer while the new one fades in
+  const steps = Math.max(1, MUSIC_FADE_MS / 50);
+  const delta = old.volume / steps;
+  let n = 0;
+  const outTimer = setInterval(() => {
+    old.volume = Math.max(0, old.volume - delta);
+    if (++n >= steps || old.volume <= 0) {
+      clearInterval(outTimer);
+      if (old !== musicEl) old.pause();
+    }
+  }, 50);
+  startFreshTrack(other);
 }
 
-function pauseMusicNow(): void {
-  stopMusicFade();
-  musicEl?.pause();
-}
-
-/** Start the in-game music: random track, random position, fade in. */
-export function startGameMusic(): void {
+/** Start the in-game music: alert first, then the track a second later. */
+export function startGameMusic(scene?: Phaser.Scene): void {
   musicWanted = true;
-  if (isSfxMuted()) return;
+  clearAlertStart();
+  if (musicVolumePct <= 0) return;
+  if (scene) {
+    // Horn + a random siren/alarm announce the new play…
+    playSfx(scene, 'sfx_wave', { volume: 0.32 });
+    const alerts = ['sfx_siren', 'sfx_alarm', 'sfx_siren2'];
+    playSfx(scene, alerts[Math.floor(Math.random() * alerts.length)], {
+      volume: 0.28,
+    });
+    // …and the soundtrack joins one second later
+    alertStartTimer = setTimeout(() => {
+      alertStartTimer = null;
+      if (musicWanted && musicVolumePct > 0) startFreshTrack();
+    }, 1000);
+    return;
+  }
   startFreshTrack();
 }
 
 /** Stop the in-game music (scene shutdown). */
 export function stopGameMusic(): void {
   musicWanted = false;
+  clearAlertStart();
   stopMusicFade();
   musicEl?.pause();
 }
 
-/** Play a loaded sound key, respecting the mute toggle. */
+/** Play a loaded sound key, scaled by the SFX volume setting. */
 export function playSfx(
   scene: Phaser.Scene,
   key: string,
   opts: { volume?: number; rate?: number } = {},
 ): void {
-  if (isSfxMuted()) return;
+  if (sfxVolumePct <= 0) return;
   if (!scene.sound) return;
   try {
     scene.sound.play(key, {
-      volume: opts.volume ?? 0.4,
+      volume: (opts.volume ?? 0.4) * (sfxVolumePct / 100),
       rate: opts.rate ?? 1,
     });
   } catch {
@@ -184,15 +271,15 @@ export function bindGameAudio(scene: Phaser.Scene): void {
     playSfx(scene, key, { volume: 0.3, rate: 0.95 + Math.random() * 0.25 });
   });
 
-  // Building: the old thud, now with sawing on top
+  // Building: sawing only
   eventBus.on('tower-placed', () => {
-    playSfx(scene, 'sfx_build', { volume: 0.4 });
     playSfx(scene, 'sfx_saw', { volume: 0.3, rate: 1.05 + Math.random() * 0.15 });
   });
   eventBus.on('tower-upgraded', () => playSfx(scene, 'sfx_upgrade', { volume: 0.4 }));
   eventBus.on('tower-sold', () => playSfx(scene, 'sfx_coin', { volume: 0.4, rate: 1.05 }));
 
-  // Waves: the old horn plus a random siren/alarm
+  // Waves: the old horn plus a random siren/alarm, and the music
+  // mixes over to the other soundtrack
   eventBus.on('wave-started', () => {
     playSfx(scene, 'sfx_wave', { volume: 0.3 });
     const alerts = ['sfx_siren', 'sfx_alarm', 'sfx_siren2'];
@@ -200,6 +287,7 @@ export function bindGameAudio(scene: Phaser.Scene): void {
       volume: 0.22,
       rate: 0.95 + Math.random() * 0.1,
     });
+    crossfadeToOtherTrack();
   });
   eventBus.on('wave-cleared', () => playSfx(scene, 'sfx_coin', { volume: 0.3, rate: 1.2 }));
 

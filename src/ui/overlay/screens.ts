@@ -8,7 +8,7 @@ import { userProfile, onProfile } from '../../state/UserProfile';
 import { showLobbyPanel } from './lobbyScreen';
 import { ApiError } from '../../api/client';
 import { TOWER_DEFINITIONS } from '../../data/towers';
-import { isSfxMuted, setSfxMuted } from '../../audio/GameAudio';
+import { getSfxVolume, setSfxVolume, getMusicVolume, setMusicVolume } from '../../audio/GameAudio';
 import type { UserSearchResult, StoreCatalogItem } from '../../../shared/protocol';
 
 // ------------------------------------------------------------
@@ -432,10 +432,7 @@ export function buildTopbar(): void {
   const loadoutBtn = button0('Loadout', () => showLoadoutPanel());
   const lobbyBtn = button0('Multiplayer', () => showLobbyPanel());
   const authBtn = button0('Log In', () => showAuthPanel());
-  const soundBtn = button0(isSfxMuted() ? 'Sound: Off' : 'Sound: On', () => {
-    setSfxMuted(!isSfxMuted());
-    soundBtn.textContent = isSfxMuted() ? 'Sound: Off' : 'Sound: On';
-  });
+  const soundBtn = button0('Sound', () => showSoundPanel());
 
   bar.append(who, coins, spacer, loadoutBtn, storeBtn, friendsBtn, lobbyBtn, profileBtn, soundBtn, authBtn);
   root.appendChild(bar);
@@ -444,6 +441,37 @@ export function buildTopbar(): void {
   onProfile('profile-changed', refresh);
   onProfile('coins-changed', refresh);
   refreshTopbar();
+}
+
+/** A labelled volume slider that applies as it is dragged. */
+function volumeRow(labelText: string, get: () => number, set: (v: number) => void): HTMLElement {
+  const wrap = el('div', 'ov-field');
+  const head = el('div', 'ov-row');
+  const value = el('span', 'sub', `${get()}%`);
+  head.append(el('label', undefined, labelText), value);
+  const range = document.createElement('input');
+  range.type = 'range';
+  range.min = '0';
+  range.max = '100';
+  range.value = String(get());
+  range.style.width = '100%';
+  range.addEventListener('input', () => {
+    set(Number(range.value));
+    value.textContent = `${range.value}%`;
+  });
+  wrap.append(head, range);
+  return wrap;
+}
+
+/** Volume settings: sound effects and music, each0-100%. */
+export function showSoundPanel(): void {
+  showPanel((body, close) => {
+    body.append(el('h2', undefined, 'Sound'));
+    body.append(el('p', 'hint', 'Set the level of the game sound effects and the background music.'));
+    body.append(volumeRow('Sound FX', getSfxVolume, setSfxVolume));
+    body.append(volumeRow('Music', getMusicVolume, setMusicVolume));
+    body.append(el('div', 'ov-row', button('Close', close, 'secondary')));
+  });
 }
 
 function button0(label: string, onClick: () => void): HTMLButtonElement {

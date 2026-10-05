@@ -449,8 +449,8 @@ export class GameScene extends Phaser.Scene {
   private setupEvents(): void {
     // Gameplay sounds ride the same event bus
     bindGameAudio(this);
-    // Background music runs for as long as this scene lives
-    startGameMusic();
+    // Alert first, then the background music (scene passes itself for sfx)
+    startGameMusic(this);
 
     // Farms pay their owner at the start of every wave (host only —
     // guests receive their gold through snapshots)
@@ -611,6 +611,7 @@ export class GameScene extends Phaser.Scene {
         tower.createSprite(this);
         tower.showRange(false);
         this.towers.push(tower);
+        this.growInTower(tower);
         this.tuckTopTilesUnderTower(tower);
         if (this.grid.canPlaceAtBg(s.col, s.row, s.type as TowerType)) {
           this.grid.placeTowerAtBg(s.col, s.row, s.type as TowerType);
@@ -1292,6 +1293,19 @@ export class GameScene extends Phaser.Scene {
     return this.towersBuiltBy(type, ownerId) < this.towerLimitFor(type, ownerId);
   }
 
+  /** Towers pop up from a speck so a build reads as growth. */
+  private growInTower(tower: Tower): void {
+    if (!tower.sprite) return;
+    tower.sprite.setScale(0.05);
+    this.tweens.add({
+      targets: tower.sprite,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 320,
+      ease: 'Back.Out',
+    });
+  }
+
   /**
    * Tuck the painted background tiles covering the TOP half of a placed
    * tower's footprint below the tower. The tile layer renders at depth
@@ -1356,9 +1370,7 @@ export class GameScene extends Phaser.Scene {
     this.towers.push(tower);
     this.tuckTopTilesUnderTower(tower);
     eventBus.emit('tower-placed', { towerType: type, x: col, y: row });
-    if (tower.sprite) {
-      this.tweens.add({ targets: tower.sprite, scaleX: 1.2, scaleY: 1.2, duration: 100, yoyo: true });
-    }
+    this.growInTower(tower);
     this.hoverRangeCircle?.setVisible(false);
     this.refreshOwnGoldHud();
   }
