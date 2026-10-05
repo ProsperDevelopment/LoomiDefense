@@ -73,6 +73,12 @@ export class Enemy {
   physicsMs: number = 0;
   /** Panic oscillation phase for wounded units (random start per spawn). */
   private panicPhase: number = 0;
+  /** Hit-reaction offsets layered over path movement (ninja combat fx). */
+  fxX: number = 0;
+  fxY: number = 0;
+  fxRotation: number = 0;
+  /** Forced anim during a spin hit reaction (null = normal facing logic). */
+  animOverride: string | null = null;
   /** Decaying knockback velocity (px/s) layered over path movement. */
   knockVX: number = 0;
   knockVY: number = 0;
@@ -421,9 +427,9 @@ export class Enemy {
 
   private updateVisuals(): void {
     if (this.sprite) {
-      this.sprite.setPosition(this.position.x, this.position.y);
-      // Collision wobble — zero unless a hit just knocked it around
-      this.sprite.rotation = this.wobble;
+      this.sprite.setPosition(this.position.x + this.fxX, this.position.y + this.fxY);
+      // Collision wobble + hit-reaction rotation layered together
+      this.sprite.rotation = this.wobble + this.fxRotation;
 
       // Play correct animation based on movement direction.
       // Multiplayer guests face the direction of network movement;
@@ -443,7 +449,12 @@ export class Enemy {
         dy = target.y - this.position.y;
       }
 
-      if (dx !== null && dy !== null && (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)) {
+      if (this.animOverride) {
+        // Spin reaction forces the sheet through its directions
+        if (this.sprite.anims.currentAnim?.key !== this.animOverride) {
+          this.sprite.play(this.animOverride);
+        }
+      } else if (dx !== null && dy !== null && (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)) {
         const spriteInfo = ENEMY_SPRITES[this.type];
         const name = spriteInfo.key.replace('enemy_', '');
         // Close combat swaps the walk cycle for the attack stance
@@ -548,6 +559,10 @@ export class Enemy {
     this.physicsBy = null;
     this.physicsMs = 0;
     this.panicPhase = Math.random() * Math.PI * 2;
+    this.fxX = 0;
+    this.fxY = 0;
+    this.fxRotation = 0;
+    this.animOverride = null;
     this.knockVX = 0;
     this.knockVY = 0;
     this.spin = 0;

@@ -8,6 +8,9 @@ interface SpawnEntry {
   spawnDelay: number;
   elapsed: number;
   remaining: number;
+  /** Routing info handed to the spawner (optional per entry). */
+  pathTurns?: number[];
+  spawnPoint?: number;
 }
 
 /**
@@ -35,7 +38,7 @@ export class WaveManager {
   private earlyStartBonus: number = 50;
 
   // Callbacks
-  onSpawnEnemy: ((enemyType: EnemyType) => void) | null = null;
+  onSpawnEnemy: ((spawn: { enemyType: EnemyType; pathTurns?: number[]; spawnPoint?: number }) => void) | null = null;
   onWaveCleared: ((waveNumber: number) => void) | null = null;
   onAllWavesCleared: (() => void) | null = null;
 
@@ -161,6 +164,8 @@ export class WaveManager {
         spawnDelay: entry.spawnDelay,
         elapsed: entry.waveDelay,
         remaining: entry.count,
+        ...(entry.pathTurns ? { pathTurns: entry.pathTurns } : {}),
+        ...(entry.spawnPoint !== undefined ? { spawnPoint: entry.spawnPoint } : {}),
       });
       this.entryTimers.push(entry.waveDelay);
       this.totalEnemiesInWave += entry.count;
@@ -231,8 +236,12 @@ export class WaveManager {
       this.entryTimers[i] -= deltaMs;
 
       if (this.entryTimers[i] <= 0) {
-        // Spawn an enemy
-        this.onSpawnEnemy?.(entry.enemyType);
+        // Spawn an enemy (with this entry's routing, if it has any)
+        this.onSpawnEnemy?.({
+          enemyType: entry.enemyType,
+          ...(entry.pathTurns ? { pathTurns: entry.pathTurns } : {}),
+          ...(entry.spawnPoint !== undefined ? { spawnPoint: entry.spawnPoint } : {}),
+        });
         this.enemiesSpawnedThisWave++;
 
         eventBus.emit('enemy-spawned', {

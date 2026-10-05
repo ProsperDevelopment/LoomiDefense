@@ -118,3 +118,33 @@ describe('WaveManager', () => {
     expect(wm.getCurrentWave()).toBeNull();
   });
 });
+
+describe('wave entry path routing', () => {
+  it('hands each entry its path turns and spawn point to the spawner', () => {
+    const wm = new WaveManager([
+      { waveNumber: 1, entries: [
+        { enemyType: 'basic', count: 1, spawnDelay: 0, waveDelay: 0, pathTurns: [1, 0], spawnPoint: 2 },
+      ] },
+    ]);
+    const onSpawn = vi.fn();
+    wm.onSpawnEnemy = onSpawn;
+    wm.startWave();
+    wm.update(10);
+    expect(onSpawn).toHaveBeenCalledWith({
+      enemyType: 'basic',
+      pathTurns: [1, 0],
+      spawnPoint: 2,
+    });
+  });
+
+  it('omits routing fields the entry does not have', () => {
+    const wm = new WaveManager([
+      { waveNumber: 1, entries: [{ enemyType: 'fast', count: 1, spawnDelay: 0, waveDelay: 0 }] },
+    ]);
+    const onSpawn = vi.fn();
+    wm.onSpawnEnemy = onSpawn;
+    wm.startWave();
+    wm.update(10);
+    expect(onSpawn).toHaveBeenCalledWith({ enemyType: 'fast' });
+  });
+});

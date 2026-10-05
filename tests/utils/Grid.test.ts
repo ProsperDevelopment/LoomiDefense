@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Grid } from '../../src/utils/Grid';
 import type { MapData, AreaType } from '../../src/types';
 
@@ -301,5 +301,83 @@ describe('blood drip bottoms', () => {
     grid.placeTowerAtBg(4, 0, 'arrow');
     expect(grid.areaBottomY(108, 60)).toBeNull(); // tower, no wall
     expect(grid.towerBottomY(108, 60)).toBe(84);
+  });
+});
+
+describe('resolveRoutePixels (path splits)', () => {
+  const branchMap: MapData = {
+    ...testMap,
+    width: 6,
+    height: 4,
+    grid: [
+      ['empty', 'empty', 'empty', 'empty', 'empty', 'empty'],
+      ['spawn', 'path', 'path', 'path', 'empty', 'empty'],
+      ['empty', 'path', 'empty', 'empty', 'empty', 'empty'],
+      ['empty', 'path', 'empty', 'base', 'empty', 'empty'],
+    ],
+    spawnPoints: [{ x: 0, y: 1 }],
+    basePath: [{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }],
+    // Fork at (1,1) going down; second fork at (1,2) going east
+    branches: [
+      [{ x: 1, y: 1 }, { x: 1, y: 2 }, { x: 1, y: 3 }],
+      [{ x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 }],
+    ],
+  };
+
+  it('turn0 stays on the main path, turn1 takes the branch', () => {
+    const grid = new Grid(branchMap);
+    const main = grid.resolveRoutePixels(0, [0]);
+    expect(main[main.length - 1]).toEqual(grid.gridToWorld(3, 1));
+
+    // [1, 0]: first split -> branch, second split -> stay on it
+    const branch = grid.resolveRoutePixels(0, [1, 0]);
+    expect(branch[branch.length - 1]).toEqual(grid.gridToWorld(1, 3));
+    expect(branch).toContainEqual(grid.gridToWorld(1, 2));
+  });
+
+  it('consumes one turn per split, in encounter order', () => {
+    const grid = new Grid(branchMap);
+    // First split -> branch, second split at (1,2) -> east fork
+    const route = grid.resolveRoutePixels(0, [1, 1]);
+    expect(route[route.length - 1]).toEqual(grid.gridToWorld(3, 2));
+  });
+
+  it('randomizes a turn when the config is missing', () => {
+    const grid = new Grid(branchMap);
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const route = grid.resolveRoutePixels(0); // random pick -> index0 -> main
+      expect(route[route.length - 1]).toEqual(grid.gridToWorld(3, 1));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('snaps an adjacent spawn cell onto the road (legacy levels)', () => {
+    const grid = new Grid({ ...branchMap, spawnPoints: [{ x: 5, y: 3 }] });
+    // Off-graph and not adjacent -> falls back to the main path
+    expect(grid.resolveRoutePixels(0)).toEqual(grid.getPathPixels());
+
+    const grid2 = new Grid({ ...branchMap, spawnPoints: [{ x: 0, y: 0 }] }); // adjacent to (0,1)
+    const route = grid2.resolveRoutePixels(0, [0]);
+    expect(route[0]).toEqual(grid2.gridToWorld(0, 1));
+  });
+});
+
+describe('getRoadPolylines', () => {
+  it('returns the main path plus every branch as pixel polylines', () => {
+    const grid = new Grid({
+      ...testMap,
+      branches: [[{ x: 1, y: 1 }, { x: 1, y: 2 }]],
+    });
+    const polys = grid.getRoadPolylines();
+    expect(polys).toHaveLength(2);
+    expect(polys[0]).toEqual(grid.getPathPixels());
+    expect(polys[1]).toEqual([grid.gridToWorld(1, 1), grid.gridToWorld(1, 2)]);
+  });
+
+  it('falls back to the main path when there are no branches', () => {
+    const grid = new Grid(testMap);
+    expect(grid.getRoadPolylines()).toHaveLength(1);
   });
 });

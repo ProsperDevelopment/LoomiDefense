@@ -393,3 +393,19 @@ describe('low-health panic (below 25% hp)', () => {
     }
   });
 });
+
+describe('battle hit reactions (fx state)', () => {
+  it('layers fx offsets over the path and clears them on reset', () => {
+    const e = new Enemy('basic', simplePath);
+    e.fxY = -24;
+    e.fxRotation = Math.PI;
+    e.animOverride = 'slime_left';
+    expect(e.hasPhysics()).toBe(false); // unrelated systems stay independent
+
+    e.reset('basic', simplePath);
+    expect(e.fxX).toBe(0);
+    expect(e.fxY).toBe(0);
+    expect(e.fxRotation).toBe(0);
+    expect(e.animOverride).toBeNull();
+  });
+});

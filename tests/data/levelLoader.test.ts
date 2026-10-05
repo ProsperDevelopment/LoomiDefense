@@ -238,3 +238,41 @@ describe('difficulty wave sets', () => {
     expect(selectWaves(plain, 'hard')).toBeUndefined(); // built-in defaults
   });
 });
+
+describe('branches and spawn routing', () => {
+  it('parses branches and marks their cells as path', () => {
+    const level = loadLevelFromJSON({
+      ...baseLevel,
+      branches: [
+        [{ x: 1, y: 1 }, { x: 1, y: 2 }], // valid fork
+        [{ x: 9, y: 9 }, { x: 9, y: 10 }], // out of bounds -> dropped
+        'junk',                            // not a polyline -> dropped
+      ],
+    }, 1);
+
+    expect(level.branches).toHaveLength(1);
+    expect(level.branches![0]).toEqual([{ x: 1, y: 1 }, { x: 1, y: 2 }]);
+    // The branch cell (1,2) is road even though it is off the main path
+    expect(level.grid[2][1]).toBe('path');
+  });
+
+  it('keeps path routing fields on wave entries and drops junk', () => {
+    const level = loadLevelFromJSON({
+      ...baseLevel,
+      waves: [{ entries: [
+        { enemyType: 'basic', count: 5, spawnDelay: 100, waveDelay: 0,
+          pathTurns: [0, 1, -2, 'x'], spawnPoint: 2 },
+        { enemyType: 'fast', count: 2, spawnDelay: 100, waveDelay: 0,
+          pathTurns: [], spawnPoint: -1 },
+      ] }],
+    }, 1);
+
+    const routed = level.waves![0].entries[0];
+    expect(routed.pathTurns).toEqual([0, 1]);
+    expect(routed.spawnPoint).toBe(2);
+
+    const plain = level.waves![0].entries[1];
+    expect(plain.pathTurns).toBeUndefined();
+    expect(plain.spawnPoint).toBeUndefined();
+  });
+});

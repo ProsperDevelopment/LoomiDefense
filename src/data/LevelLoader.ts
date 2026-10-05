@@ -67,17 +67,41 @@ function parseWaves(value: unknown): WaveData[] | undefined {
       if (!(e.enemyType in ENEMY_DEFINITIONS)) continue;
       const count = Math.floor(Number(e.count));
       if (!Number.isFinite(count) || count < 1) continue;
+      const rawTurns = Array.isArray(e.pathTurns)
+        ? e.pathTurns.filter((t: unknown): t is number => Number.isInteger(t) && (t as number) >= 0)
+        : [];
       entries.push({
         enemyType: e.enemyType as WaveEntry['enemyType'],
         count,
         spawnDelay: Math.max(0, Math.floor(Number(e.spawnDelay) || 0)),
         waveDelay: Math.max(0, Math.floor(Number(e.waveDelay) || 0)),
+        ...(rawTurns.length > 0 ? { pathTurns: rawTurns } : {}),
+        ...(Number.isInteger(e.spawnPoint) && (e.spawnPoint as number) >= 0
+          ? { spawnPoint: e.spawnPoint as number }
+          : {}),
       });
     }
     if (entries.length === 0) continue;
     waves.push({ waveNumber: waves.length + 1, entries });
   }
   return waves.length > 0 ? waves : undefined;
+}
+
+/** Keep only well-formed branch polylines (integer in-bounds points). */
+function parseBranches(value: unknown, width: number, height: number): { x: number; y: number }[][] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: { x: number; y: number }[][] = [];
+  for (const raw of value) {
+    if (!Array.isArray(raw) || raw.length < 2) continue;
+    const pts: { x: number; y: number }[] = [];
+    for (const p of raw) {
+      if (!p || !Number.isInteger(p.x) || !Number.isInteger(p.y)) continue;
+      if (p.x < 0 || p.x >= width || p.y < 0 || p.y >= height) continue;
+      pts.push({ x: p.x, y: p.y });
+    }
+    if (pts.length >= 2) out.push(pts);
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /** Per-difficulty wave sets; only valid non-empty sets are kept. */
@@ -116,8 +140,12 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
       const isSpawn = jsonData.spawnPoints?.some((s: any) => s.x === x && s.y === y);
       // Check if this is a base point
       const isBase = jsonData.basePoints?.some((b: any) => b.x === x && b.y === y);
-      // Check if this is a path point
-      const isPath = jsonData.path?.some((p: any) => p.x === x && p.y === y);
+      // Check if this is a path point (main path or any branch)
+      const isPath =
+        jsonData.path?.some((p: any) => p.x === x && p.y === y) ||
+        jsonData.branches?.some(
+          (br: any) => Array.isArray(br) && br.some((p: any) => p.x === x && p.y === y),
+        );
       
       if (isSpawn) {
         row.push('spawn');
@@ -146,6 +174,7 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
     grid,
     spawnPoints,
     basePath,
+    branches: parseBranches(jsonData.branches, jsonData.width, jsonData.height),
     // Legacy levels declared a tileset with local indices — convert to
     // global tile ids; newer levels are already global.
     bgTiles: convertLegacyBgTiles(jsonData.bgTiles, jsonData.tileset),

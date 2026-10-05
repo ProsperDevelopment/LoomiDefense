@@ -34,6 +34,9 @@ export interface MapData {
   grid: CellType[][];
   spawnPoints: { x: number; y: number }[];
   basePath: { x: number; y: number }[];
+  /** Branch polylines forking off the main path; each starts at a node
+   *  already on the path graph (grid coordinates). */
+  branches?: { x: number; y: number }[][];
   bgTiles?: number[][];  // Background tiles (2x resolution, global tile ids across all tilesets)
   areas?: AreaType[][];  // Area overlay layer (same size as bgTiles, 2x grid; legacy grid-res layers are auto-upgraded)
   fgAreas?: FgAreaType[][]; // Foreground markers (same size as bgTiles, 2x grid)
@@ -115,6 +118,11 @@ export interface WaveEntry {
   count: number;
   spawnDelay: number;     // ms between spawns
   waveDelay: number;      // ms before this entry starts (from wave start)
+  /** Turn taken at each path split, in encounter order (0 = first
+   *  option in edge-creation order). Missing = random per spawn. */
+  pathTurns?: number[];
+  /** Index into the level's spawn points. Missing = random per spawn. */
+  spawnPoint?: number;
 }
 
 export interface WaveData {

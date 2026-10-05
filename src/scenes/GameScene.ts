@@ -229,7 +229,7 @@ export class GameScene extends Phaser.Scene {
     this.setupInput();
     this.setupEvents();
 
-    this.waveManager.onSpawnEnemy = (type) => this.spawnEnemy(type);
+    this.waveManager.onSpawnEnemy = (spawn) => this.spawnEnemy(spawn.enemyType, spawn);
 
     // Multiplayer: wire lobby net handlers
     this.setupNetHandlers();
@@ -899,33 +899,30 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawSmoothRoad(roadColor?: number, roadColorDark?: number): void {
-    const pathPixels = this.grid.getPathPixels();
-    if (pathPixels.length < 2) return;
+    const polylines = this.grid.getRoadPolylines().filter((p) => p.length >= 2);
+    if (polylines.length === 0) return;
 
     const graphics = this.add.graphics();
     // graphics.setDepth(1);
-
-    // Convert grid points to smooth curve points
-    const smoothPoints: { x: number; y: number }[] = [];
-    for (let i = 0; i < pathPixels.length; i++) {
-      smoothPoints.push({ x: pathPixels[i].x, y: pathPixels[i].y });
-    }
 
     const fill = roadColor ?? 0x7a7a7a;
     const outline = roadColorDark ?? this.shadeColor(fill, 0.6);
     const center = this.shadeColor(fill, 1.3);
 
-    // Draw road outline (darker)
-    graphics.lineStyle(36, outline, 1);
-    this.drawSmoothPath(graphics, smoothPoints);
+    // Main road first, then every branch — same widths so forks blend
+    for (const smoothPoints of polylines) {
+      // Draw road outline (darker)
+      graphics.lineStyle(36, outline, 1);
+      this.drawSmoothPath(graphics, smoothPoints);
 
-    // Draw road fill
-    graphics.lineStyle(28, fill, 1);
-    this.drawSmoothPath(graphics, smoothPoints);
+      // Draw road fill
+      graphics.lineStyle(28, fill, 1);
+      this.drawSmoothPath(graphics, smoothPoints);
 
-    // Draw road center line (lighter)
-    graphics.lineStyle(2, center, 0.5);
-    this.drawSmoothPath(graphics, smoothPoints);
+      // Draw road center line (lighter)
+      graphics.lineStyle(2, center, 0.5);
+      this.drawSmoothPath(graphics, smoothPoints);
+    }
   }
 
   /** Multiply RGB channels of a color by a factor (clamped to 0-255). */
@@ -976,7 +973,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private blockSmoothRoadCells(): void {
-    const pathPixels = this.grid.getPathPixels();
+    // Every road polyline (main + branches) blocks the cells it covers
+    for (const pathPixels of this.grid.getRoadPolylines()) {
+      this.blockPolylineCells(pathPixels);
+    }
+  }
+
+  private blockPolylineCells(pathPixels: { x: number; y: number }[]): void {
     if (pathPixels.length < 2) return;
 
     // Sample points along the smooth curve and block only directly overlapping cells
@@ -1777,6 +1780,61 @@ export class GameScene extends Phaser.Scene {
     b.spin += wobble(db.x, db.y, dvB);
   }
 
+  /**
+   * Random hit reaction while a ninja trades blows: fly up spinning,
+   * spin around through the sheet's directions, or tip over.
+   */
+  private ninjaHitFx(body: Enemy): void {
+    if (!body.alive || !body.sprite || !body.sprite.active) return;
+    this.tweens.killTweensOf(body); // only our fx tweens target the body
+    body.fxX = 0;
+    body.fxY = 0;
+    body.fxRotation = 0;
+    body.animOverride = null;
+
+    const roll = Math.random();
+    // The heavier the body, the less it rotates: light units flip
+    // fully, tanks and bosses barely tilt (120/weight, capped at 1)
+    const tilt = Math.min(1, 120 / body.weight);
+    if (roll < 1 / 3) {
+      // Fly up with a random turn of 90-360 degrees — the rotation
+      // spans the whole flight, so the body lands exactly upright
+      const turn =
+        (Math.random() < 0.5 ? -1 : 1) *
+        (Math.PI / 2 + Math.random() * Math.PI * 1.5) * tilt;
+      this.tweens.add({
+        targets: body, fxY: -24, duration: 230,
+        ease: 'Power2.out', yoyo: true, repeat: 1,
+      });
+      this.tweens.add({
+        targets: body, fxRotation: turn, duration: 460, ease: 'Linear',
+        onComplete: () => { body.fxRotation = 0; },
+      });
+    } else if (roll < 2 / 3) {
+      // Spin around: cycle the sheet left -> front -> right while turning
+      this.tweens.add({
+        targets: body, fxRotation: Math.PI * 2, duration: 360, ease: 'Linear',
+        onComplete: () => { body.fxRotation = 0; },
+      });
+      const base = body.sprite!.texture.key.replace('enemy_', '');
+      const keys = [`${base}_left`, `${base}_walk`, `${base}_right`];
+      body.animOverride = keys[0];
+      keys.forEach((k, i) => {
+        if (i === 0) return;
+        this.time.delayedCall(130 * i, () => { body.animOverride = k; });
+      });
+      this.time.delayedCall(130 * keys.length, () => { body.animOverride = null; });
+    } else {
+      // Tip over: fall sideways, then catch itself and stand back up
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      this.tweens.add({
+        targets: body, fxRotation: dir * 1.4 * tilt, duration: 160,
+        ease: 'Power2.out', yoyo: true, repeat: 1,
+        onComplete: () => { body.fxRotation = 0; },
+      });
+    }
+  }
+
   /** One melee trade: the ninja bounces off; the enemy reacts by weight. */
   private ninjaCollide(ninja: Enemy, target: Enemy): void {
     const dmg = ninja.data.contactDamage ?? 8;
@@ -1815,6 +1873,10 @@ export class GameScene extends Phaser.Scene {
     const ninjaKilled = this.healthSystem.applyDamage(
       { id: ninja.id, position: ninja.position, health: ninja.health }, dmg * NINJA_MELEE_HURT,
     );
+
+    // Random hit reactions for whoever survives the trade
+    if (!targetKilled && target.alive && target.collidable) this.ninjaHitFx(target);
+    if (!ninjaKilled && ninja.alive) this.ninjaHitFx(ninja);
 
     // The kill reward goes to the tower owner who sent this ninja
     if (targetKilled) this.onEnemyKilled(target, ninja.ownerId, { x: nx, y: ny });
@@ -2432,6 +2494,13 @@ export class GameScene extends Phaser.Scene {
     // report the same enemy through multiple paths in one frame).
     if (!enemy.alive) return;
     enemy.alive = false;
+    // Cancel any in-flight hit reaction so the corpse starts on the path
+    this.tweens.killTweensOf(enemy);
+    enemy.fxX = 0;
+    enemy.fxY = 0;
+    enemy.fxRotation = 0;
+    enemy.animOverride = null;
+    enemy.sprite?.setPosition(enemy.position.x, enemy.position.y);
 
     // Clear selection if this enemy was selected
     if (this.selectedEnemy === enemy) {
@@ -2476,6 +2545,12 @@ export class GameScene extends Phaser.Scene {
   private onNinjaKilled(ninja: Enemy, dir?: { x: number; y: number }): void {
     if (!ninja.alive) return;
     ninja.alive = false;
+    this.tweens.killTweensOf(ninja);
+    ninja.fxX = 0;
+    ninja.fxY = 0;
+    ninja.fxRotation = 0;
+    ninja.animOverride = null;
+    ninja.sprite?.setPosition(ninja.position.x, ninja.position.y);
     if (this.selectedEnemy === ninja) this.deselectEnemy();
     this.detachEnemy(ninja);
     ninja.healthBar?.setVisible(false);
@@ -3219,8 +3294,23 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private spawnEnemy(type: EnemyType): void {
-    const path = this.grid.getPathPixels();
+  private spawnEnemy(
+    type: EnemyType,
+    routing?: { pathTurns?: number[]; spawnPoint?: number },
+  ): void {
+    // Spawn point: the entry's pick, or a fresh random one per spawn
+    const spawnCount = this.grid.getSpawnPixels().length;
+    const spawnIdx =
+      routing?.spawnPoint !== undefined &&
+      Number.isInteger(routing.spawnPoint) &&
+      routing.spawnPoint >= 0 &&
+      routing.spawnPoint < spawnCount
+        ? routing.spawnPoint
+        : spawnCount > 0
+          ? Math.floor(Math.random() * spawnCount)
+          : 0;
+    // Route: entry turns through the path splits, randomized when absent
+    const path = this.grid.resolveRoutePixels(spawnIdx, routing?.pathTurns);
     const enemy = new Enemy(type, path);
     enemy.createSprite(this);
     this.enemies.push(enemy);

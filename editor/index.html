@@ -227,7 +227,8 @@
       the Easy tab's waves, and an empty difficulty tab inherits the
       Default tab (which falls back to the game's built-ins).
       Spawn ms = delay between spawns of an entry; wave ms = delay
-      before the entry starts.
+      before the entry starts. path = turns at each split (e.g. 0,1,
+      empty = random); spawn = spawn point index (empty = random).
     </p>
     <div id="wavesList"></div>
     <div class="waves-actions">
@@ -306,6 +307,13 @@ let currentAreaType = 'tree';
 let difficulty = 'easy';
 let startGold = 500;
 let pathPoints = [];
+// Branch paths (a path can split: each branch starts at a node of the
+// path drawn so far). activePathIndex -1 = main path.
+let branches = [];
+let activePathIndex = -1;
+// Shift-clicked road point: next click splits a new path from it
+// (when the selected point ENDS a line, the next click continues that line)
+let contOrigin = null;
 let spawnPoints = [];
 let basePoints = [];
 let currentTool = 'path';
@@ -404,6 +412,9 @@ function clearGrid() {
   areas = makeAreas(gridWidth, gridHeight);
   fgAreas = makeFgAreas(gridWidth, gridHeight);
   pathPoints = [];
+  branches = [];
+  activePathIndex = -1;
+  contOrigin = null;
   spawnPoints = [];
   basePoints = [];
   render();
@@ -456,6 +467,10 @@ function resizeGrid() {
 // Tools
 // ============================================================
 function setTool(tool) {
+  // Tool switches drop any pending split selection
+  contOrigin = null;
+  // Picking the path tool starts fresh on the main path
+  if (tool === 'path') activePathIndex = -1;
   // Clear selection when switching away from select tool
   if (currentTool === 'select' && tool !== 'select') {
     selectionStart = null;
@@ -791,32 +806,62 @@ function render() {
     }
   }
 
-  // Draw path
-  if (document.getElementById('showPath').checked && pathPoints.length > 1) {
-    ctx.strokeStyle = roadColor;
-    ctx.lineWidth = tileSize * 0.6;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(pathPoints[0].x * tileSize + tileSize/2, pathPoints[0].y * tileSize + tileSize/2);
-    for (let i = 1; i < pathPoints.length; i++) {
-      ctx.lineTo(pathPoints[i].x * tileSize + tileSize/2, pathPoints[i].y * tileSize + tileSize/2);
+  // Draw path (main road + every branch)
+  if (document.getElementById('showPath').checked) {
+    for (const poly of [pathPoints, ...branches]) {
+      if (poly.length <= 1) continue;
+      ctx.strokeStyle = roadColor;
+      ctx.lineWidth = tileSize * 0.6;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(poly[0].x * tileSize + tileSize/2, poly[0].y * tileSize + tileSize/2);
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo(poly[i].x * tileSize + tileSize/2, poly[i].y * tileSize + tileSize/2);
+      }
+      ctx.stroke();
+
+      // Path border
+      ctx.strokeStyle = roadColorDark;
+      ctx.lineWidth = tileSize * 0.7;
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.beginPath();
+      ctx.moveTo(poly[0].x * tileSize + tileSize/2, poly[0].y * tileSize + tileSize/2);
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo(poly[i].x * tileSize + tileSize/2, poly[i].y * tileSize + tileSize/2);
+      }
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
     }
-    ctx.stroke();
-    
-    // Path border
-    ctx.strokeStyle = roadColorDark;
-    ctx.lineWidth = tileSize * 0.7;
-    ctx.globalCompositeOperation = 'destination-over';
-    ctx.beginPath();
-    ctx.moveTo(pathPoints[0].x * tileSize + tileSize/2, pathPoints[0].y * tileSize + tileSize/2);
-    for (let i = 1; i < pathPoints.length; i++) {
-      ctx.lineTo(pathPoints[i].x * tileSize + tileSize/2, pathPoints[i].y * tileSize + tileSize/2);
-    }
-    ctx.stroke();
-    ctx.globalCompositeOperation = 'source-over';
   }
   
+  // Road points: every stop on the main path and its branches
+  if (document.getElementById('showPath').checked) {
+    for (const poly of [pathPoints, ...branches]) {
+      for (const p of poly) {
+        const cx = p.x * tileSize + tileSize / 2;
+        const cy = p.y * tileSize + tileSize / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, Math.max(3, tileSize * 0.13), 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
+        ctx.stroke();
+      }
+    }
+    // Highlighted continuation point
+    if (contOrigin) {
+      const cx = contOrigin.x * tileSize + tileSize / 2;
+      const cy = contOrigin.y * tileSize + tileSize / 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(6, tileSize * 0.3), 0, Math.PI * 2);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#FFD700';
+      ctx.stroke();
+    }
+  }
+
   // Draw spawn points
   spawnPoints.forEach(sp => {
     ctx.fillStyle = 'rgba(231, 76, 60, 0.7)';
@@ -1086,7 +1131,8 @@ function handleCell(e) {
     
     switch(currentTool) {
       case 'path':
-        addPathPoint(cell.x, cell.y);
+        if (e.shiftKey) selectRoadPoint(cell.x, cell.y);
+        else addPathPoint(cell.x, cell.y);
         break;
       case 'erasePath':
         removePathPoint(cell.x, cell.y);
@@ -1104,19 +1150,79 @@ function handleCell(e) {
   render();
 }
 
+function activePathPoints() {
+  return activePathIndex >= 0 && branches[activePathIndex]
+    ? branches[activePathIndex]
+    : pathPoints;
+}
+
 function addPathPoint(x, y) {
-  const last = pathPoints[pathPoints.length - 1];
+  // A shift-selected point splits a new path from itself
+  if (contOrigin) {
+    const origin = contOrigin;
+    contOrigin = null;
+    const branch = [{ x: origin.x, y: origin.y }];
+    if (origin.x !== x || origin.y !== y) branch.push({ x, y });
+    branches.push(branch);
+    activePathIndex = branches.length - 1;
+    document.getElementById('status').textContent =
+      `Split at (${origin.x}, ${origin.y}) — drawing branch ${activePathIndex + 1} of ${branches.length}`;
+    return;
+  }
+  const active = activePathPoints();
+  const last = active[active.length - 1];
   if (!last || last.x !== x || last.y !== y) {
-    pathPoints.push({ x, y });
+    active.push({ x, y });
   }
 }
 
-function removePathPoint(x, y) {
-  const before = pathPoints.length;
-  pathPoints = pathPoints.filter(p => !(p.x === x && p.y === y));
-  if (pathPoints.length !== before) {
+/**
+ * Shift+click a road point to choose where drawing continues:
+ * a point that ENDS a line continues that line, any other point arms
+ * a new split (the next click branches from it).
+ */
+function selectRoadPoint(x, y) {
+  const at = (p) => p.x === x && p.y === y;
+  if (pathPoints.length > 0 && at(pathPoints[pathPoints.length - 1])) {
+    activePathIndex = -1;
+    contOrigin = null;
+    document.getElementById('status').textContent = 'Continuing the main path';
+    return;
+  }
+  const bi = branches.findIndex(br => br.length > 0 && at(br[br.length - 1]));
+  if (bi >= 0) {
+    activePathIndex = bi;
+    contOrigin = null;
+    document.getElementById('status').textContent = `Continuing branch ${bi + 1}`;
+    return;
+  }
+  const onMain = pathPoints.some(at);
+  const onAnyBranch = branches.some(br => br.some(at));
+  if (!onMain && !onAnyBranch) {
     document.getElementById('status').textContent =
-      `Removed path point (${x}, ${y}) — ${pathPoints.length} points left`;
+      `No road point at (${x}, ${y}) — shift-click an existing point to continue from it`;
+    return;
+  }
+  contOrigin = { x, y };
+  document.getElementById('status').textContent =
+    `Selected (${x}, ${y}) — click to split a new path from here`;
+}
+
+function removePathPoint(x, y) {
+  const active = activePathPoints();
+  const before = active.length;
+  const target = activePathIndex >= 0 ? `branch ${activePathIndex + 1}` : 'path';
+  // splice from the end so the road shortens like before
+  const idx = active.findIndex(p => p.x === x && p.y === y);
+  if (idx >= 0) active.splice(idx, 1);
+  if (active.length !== before) {
+    document.getElementById('status').textContent =
+      `Removed point (${x}, ${y}) from ${target} — ${active.length} points left`;
+  }
+  // A branch shorter than fork+point is meaningless — drop it
+  if (activePathIndex >= 0 && branches[activePathIndex].length < 2) {
+    branches.splice(activePathIndex, 1);
+    activePathIndex = -1;
   }
 }
 
@@ -1481,6 +1587,8 @@ function renderWavesDialog() {
           <label>count <input type="number" min="1" value="${entry.count}" onchange="setWaveEntry(${wi}, ${ei}, 'count', this.value)"></label>
           <label>spawn ms <input type="number" min="0" value="${entry.spawnDelay}" onchange="setWaveEntry(${wi}, ${ei}, 'spawnDelay', this.value)"></label>
           <label>wave ms <input type="number" min="0" value="${entry.waveDelay}" onchange="setWaveEntry(${wi}, ${ei}, 'waveDelay', this.value)"></label>
+          <label>path <input type="text" style="width:46px" value="${(entry.pathTurns || []).join(',')}" placeholder="rnd" title="Turn at each split, e.g. 0,1 — empty = random" onchange="setWaveEntry(${wi}, ${ei}, 'pathTurns', this.value)"></label>
+          <label>spawn <input type="number" min="0" style="width:44px" value="${entry.spawnPoint ?? ''}" placeholder="any" title="Spawn point index — empty = random" onchange="setWaveEntry(${wi}, ${ei}, 'spawnPoint', this.value)"></label>
           <button class="entry-remove" title="Remove entry" onclick="removeWaveEntry(${wi}, ${ei})">&times;</button>
         </div>`).join('')}
       <button class="btn secondary small" onclick="addWaveEntry(${wi})">+ Entry</button>
@@ -1512,6 +1620,16 @@ function setWaveEntry(wi, ei, field, value) {
   if (field === 'enemyType') {
     entry.enemyType = ENEMY_TYPES.includes(value) ? value : 'basic';
     renderWavesDialog(); // refresh the enemy icon
+  } else if (field === 'pathTurns') {
+    const turns = String(value).split(',')
+      .map(t => parseInt(t.trim(), 10))
+      .filter(n => Number.isInteger(n) && n >= 0);
+    if (turns.length) entry.pathTurns = turns;
+    else delete entry.pathTurns;
+  } else if (field === 'spawnPoint') {
+    const n = Math.floor(Number(value));
+    if (Number.isFinite(n) && n >= 0) entry.spawnPoint = n;
+    else delete entry.spawnPoint;
   } else {
     const min = field === 'count' ? 1 : 0;
     const n = Math.floor(Number(value));
@@ -1534,6 +1652,19 @@ function saveWaves() {
 }
 
 // Validate/import wave data from a level JSON (returns [] when unusable)
+/** Validate imported branch polylines (int points inside the level). */
+function normalizeBranches(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const br of raw) {
+    if (!Array.isArray(br) || br.length < 2) continue;
+    const pts = br.filter(p => p && Number.isInteger(p.x) && Number.isInteger(p.y)
+      && p.x >= 0 && p.x < gridWidth && p.y >= 0 && p.y < gridHeight);
+    if (pts.length >= 2) out.push(pts);
+  }
+  return out;
+}
+
 function normalizeWaves(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -1546,6 +1677,15 @@ function normalizeWaves(raw) {
           count: Math.floor(Number(e.count)),
           spawnDelay: Math.max(0, Math.floor(Number(e.spawnDelay) || 0)),
           waveDelay: Math.max(0, Math.floor(Number(e.waveDelay) || 0)),
+          ...(Array.isArray(e.pathTurns)
+            ? (() => {
+                const t = e.pathTurns.filter(n => Number.isInteger(n) && n >= 0);
+                return t.length ? { pathTurns: t } : {};
+              })()
+            : {}),
+          ...(Number.isInteger(e.spawnPoint) && e.spawnPoint >= 0
+            ? { spawnPoint: e.spawnPoint }
+            : {}),
         })),
     }))
     .filter(w => w.entries.length > 0);
@@ -1588,6 +1728,7 @@ function buildLevelData() {
     }),
     ...(Object.keys(difficultyWavesOut).length > 0 && { difficultyWaves: difficultyWavesOut }),
     path: pathPoints,
+    ...(branches.length > 0 && { branches }),
     spawnPoints: spawnPoints,
     basePoints: basePoints,
     groundColor: colorToNum(groundColor, 0x8a8c4e),
@@ -1658,6 +1799,8 @@ async function applyLevelData(data) {
   updateWavesSummary();
   
   pathPoints = data.path || [];
+  branches = normalizeBranches(data.branches);
+  activePathIndex = -1;
   spawnPoints = data.spawnPoints || [];
   basePoints = data.basePoints || [];
   

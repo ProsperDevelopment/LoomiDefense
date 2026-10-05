@@ -267,6 +267,98 @@ export class Grid {
     return this.mapData.basePath.map(p => this.gridToWorld(p.x, p.y));
   }
 
+  /** All road polylines in world pixels: main path + every branch. */
+  getRoadPolylines(): { x: number; y: number }[][] {
+    const polys = [this.getPathPixels()];
+    for (const branch of this.mapData.branches ?? []) {
+      if (branch.length >= 2) polys.push(branch.map((p) => this.gridToWorld(p.x, p.y)));
+    }
+    return polys;
+  }
+
+  /** Adjacency for route walking: node key -> edges with creation order. */
+  private routeGraph: Map<string, { x: number; y: number; order: number }[]> | null = null;
+
+  private static nodeKey(p: { x: number; y: number }): string {
+    return `${p.x},${p.y}`;
+  }
+
+  private buildRouteGraph(): Map<string, { x: number; y: number; order: number }[]> {
+    const g = new Map<string, { x: number; y: number; order: number }[]>();
+    const link = (a: { x: number; y: number }, b: { x: number; y: number }, order: number): void => {
+      const ka = Grid.nodeKey(a);
+      const kb = Grid.nodeKey(b);
+      if (!g.has(ka)) g.set(ka, []);
+      if (!g.has(kb)) g.set(kb, []);
+      g.get(ka)!.push({ ...b, order });
+      g.get(kb)!.push({ ...a, order });
+    };
+    let order = 0;
+    const chain = (pts: { x: number; y: number }[]): void => {
+      for (let i = 1; i < pts.length; i++) link(pts[i - 1], pts[i], order++);
+    };
+    chain(this.mapData.basePath);
+    for (const branch of this.mapData.branches ?? []) chain(branch);
+    return g;
+  }
+
+  /**
+   * Full spawn->base route for one enemy: walk the path graph from a
+   * spawn point, taking turns[i] at the i-th split (options sorted in
+   * edge-creation order: main path first, then branches as authored).
+   * Missing or out-of-range turns randomize per call; spawn cells that
+   * sit next to the road snap onto it, and an unusable spawn falls back
+   * to the main path (legacy behaviour).
+   */
+  resolveRoutePixels(spawnIndex: number, turns?: number[]): { x: number; y: number }[] {
+    const g = (this.routeGraph ??= this.buildRouteGraph());
+    let start = this.mapData.spawnPoints[spawnIndex];
+    if (start && !g.has(Grid.nodeKey(start))) {
+      // Spawn cells often sit adjacent to the road — snap onto it
+      const offsets = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+      for (const [dx, dy] of offsets) {
+        const cand = { x: start.x + dx, y: start.y + dy };
+        if (g.has(Grid.nodeKey(cand))) { start = cand; break; }
+      }
+    }
+    if (!start || !g.has(Grid.nodeKey(start))) return this.getPathPixels();
+
+    // Single road (no splits): slice the LINEAR path from the resolved
+    // spawn — self-crossing legacy levels contain duplicate nodes that
+    // only the linear array walks exactly as authored
+    if (!this.mapData.branches || this.mapData.branches.length === 0) {
+      const idx = this.mapData.basePath.findIndex(
+        (p) => p.x === start!.x && p.y === start!.y,
+      );
+      if (idx < 0) return this.getPathPixels();
+      return this.mapData.basePath.slice(idx).map((p) => this.gridToWorld(p.x, p.y));
+    }
+
+    const route: { x: number; y: number }[] = [start];
+    const visited = new Set<string>([Grid.nodeKey(start)]);
+    let turnIdx = 0;
+    let cur = start;
+    for (;;) {
+      const options = (g.get(Grid.nodeKey(cur)) ?? [])
+        .filter((o) => !visited.has(Grid.nodeKey(o)))
+        .sort((a, b) => a.order - b.order);
+      if (options.length === 0) break; // dead end = a base
+      let pick = 0;
+      if (options.length > 1) {
+        const t = turns?.[turnIdx];
+        turnIdx++;
+        pick = Number.isInteger(t) && (t as number) >= 0 && (t as number) < options.length
+          ? (t as number)
+          : Math.floor(Math.random() * options.length);
+      }
+      const next = options[pick];
+      route.push(next);
+      visited.add(Grid.nodeKey(next));
+      cur = next;
+    }
+    return route.map((p) => this.gridToWorld(p.x, p.y));
+  }
+
   getMapData(): MapData {
     return this.mapData;
   }

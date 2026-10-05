@@ -2643,8 +2643,8 @@
         },
         {
           "enemyType": "splitter",
-          "count": 5,
-          "spawnDelay": 500,
+          "count": 8,
+          "spawnDelay": 600,
           "waveDelay": 10000
         },
         {
@@ -2736,6 +2736,12 @@
           "waveDelay": 0
         },
         {
+          "enemyType": "splitter",
+          "count": 5,
+          "spawnDelay": 500,
+          "waveDelay": 0
+        },
+        {
           "enemyType": "armored",
           "count": 5,
           "spawnDelay": 500,
@@ -2804,6 +2810,12 @@
           "count": 10,
           "spawnDelay": 500,
           "waveDelay": 0
+        },
+        {
+          "enemyType": "splitter",
+          "count": 5,
+          "spawnDelay": 500,
+          "waveDelay": 10500
         },
         {
           "enemyType": "boss",
