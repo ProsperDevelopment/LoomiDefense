@@ -267,6 +267,57 @@ export class Grid {
     return this.mapData.basePath.map(p => this.gridToWorld(p.x, p.y));
   }
 
+  /** Authored bases, falling back to the main path's end. */
+  getBasePoints(): { x: number; y: number }[] {
+    const bases = this.mapData.basePoints;
+    if (bases && bases.length > 0) return bases;
+    const end = this.mapData.basePath[this.mapData.basePath.length - 1];
+    return end ? [end] : [];
+  }
+
+  /**
+   * Reverse route for ninja summons, returned in spawn->base order so
+   * Enemy's reverse walker departs from the chosen base. Walks the
+   * graph out of the base taking the first (lowest edge-order) option
+   * at every fork — for branches that heads back toward the spawn.
+   * Branchless levels slice the linear path, so legacy levels behave
+   * exactly as before.
+   */
+  resolveBaseRoutePixels(baseIndex: number): { x: number; y: number }[] {
+    const bases = this.getBasePoints();
+    if (bases.length === 0 || this.mapData.basePath.length === 0) return this.getPathPixels();
+    const idx = Math.max(0, Math.min(Math.floor(baseIndex) || 0, bases.length - 1));
+    const base = bases[idx];
+    const mainEnd = this.mapData.basePath[this.mapData.basePath.length - 1];
+
+    if (!this.mapData.branches || this.mapData.branches.length === 0) {
+      // Single road: the main end keeps the exact legacy route
+      if (base.x === mainEnd.x && base.y === mainEnd.y) return this.getPathPixels();
+      let i = this.mapData.basePath.findIndex((p) => p.x === base.x && p.y === base.y);
+      if (i < 0) {
+        // Base cell often sits next to the road — use its neighbour
+        i = this.mapData.basePath.findIndex(
+          (p) => Math.abs(p.x - base.x) <= 1 && Math.abs(p.y - base.y) <= 1,
+        );
+      }
+      if (i < 0) return this.getPathPixels();
+      return this.mapData.basePath.slice(0, i + 1).map((p) => this.gridToWorld(p.x, p.y));
+    }
+
+    const g = (this.routeGraph ??= this.buildRouteGraph());
+    let start = base;
+    if (!g.has(Grid.nodeKey(start))) {
+      const offsets = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+      for (const [dx, dy] of offsets) {
+        const cand = { x: start.x + dx, y: start.y + dy };
+        if (g.has(Grid.nodeKey(cand))) { start = cand; break; }
+      }
+    }
+    if (!g.has(Grid.nodeKey(start))) return this.getPathPixels();
+    // Walk base -> dead end, then flip so the route ends at the base
+    return this.walkGraph(start, undefined, false).reverse().map((p) => this.gridToWorld(p.x, p.y));
+  }
+
   /** All road polylines in world pixels: main path + every branch. */
   getRoadPolylines(): { x: number; y: number }[][] {
     const polys = [this.getPathPixels()];
@@ -334,6 +385,20 @@ export class Grid {
       return this.mapData.basePath.slice(idx).map((p) => this.gridToWorld(p.x, p.y));
     }
 
+    return this.walkGraph(start, turns, true).map((p) => this.gridToWorld(p.x, p.y));
+  }
+
+  /**
+   * Graph walk from a node: follow unvisited edges in creation order,
+   * consuming turns[i] at the i-th split (randomizing missing turns
+   * when randomizeMissing is on, otherwise taking the first option).
+   */
+  private walkGraph(
+    start: { x: number; y: number },
+    turns?: number[],
+    randomizeMissing: boolean = true,
+  ): { x: number; y: number }[] {
+    const g = (this.routeGraph ??= this.buildRouteGraph());
     const route: { x: number; y: number }[] = [start];
     const visited = new Set<string>([Grid.nodeKey(start)]);
     let turnIdx = 0;
@@ -349,14 +414,16 @@ export class Grid {
         turnIdx++;
         pick = Number.isInteger(t) && (t as number) >= 0 && (t as number) < options.length
           ? (t as number)
-          : Math.floor(Math.random() * options.length);
+          : randomizeMissing
+            ? Math.floor(Math.random() * options.length)
+            : 0;
       }
       const next = options[pick];
       route.push(next);
       visited.add(Grid.nodeKey(next));
       cur = next;
     }
-    return route.map((p) => this.gridToWorld(p.x, p.y));
+    return route;
   }
 
   getMapData(): MapData {

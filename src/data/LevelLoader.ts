@@ -173,6 +173,11 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
     cellSize: 48,
     grid,
     spawnPoints,
+    basePoints: Array.isArray(jsonData.basePoints) && jsonData.basePoints.length > 0
+      ? jsonData.basePoints.filter(
+          (b: any) => b && Number.isInteger(b.x) && Number.isInteger(b.y),
+        )
+      : undefined,
     basePath,
     branches: parseBranches(jsonData.branches, jsonData.width, jsonData.height),
     // Legacy levels declared a tileset with local indices — convert to

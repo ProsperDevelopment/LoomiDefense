@@ -381,3 +381,34 @@ describe('getRoadPolylines', () => {
     expect(grid.getRoadPolylines()).toHaveLength(1);
   });
 });
+
+describe('resolveBaseRoutePixels (ninja summon bases)', () => {
+  it('keeps the exact legacy route when no bases are authored', () => {
+    const grid = new Grid(testMap);
+    expect(grid.getBasePoints()).toEqual([{ x: 3, y: 1 }]); // main path end
+    expect(grid.resolveBaseRoutePixels(0)).toEqual(grid.getPathPixels());
+    expect(grid.resolveBaseRoutePixels(99)).toEqual(grid.getPathPixels()); // clamped
+  });
+
+  it('slices the road when a base sits mid-path', () => {
+    const grid = new Grid({ ...testMap, basePoints: [{ x: 2, y: 1 }] });
+    expect(grid.resolveBaseRoutePixels(0)).toEqual([
+      grid.gridToWorld(0, 1),
+      grid.gridToWorld(1, 1),
+      grid.gridToWorld(2, 1),
+    ]);
+  });
+
+  it('routes from a branch base back toward the spawn', () => {
+    const grid = new Grid({
+      ...testMap,
+      branches: [[{ x: 1, y: 1 }, { x: 1, y: 2 }]],
+      basePoints: [{ x: 1, y: 2 }],
+    });
+    const route = grid.resolveBaseRoutePixels(0);
+    // spawn->base order so Enemy's reverse walker departs from the base
+    expect(route[route.length - 1]).toEqual(grid.gridToWorld(1, 2));
+    expect(route).toContainEqual(grid.gridToWorld(1, 1));
+    expect(route[0]).toEqual(grid.gridToWorld(0, 1)); // comes back to the spawn
+  });
+});

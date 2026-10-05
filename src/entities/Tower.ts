@@ -36,6 +36,8 @@ export class Tower {
   position: Position;
   level: number = 1;
   targetMode: TargetMode = 'first';
+  /** Ninja towers: index of the base their summons depart from. */
+  ninjaBase: number = 0;
   fireTimer: number = 0;
 
   // Phaser objects (set when added to scene)

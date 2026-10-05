@@ -95,6 +95,7 @@ describe('tower roster', () => {
     expect(ninja.range).toBe(0);
     expect(ninja.fireRate).toBeGreaterThan(0); // seconds between summons
     const tower = new Tower('ninja', 0, 0);
+    expect(tower.ninjaBase).toBe(0); // departs from base #1 by default
     expect(tower.canFire()).toBe(true); // summon ready
     tower.fire();
     expect(tower.canFire()).toBe(false); // then it goes on cooldown

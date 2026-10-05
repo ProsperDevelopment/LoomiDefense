@@ -12,6 +12,8 @@ export interface TowerPanelCallbacks {
   maxedOut?: (type: TowerType) => boolean;
   /** Cycle the selected tower's targeting mode. */
   onAimChange?: (mode: TargetMode) => void;
+  /** Ninja towers: which base their summons depart from. */
+  onBaseChange?: (base: number) => void;
   onCancel: () => void;
 }
 
@@ -47,7 +49,7 @@ export class TowerPanel {
     return list.filter((t) => this.availableTypes!.includes(t.type));
   }
 
-  showAtCursor(pointerX: number, pointerY: number, mode: 'build' | 'tower', towerData?: { type: TowerType; level: number; sellValue: number; aim: TargetMode; owned?: boolean }): void {
+  showAtCursor(pointerX: number, pointerY: number, mode: 'build' | 'tower', towerData?: { type: TowerType; level: number; sellValue: number; aim: TargetMode; owned?: boolean; baseCount?: number; selectedBase?: number }): void {
     this.container.removeAll(true);
 
     const width = this.scene.cameras.main.width;
@@ -161,7 +163,7 @@ export class TowerPanel {
     this.container.setPosition(x + totalWidth / 2 + padding, y + totalHeight / 2);
   }
 
-  private createTowerInfoMenu(x: number, y: number, data: { type: TowerType; level: number; sellValue: number; aim: TargetMode; owned?: boolean }): void {
+  private createTowerInfoMenu(x: number, y: number, data: { type: TowerType; level: number; sellValue: number; aim: TargetMode; owned?: boolean; baseCount?: number; selectedBase?: number }): void {
     const towerDef = TOWER_DEFINITIONS[data.type];
     const upgradeData = TOWER_UPGRADES[data.level];
     const canUpgrade = data.level < MAX_TOWER_LEVEL;
@@ -242,10 +244,38 @@ export class TowerPanel {
       this.container.add(maxText);
     }
 
-    // Aim toggle: cycles first -> last -> strongest -> random —
-    // only the owner may change it (no close button — clicking
-    // outside closes the popup)
-    if (data.owned) {
+    // Ninja towers pick the base their summons depart from instead of
+    // a targeting mode; everything else keeps the aim toggle
+    // (owner-only — clicking outside closes the popup)
+    if (data.type === 'ninja') {
+      const count = Math.max(1, data.baseCount ?? 1);
+      const current = Math.min(Math.max(data.selectedBase ?? 0, 0), count - 1);
+      if (data.owned) {
+        const baseBg = this.scene.add.rectangle(0, 78, 140, 28, 0x263238);
+        baseBg.setStrokeStyle(1, 0x90a4ae);
+        const baseText = this.scene.add.text(0, 78, `BASE: ${current + 1} / ${count}`, {
+          fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
+        }).setOrigin(0.5);
+        this.container.add([baseBg, baseText]);
+
+        let selected = current;
+        baseBg.setInteractive({ useHandCursor: true });
+        baseBg.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+          pointer.event.stopPropagation();
+          (this.scene as any).popupClickHandled = true;
+          selected = (selected + 1) % count;
+          baseText.setText(`BASE: ${selected + 1} / ${count}`);
+          this.callbacks.onBaseChange?.(selected);
+        });
+        baseBg.on('pointerover', () => baseBg.setFillStyle(0x37474f));
+        baseBg.on('pointerout', () => baseBg.setFillStyle(0x263238));
+      } else {
+        const locked = this.scene.add.text(0, 78, 'BASE: OWNER ONLY', {
+          fontSize: '10px', color: '#666666',
+        }).setOrigin(0.5);
+        this.container.add(locked);
+      }
+    } else if (data.owned) {
       const aimModes: TargetMode[] = ['first', 'last', 'strongest', 'random'];
       const aimBg = this.scene.add.rectangle(0, 78, 140, 28, 0x263238);
       aimBg.setStrokeStyle(1, 0x90a4ae);

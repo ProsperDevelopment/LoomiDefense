@@ -363,6 +363,15 @@ export class GameScene extends Phaser.Scene {
           tower.targetMode = mode;
         }
       },
+      onBaseChange: (base) => {
+        const tower = this.selectedTower;
+        if (!tower || tower.type !== 'ninja' || tower.ownerId !== this.myPlayerId()) return;
+        if (this.netRole === 'guest') {
+          lobby.sendCommand({ k: 'base', id: tower.id, base });
+        } else {
+          tower.ninjaBase = base;
+        }
+      },
       onCancel: () => this.cancelPendingBuild(),
     });
     this.towerPanel.setAvailableTypes(this.loadoutTypes);
@@ -589,7 +598,7 @@ export class GameScene extends Phaser.Scene {
     else if (snap.status === 'lost') this.gameOver(false);
   }
 
-  private syncGuestTowers(snaps: Array<{ id: string; type: string; col: number; row: number; level: number; color: string; ownerId?: string; targetMode?: string }>): void {
+  private syncGuestTowers(snaps: Array<{ id: string; type: string; col: number; row: number; level: number; color: string; ownerId?: string; targetMode?: string; ninjaBase?: number }>): void {
     const seen = new Set<string>();
     for (const s of snaps) {
       seen.add(s.id);
@@ -620,6 +629,8 @@ export class GameScene extends Phaser.Scene {
       if (s.targetMode && TARGET_MODES.includes(s.targetMode as TargetMode)) {
         tower.targetMode = s.targetMode as TargetMode;
       }
+      // Ninja towers: which base the host spawns summons from
+      if (s.ninjaBase !== undefined) tower.ninjaBase = s.ninjaBase;
     }
     for (let i = this.towers.length - 1; i >= 0; i--) {
       const tower = this.towers[i];
@@ -751,6 +762,7 @@ export class GameScene extends Phaser.Scene {
         color: t.tintColorHex ?? userProfile.towerColor,
         ownerId: t.ownerId ?? undefined,
         targetMode: t.targetMode,
+        ninjaBase: t.ninjaBase,
       })),
       projectiles: this.projectiles
         .filter((p) => p.alive)
@@ -787,6 +799,17 @@ export class GameScene extends Phaser.Scene {
         const tower = this.towers.find((t) => t.id === cmd.id);
         if (tower && tower.ownerId === from && TARGET_MODES.includes(cmd.mode as TargetMode)) {
           tower.targetMode = cmd.mode as TargetMode;
+        }
+        break;
+      }
+      case 'base': {
+        const tower = this.towers.find((t) => t.id === cmd.id);
+        if (tower && tower.type === 'ninja' && tower.ownerId === from) {
+          const count = this.grid.getBasePoints().length;
+          tower.ninjaBase = Math.max(
+            0,
+            Math.min(Math.floor(cmd.base) || 0, Math.max(0, count - 1)),
+          );
         }
         break;
       }
@@ -1111,6 +1134,8 @@ export class GameScene extends Phaser.Scene {
         sellValue,
         aim: existingTower.targetMode,
         owned: existingTower.ownerId === this.myPlayerId(),
+        baseCount: this.grid.getBasePoints().length,
+        selectedBase: existingTower.ninjaBase,
       });
       return;
     }
@@ -1553,9 +1578,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** A ninja tower summons a unit at the base that walks the path backwards. */
+  /** A ninja tower summons a unit at its chosen base, walking back up. */
   private spawnNinja(tower: Tower): void {
-    const path = this.grid.getPathPixels();
+    const path = this.grid.resolveBaseRoutePixels(tower.ninjaBase);
     const ninja = new Enemy('ninja', path, undefined, {
       reverse: true,
       friendly: true,

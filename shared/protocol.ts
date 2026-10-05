@@ -125,6 +125,8 @@ export interface NetTowerSnap {
   ownerId?: string;
   /** Targeting mode the host uses for this tower. */
   targetMode?: string;
+  /** Ninja towers: which base their summons depart from. */
+  ninjaBase?: number;
 }
 
 export interface NetProjectileSnap {
@@ -176,6 +178,7 @@ export type NetCommand =
   | { k: 'sell'; id: string }
   | { k: 'wave' }
   | { k: 'aim'; id: string; mode: string }
+  | { k: 'base'; id: string; base: number }
   | { k: 'early' };
 
 export interface NetCommandMsg {

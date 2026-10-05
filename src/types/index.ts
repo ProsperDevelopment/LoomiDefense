@@ -33,6 +33,8 @@ export interface MapData {
   cellSize: number;
   grid: CellType[][];
   spawnPoints: { x: number; y: number }[];
+  /** Authored bases (the game falls back to the main path's end). */
+  basePoints?: { x: number; y: number }[];
   basePath: { x: number; y: number }[];
   /** Branch polylines forking off the main path; each starts at a node
    *  already on the path graph (grid coordinates). */
