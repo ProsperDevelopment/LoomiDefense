@@ -59,6 +59,26 @@ export class Enemy {
   combatTargetId: string | null = null;
   /** Ninja-tower level that summoned this unit (drives throws and tint). */
   summonLevel: number = 1;
+  /** Physics mass: mostly the unit's max hp, some per-spawn randomness. */
+  weight: number = 1;
+  /** Body-contact cooldown so grinding pairs fire one impulse, not per frame. */
+  contactCd: number = 0;
+  /** Collision physics toggle: on only from this body's first ninja
+   *  collision until the ninja that granted it dies. */
+  physicsEnabled: boolean = false;
+  /** The ninja keeping physicsEnabled on (cleared when it dies). */
+  physicsBy: Enemy | null = null;
+  /** Timed physics: bumped corpse debris (bones, shards, corpses) turns
+   *  collision physics on for this long (ms). */
+  physicsMs: number = 0;
+  /** Panic oscillation phase for wounded units (random start per spawn). */
+  private panicPhase: number = 0;
+  /** Decaying knockback velocity (px/s) layered over path movement. */
+  knockVX: number = 0;
+  knockVY: number = 0;
+  /** Decaying spin (rad/s) and the wobble angle shown on the sprite. */
+  spin: number = 0;
+  wobble: number = 0;
   /** Throws left before a ranged ninja runs dry and fights in melee. */
   throwsLeft: number = 0;
   /** In close combat — swaps the walk cycle for the attack stance. */
@@ -124,6 +144,9 @@ export class Enemy {
     this.pathIndex = startIndex;
     this.position = new Position(path[startIndex].x, path[startIndex].y);
     this.health = new Health(this.data.hp, this.data.armor);
+    // Physics mass: mostly max hp, some per-spawn randomness
+    this.weight = Math.max(1, Math.round(this.data.hp * (0.85 + Math.random() * 0.3)));
+    this.panicPhase = Math.random() * Math.PI * 2;
   }
 
   /**
@@ -188,6 +211,28 @@ export class Enemy {
     this.staggerMs = Math.max(this.staggerMs, 180);
   }
 
+  /**
+   * Gain collision physics from colliding with a ninja — it stays on
+   * until THAT ninja dies (an already-bound live ninja is kept).
+   */
+  awakenPhysics(ninja: Enemy): void {
+    this.physicsEnabled = true;
+    if (!this.physicsBy || !this.physicsBy.alive) this.physicsBy = ninja;
+  }
+
+  /** Physics is on: ninja-bound, or inside a debris-bump time window. */
+  hasPhysics(): boolean {
+    return this.physicsEnabled || this.physicsMs > 0;
+  }
+
+  /** Drop physics again once the ninja that granted it is gone. */
+  refreshPhysics(): void {
+    if (this.physicsBy && !this.physicsBy.alive) {
+      this.physicsBy = null;
+      this.physicsEnabled = false;
+    }
+  }
+
   /** Stop the phantom visibility pulse (death animations take over). */
   stopInvisibilityPulse(): void {
     this.invisibilityTween?.stop();
@@ -231,6 +276,16 @@ export class Enemy {
     this.pathIndex = other.pathIndex;
   }
 
+  /** Current movement speed (after slows and panic swings). */
+  get currentSpeed(): number {
+    return this.speed;
+  }
+
+  /** Phantoms phase and bats fly — they never take part in collisions. */
+  get collidable(): boolean {
+    return this.type !== 'phantom' && this.type !== 'bat';
+  }
+
   /**
    * Unit direction the enemy is travelling right now — the way its
    * corpse keeps gliding when it dies (falls back to the last network
@@ -261,6 +316,18 @@ export class Enemy {
     this.health.updateStatusEffects(deltaMs);
     this.speed = this.baseSpeed * this.health.slowFactor;
     if (this.collisionCd > 0) this.collisionCd -= deltaMs;
+    if (this.contactCd > 0) this.contactCd -= deltaMs;
+    if (this.physicsMs > 0) this.physicsMs = Math.max(0, this.physicsMs - deltaMs);
+
+    // Below25% health: panic — the speed swings up and down and
+    // collision physics flickers on at random
+    if (this.health.current < this.health.max * 0.25) {
+      this.panicPhase += deltaMs * 0.006;
+      this.speed *= 1 + Math.sin(this.panicPhase) * 0.35;
+      if (Math.random() * 2500 < deltaMs) {
+        this.physicsMs = Math.max(this.physicsMs, 500);
+      }
+    }
 
     // Splitter: every 20s it stops dead for 2s, then bursts into minis
     if (this.splitStopMs > 0) {
@@ -312,6 +379,31 @@ export class Enemy {
       }
     }
 
+    // Collision knockback: a short decaying slide layered over pathing
+    if (this.knockVX !== 0 || this.knockVY !== 0) {
+      const dt = deltaMs / 1000;
+      this.position.x += this.knockVX * dt;
+      this.position.y += this.knockVY * dt;
+      const decay = Math.exp(-deltaMs / 150);
+      this.knockVX *= decay;
+      this.knockVY *= decay;
+      if (Math.abs(this.knockVX) < 2) this.knockVX = 0;
+      if (Math.abs(this.knockVY) < 2) this.knockVY = 0;
+    }
+
+    // Collision spin: the body rolls from the hit, then rights itself
+    if (this.spin !== 0 || this.wobble !== 0) {
+      const dt = deltaMs / 1000;
+      this.wobble += this.spin * dt;
+      this.spin *= Math.exp(-deltaMs / 180);
+      if (Math.abs(this.spin) < 0.2) this.spin = 0;
+      this.wobble *= Math.exp(-deltaMs / 120);
+      if (Math.abs(this.wobble) < 0.01) {
+        this.wobble = 0;
+        this.spin = 0;
+      }
+    }
+
     // Update visual
     this.updateVisuals();
 
@@ -330,6 +422,8 @@ export class Enemy {
   private updateVisuals(): void {
     if (this.sprite) {
       this.sprite.setPosition(this.position.x, this.position.y);
+      // Collision wobble — zero unless a hit just knocked it around
+      this.sprite.rotation = this.wobble;
 
       // Play correct animation based on movement direction.
       // Multiplayer guests face the direction of network movement;
@@ -449,6 +543,16 @@ export class Enemy {
     this.friendly = false;
     this.ownerId = null;
     this.collisionCd = 0;
+    this.contactCd = 0;
+    this.physicsEnabled = false;
+    this.physicsBy = null;
+    this.physicsMs = 0;
+    this.panicPhase = Math.random() * Math.PI * 2;
+    this.knockVX = 0;
+    this.knockVY = 0;
+    this.spin = 0;
+    this.wobble = 0;
+    this.weight = Math.max(1, Math.round(this.data.hp * (0.85 + Math.random() * 0.3)));
     this.combatTargetId = null;
     this.summonLevel = 1;
     this.throwsLeft = 0;

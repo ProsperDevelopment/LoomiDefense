@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Enemy } from '../../src/entities/Enemy';
 import { Position } from '../../src/components/Position';
 
@@ -245,5 +245,151 @@ describe('ninja throw ammo', () => {
   it('starts out of the attack stance', () => {
     const n = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
     expect(n.fighting).toBe(false);
+  });
+});
+
+describe('enemy physics: weight, knock, collisions', () => {
+  const longPath = Array.from({ length: 60 }, (_, i) => ({ x: i * 48, y: 0 }));
+
+  it('derives weight mostly from health with per-spawn randomness', () => {
+    // basic: 80 hp -> weight inside 80 * [0.85, 1.15]
+    const w = new Enemy('basic', simplePath).weight;
+    expect(w).toBeGreaterThanOrEqual(68);
+    expect(w).toBeLessThanOrEqual(92);
+    // Splitter minis are far lighter than their parent
+    const parent = new Enemy('splitter', longPath);
+    const mini = new Enemy('splitter', longPath, undefined, { mini: true });
+    expect(mini.weight).toBeLessThan(parent.weight);
+  });
+
+  it('phantoms and bats never collide; walkers and ninjas do', () => {
+    expect(new Enemy('phantom', simplePath).collidable).toBe(false);
+    expect(new Enemy('bat', simplePath).collidable).toBe(false);
+    expect(new Enemy('basic', simplePath).collidable).toBe(true);
+    expect(new Enemy('ninja', simplePath).collidable).toBe(true);
+  });
+
+  it('knockback slides the body against its march, then decays to rest', () => {
+    const e = new Enemy('basic', simplePath);
+    e.knockVX = -300; // shove backwards along its path
+    const x0 = e.position.x;
+    e.update(100);
+    expect(e.position.x).toBeLessThan(x0); // knocked back
+    expect(Math.abs(e.knockVX)).toBeLessThan(300); // decayed
+    for (let i = 0; i < 40; i++) e.update(50);
+    expect(e.knockVX).toBe(0); // settled
+  });
+});
+
+describe('collision physics toggle', () => {
+  it('starts off and only turns on from a ninja collision', () => {
+    const e = new Enemy('basic', simplePath);
+    expect(e.physicsEnabled).toBe(false);
+    expect(e.physicsBy).toBeNull();
+
+    const ninja = new Enemy('ninja', simplePath, undefined, { reverse: true, friendly: true });
+    e.awakenPhysics(ninja);
+    expect(e.physicsEnabled).toBe(true);
+    expect(e.physicsBy).toBe(ninja);
+  });
+
+  it('stays bound to its first living ninja, then drops when that ninja dies', () => {
+    const e = new Enemy('basic', simplePath);
+    const ninjaA = new Enemy('ninja', simplePath, undefined, { friendly: true });
+    const ninjaB = new Enemy('ninja', simplePath, undefined, { friendly: true });
+    e.awakenPhysics(ninjaA);
+    e.refreshPhysics();
+    expect(e.physicsEnabled).toBe(true); // A still alive
+
+    e.awakenPhysics(ninjaB);
+    expect(e.physicsBy).toBe(ninjaA); // live binding is kept
+
+    ninjaA.kill();
+    e.refreshPhysics();
+    expect(e.physicsEnabled).toBe(false);
+    expect(e.physicsBy).toBeNull();
+  });
+
+  it('clears the toggle on pooling reset', () => {
+    const e = new Enemy('basic', simplePath);
+    e.awakenPhysics(new Enemy('ninja', simplePath, undefined, { friendly: true }));
+    e.reset('basic', simplePath);
+    expect(e.physicsEnabled).toBe(false);
+    expect(e.physicsBy).toBeNull();
+  });
+});
+
+describe('debris/corpse physics window', () => {
+  it('turns physics on for 500ms after bumping corpse debris, then expires', () => {
+    const e = new Enemy('basic', simplePath);
+    expect(e.hasPhysics()).toBe(false);
+
+    e.physicsMs = 500; // what a bone, shard or corpse bump does
+    expect(e.hasPhysics()).toBe(true);
+
+    e.update(200);
+    expect(e.hasPhysics()).toBe(true); // still inside the window
+    e.update(300);
+    expect(e.hasPhysics()).toBe(false); // window expired
+    expect(e.physicsEnabled).toBe(false); // no ninja binding involved
+  });
+
+  it('a debris bump never cuts a ninja binding short', () => {
+    const e = new Enemy('basic', simplePath);
+    const ninja = new Enemy('ninja', simplePath, undefined, { friendly: true });
+    e.awakenPhysics(ninja);
+    e.physicsMs = 500;
+    e.update(600); // window expires
+    expect(e.hasPhysics()).toBe(true); // still on from the ninja
+
+    ninja.kill();
+    e.refreshPhysics();
+    expect(e.hasPhysics()).toBe(false);
+  });
+
+  it('clears the debris window on pooling reset', () => {
+    const e = new Enemy('basic', simplePath);
+    e.physicsMs = 500;
+    e.reset('basic', simplePath);
+    expect(e.hasPhysics()).toBe(false);
+  });
+});
+
+describe('low-health panic (below 25% hp)', () => {
+  const longPath = Array.from({ length: 60 }, (_, i) => ({ x: i * 48, y: 0 }));
+
+  it('swings the speed up and down below 25% health', () => {
+    const e = new Enemy('basic', longPath);
+    expect(e.currentSpeed).toBe(e.data.speed);
+
+    e.health.current = e.health.max * 0.2;
+    const samples: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      e.update(100);
+      samples.push(e.currentSpeed);
+    }
+    // One oscillation cycle is ~1047ms, so the samples contain both extremes
+    expect(Math.max(...samples)).toBeGreaterThan(e.data.speed * 1.1);
+    expect(Math.min(...samples)).toBeLessThan(e.data.speed * 0.9);
+  });
+
+  it('keeps a steady speed above the threshold', () => {
+    const e = new Enemy('basic', longPath);
+    e.health.current = e.health.max * 0.5;
+    for (let i = 0; i < 10; i++) e.update(100);
+    expect(e.currentSpeed).toBe(e.data.speed);
+  });
+
+  it('randomly flickers collision physics on while wounded', () => {
+    const e = new Enemy('basic', longPath);
+    e.health.current = e.health.max * 0.2;
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0); // always trigger
+    try {
+      e.update(50);
+      expect(e.physicsMs).toBeGreaterThan(0);
+      expect(e.hasPhysics()).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

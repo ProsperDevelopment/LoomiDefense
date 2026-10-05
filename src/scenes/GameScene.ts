@@ -46,6 +46,24 @@ const NINJA_THROW_COOLDOWN_MS = 900;
 const NINJA_THROW_AMMO = 10;
 /** How hard each melee trade hits the NINJA back (health drains fast). */
 const NINJA_MELEE_HURT = 2;
+/** Body-contact physics: impulse cooldown between two bodies (ms). */
+const CONTACT_CD_MS = 160;
+/** Impulse a ninja's melee trade transfers to the bodies involved. */
+const MELEE_IMPULSE = 150;
+
+/**
+ * Blood volume on death — heavier bodies splatter more. Weight is
+ * roughly max hp with per-spawn randomness, so the bands below land
+ * small fry on1-2 and bosses on the biggest bursts.
+ */
+function deathSplatterTier(weight: number): number {
+  if (weight < 50) return 1;
+  if (weight < 120) return 2;
+  if (weight < 350) return 3;
+  if (weight < 900) return 4;
+  return 5;
+}
+
 /** Ninja tint per summoning tower level (L1 keeps its natural green). */
 const NINJA_LEVEL_TINTS: Record<number, number> = {
   2: 0xb0ffb0, // pale green
@@ -469,6 +487,7 @@ export class GameScene extends Phaser.Scene {
     this.waveManager.update(scaledDelta);
     this.updateEnemies(scaledDelta);
     this.resolveNinjaCollisions();
+    this.resolveEnemyPhysics();
     this.updateTowerCombat(scaledDelta);
     this.updateProjectiles(scaledDelta);
     this.updateDebrisKicks(scaledDelta);
@@ -652,7 +671,7 @@ export class GameScene extends Phaser.Scene {
       if (!seen.has(enemy.id)) {
         // Dropped from the snapshot = the killing blow on the host —
         // mirror the burst of blood where it died
-        this.createBloodSplatter(0, 1, enemy.position, enemy.data.size, 2);
+        this.createBloodSplatter(0, 1, enemy.position, enemy.data.size, deathSplatterTier(enemy.health.max));
         if (this.selectedEnemy === enemy) this.deselectEnemy();
         this.guestEnemyTargets.delete(enemy.id);
         enemy.destroy();
@@ -1413,6 +1432,8 @@ export class GameScene extends Phaser.Scene {
       );
       if (enemy) {
         b.cooldown = 700; // one kick per pass
+        // Bumping corpse debris switches collision physics on briefly
+        enemy.physicsMs = 500;
         this.kickDebris(b.img, enemy.position.x, enemy.position.y);
       }
     }
@@ -1476,6 +1497,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private removeEnemy(enemy: Enemy, index?: number): void {
+    // Mark dead even on a path exit — enemies bound to this body for
+    // their physics toggle must release when it leaves the field
+    enemy.alive = false;
     enemy.destroy();
     this.detachEnemy(enemy, index);
   }
@@ -1679,20 +1703,103 @@ export class GameScene extends Phaser.Scene {
     this.projectiles.push(proj);
   }
 
-  /** One melee trade: the ninja bounces off; the enemy marches on untouched. */
+  /**
+   * Body physics: overlapping enemies trade a weight-based impulse —
+   * heavier bodies barely budge while light ones get flung — and both
+   * spin briefly from the hit. Phantoms and bats sit this out entirely.
+   */
+  private resolveEnemyPhysics(): void {
+    const bodies = this.enemies;
+    // Physics drops off exactly when the ninja that granted it dies
+    for (const e of bodies) e.refreshPhysics();
+    for (let i = 0; i < bodies.length; i++) {
+      const a = bodies[i];
+      if (!a.alive || !a.collidable || a.contactCd > 0) continue;
+      for (let j = i + 1; j < bodies.length; j++) {
+        const b = bodies[j];
+        if (!b.alive || b.isDead() || !b.collidable || b.contactCd > 0) continue;
+        const dx = b.position.x - a.position.x;
+        const dy = b.position.y - a.position.y;
+        const reach = a.data.size + b.data.size;
+        const dist = Math.hypot(dx, dy);
+        if (dist >= reach) continue;
+        // Exactly stacked bodies get an arbitrary normal so they still separate
+        const nx = dist < 0.001 ? 1 : dx / dist;
+        const ny = dist < 0.001 ? 0 : dy / dist;
+
+        // Touching a ninja turns collision physics on for that enemy;
+        // ninjas themselves are always physical
+        if (a.friendly && !b.friendly) b.awakenPhysics(a);
+        else if (b.friendly && !a.friendly) a.awakenPhysics(b);
+        const activeA = a.friendly || a.hasPhysics();
+        const activeB = b.friendly || b.hasPhysics();
+        if (!activeA || !activeB) continue;
+
+        // Closing speed along the contact normal (positive = approaching)
+        const da = a.currentDirection();
+        const db = b.currentDirection();
+        const closing =
+          (da.x * a.data.speed - db.x * b.data.speed) * nx +
+          (da.y * a.data.speed - db.y * b.data.speed) * ny;
+        const strength = closing > 5 ? Math.min(320, closing * 0.7 + 40) : 60;
+
+        this.applyCollisionImpulse(a, b, nx, ny, strength);
+        a.contactCd = CONTACT_CD_MS;
+        b.contactCd = CONTACT_CD_MS;
+
+        // Unwedge instantly: share the overlap by inverse weight
+        const total = a.weight + b.weight;
+        const overlap = (reach - dist) * 0.8;
+        a.position.x -= nx * overlap * (b.weight / total);
+        a.position.y -= ny * overlap * (b.weight / total);
+        b.position.x += nx * overlap * (a.weight / total);
+        b.position.y += ny * overlap * (a.weight / total);
+      }
+    }
+  }
+
+  /** Kick both bodies apart: lighter ones fly farther, glancing hits spin more. */
+  private applyCollisionImpulse(a: Enemy, b: Enemy, nx: number, ny: number, strength: number): void {
+    const total = a.weight + b.weight;
+    const dvA = strength * (b.weight / total);
+    const dvB = strength * (a.weight / total);
+    a.knockVX -= nx * dvA;
+    a.knockVY -= ny * dvA;
+    b.knockVX += nx * dvB;
+    b.knockVY += ny * dvB;
+    // Spin from the tangential part of each body's own motion: head-on
+    // hits barely rotate, glancing blows roll
+    const da = a.currentDirection();
+    const db = b.currentDirection();
+    const wobble = (vx: number, vy: number, dv: number): number =>
+      Math.max(-8, Math.min(8, (vx * ny - vy * nx) * dv * 0.06));
+    a.spin += wobble(da.x, da.y, dvA);
+    b.spin += wobble(db.x, db.y, dvB);
+  }
+
+  /** One melee trade: the ninja bounces off; the enemy reacts by weight. */
   private ninjaCollide(ninja: Enemy, target: Enemy): void {
     const dmg = ninja.data.contactDamage ?? 8;
     ninja.collisionCd = NINJA_HIT_COOLDOWN_MS;
 
-    // Only the ninja gets shoved back — the target's movement is left alone
     const dx = target.position.x - ninja.position.x;
     const dy = target.position.y - ninja.position.y;
     const len = Math.hypot(dx, dy) || 1;
     const nx = dx / len;
     const ny = dy / len;
-    const knock = 10;
-    ninja.position.x -= nx * knock;
-    ninja.position.y -= ny * knock;
+    // Bodies react by weight: the light ninja rebounds, the target
+    // budges only as much as its mass allows. Phantoms and bats don't
+    // collide at all — the swing connects, nothing physical happens.
+    if (target.collidable) {
+      // The first strike switches this enemy's collision physics on —
+      // it stays on until this ninja dies
+      target.awakenPhysics(ninja);
+      this.applyCollisionImpulse(target, ninja, -nx, -ny, MELEE_IMPULSE);
+      ninja.contactCd = CONTACT_CD_MS;
+      target.contactCd = CONTACT_CD_MS;
+      ninja.spin += (Math.random() < 0.5 ? -1 : 1) * 3;
+      target.spin += (Math.random() < 0.5 ? -1 : 1) * 2;
+    }
     ninja.applyImpact();
 
     // Small marks only — a melee duel ticks over too long for splatters
@@ -1710,8 +1817,8 @@ export class GameScene extends Phaser.Scene {
     );
 
     // The kill reward goes to the tower owner who sent this ninja
-    if (targetKilled) this.onEnemyKilled(target, ninja.ownerId);
-    if (ninjaKilled) this.onNinjaKilled(ninja);
+    if (targetKilled) this.onEnemyKilled(target, ninja.ownerId, { x: nx, y: ny });
+    if (ninjaKilled) this.onNinjaKilled(ninja, { x: -nx, y: -ny });
   }
 
   private findTarget(tower: Tower): TargetableEntity | null {
@@ -1887,10 +1994,7 @@ export class GameScene extends Phaser.Scene {
       { id: primaryTarget.id, position: primaryTarget.position, health: primaryTarget.health },
       dmg.baseDamage,
     );
-    if (killed) {this.onEnemyKilled(primaryTarget, proj.ownerId);
-      this.createBloodSplatter(dir.x, dir.y, primaryTarget.position, primaryTarget.data.size, 3);
-
-    }
+    if (killed) this.onEnemyKilled(primaryTarget, proj.ownerId, dir);
     if (dmg.slowFactor < 1.0) {
       primaryTarget.health.applySlow(dmg.slowFactor, dmg.slowDuration);
     }
@@ -1908,7 +2012,13 @@ export class GameScene extends Phaser.Scene {
       const splashKilled = this.healthSystem.applySplashDamage(
         primaryTarget.position.x, primaryTarget.position.y, dmg.splashRadius, dmg.baseDamage * 0.5, nearbyEnemies,
       );
-      for (const k of splashKilled) this.onEnemyKilledById(k.id, proj.ownerId);
+      for (const k of splashKilled) {
+        const vx = k.position.x - primaryTarget.position.x;
+        const vy = k.position.y - primaryTarget.position.y;
+        const vlen = Math.hypot(vx, vy);
+        const sd = vlen > 1 ? { x: vx / vlen, y: vy / vlen } : { x: 0, y: 1 };
+        this.onEnemyKilledById(k.id, proj.ownerId, sd);
+      }
     }
   }
 
@@ -2317,7 +2427,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private onEnemyKilled(enemy: Enemy, ownerId?: string | null): void {
+  private onEnemyKilled(enemy: Enemy, ownerId?: string | null, dir?: { x: number; y: number }): void {
     // Guard: a kill must only be processed once (damage systems can
     // report the same enemy through multiple paths in one frame).
     if (!enemy.alive) return;
@@ -2330,6 +2440,9 @@ export class GameScene extends Phaser.Scene {
     const reward = enemy.data.reward;
     const { x, y } = enemy.position;
     this.createDeathEffect(x, y, enemy.data.color);
+    // Death splatter volume comes from the body's weight
+    const d = dir ?? enemy.currentDirection();
+    this.createBloodSplatter(d.x, d.y, enemy.position, enemy.data.size, deathSplatterTier(enemy.weight));
 
     // Detach from the list immediately (wave completion checks it) —
     // each death variant owns the corpse sprite from here on
@@ -2360,13 +2473,15 @@ export class GameScene extends Phaser.Scene {
    * A ninja fell in melee — same death variants as any enemy and guests
    * hear about it, but no kill reward and no wave-completion events.
    */
-  private onNinjaKilled(ninja: Enemy): void {
+  private onNinjaKilled(ninja: Enemy, dir?: { x: number; y: number }): void {
     if (!ninja.alive) return;
     ninja.alive = false;
     if (this.selectedEnemy === ninja) this.deselectEnemy();
     this.detachEnemy(ninja);
     ninja.healthBar?.setVisible(false);
     ninja.healthBarBg?.setVisible(false);
+    const d = dir ?? ninja.currentDirection();
+    this.createBloodSplatter(d.x, d.y, ninja.position, ninja.data.size, deathSplatterTier(ninja.weight));
     const variant = this.pickDeathVariant(ninja);
     this.playDeathVariant(ninja, variant);
     if (this.netRole === 'host') {
@@ -2401,9 +2516,9 @@ export class GameScene extends Phaser.Scene {
     this.playDeathVariant(enemy, variant);
   }
 
-  private onEnemyKilledById(id: string, ownerId?: string | null): void {
+  private onEnemyKilledById(id: string, ownerId?: string | null, dir?: { x: number; y: number }): void {
     const enemy = this.enemies.find(e => e.id === id && e.alive);
-    if (enemy) this.onEnemyKilled(enemy, ownerId);
+    if (enemy) this.onEnemyKilled(enemy, ownerId, dir);
   }
 
   /**
@@ -2475,6 +2590,8 @@ export class GameScene extends Phaser.Scene {
             moved = true;
             vel.x += nx * depth * 0.7;
             vel.y += ny * depth * 0.7;
+            // Shoving a corpse switches collision physics on briefly
+            e.physicsMs = 500;
           }
         }
 
