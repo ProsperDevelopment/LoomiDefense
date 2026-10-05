@@ -50,3 +50,8 @@ public/assets/images/towers/base_blue_diamond.png
 public/assets/images/towers/base_blue_octagon.png
 public/assets/images/towers/base_blue_square.png
 server/data/
+
+# Local-only large assets: the SoundBible pack (432MB) and the109MB
+# radio recording (over GitHub's100MB hard limit — music falls back)
+sound assets/
+public/assets/audio/Brainkillers - Weekend Rush 92.3 (July 31, 1994).mp3

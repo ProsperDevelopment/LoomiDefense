@@ -139,6 +139,20 @@ export class BootScene extends Phaser.Scene {
       frameHeight: 32,
     });
 
+    // SoundBible pack (opus): combat, UI and wave alerts
+    this.load.audio('sfx_squish', 'assets/audio/sfx/squish.opus');
+    this.load.audio('sfx_swoosh3', 'assets/audio/sfx/swoosh3.opus');
+    this.load.audio('sfx_saw', 'assets/audio/sfx/saw.opus');
+    this.load.audio('sfx_ui_click', 'assets/audio/sfx/click.opus');
+    this.load.audio('sfx_ui_pling', 'assets/audio/sfx/pling.opus');
+    this.load.audio('sfx_siren', 'assets/audio/sfx/siren.opus');
+    this.load.audio('sfx_alarm', 'assets/audio/sfx/alarm.opus');
+    this.load.audio('sfx_siren2', 'assets/audio/sfx/siren2.opus');
+    this.load.audio('sfx_bow', 'assets/audio/sfx/bow.opus');
+    this.load.audio('sfx_grenade_throw', 'assets/audio/sfx/grenade_throw.opus');
+    this.load.audio('sfx_grenade_boom', 'assets/audio/sfx/grenade_boom.opus');
+    this.load.audio('sfx_splat', 'assets/audio/sfx/splat.opus');
+
     // Load projectile sprites
     this.load.image('projectile_fire', 'assets/images/projectiles/fire.png');
 

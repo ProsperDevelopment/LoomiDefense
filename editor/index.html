@@ -314,6 +314,7 @@ let activePathIndex = -1;
 // Shift-clicked road point: next click splits a new path from it
 // (when the selected point ENDS a line, the next click continues that line)
 let contOrigin = null;
+let altNewRoad = false; // one brand-new road per mouse stroke (alt+click)
 let spawnPoints = [];
 let basePoints = [];
 let currentTool = 'path';
@@ -956,6 +957,7 @@ function setupInput() {
   
   canvas.addEventListener('mousedown', (e) => {
     isMouseDown = true;
+    altNewRoad = false;
     
     // Handle stamp placement
     if (currentTool === 'stamp' && currentStamp) {
@@ -1131,8 +1133,14 @@ function handleCell(e) {
     
     switch(currentTool) {
       case 'path':
-        if (e.shiftKey) selectRoadPoint(cell.x, cell.y);
-        else addPathPoint(cell.x, cell.y);
+        if (e.altKey && !altNewRoad) {
+          altNewRoad = true;
+          startNewPath(cell.x, cell.y);
+        } else if (e.shiftKey) {
+          selectRoadPoint(cell.x, cell.y);
+        } else {
+          addPathPoint(cell.x, cell.y);
+        }
         break;
       case 'erasePath':
         removePathPoint(cell.x, cell.y);
@@ -1206,6 +1214,20 @@ function selectRoadPoint(x, y) {
   contOrigin = { x, y };
   document.getElementById('status').textContent =
     `Selected (${x}, ${y}) — click to split a new path from here`;
+}
+
+/**
+ * Alt+click: begin a brand-new road at this cell — disconnected from
+ * the others, for levels with several spawns on separate roads. The
+ * road lives in `branches` (the loader and route graph treat an
+ * unreached component as its own road), and later clicks extend it.
+ */
+function startNewPath(x, y) {
+  contOrigin = null;
+  branches.push([{ x, y }]);
+  activePathIndex = branches.length - 1;
+  document.getElementById('status').textContent =
+    `New road started at (${x}, ${y}) — road ${branches.length + 1} total; keep clicking to extend it`;
 }
 
 function removePathPoint(x, y) {

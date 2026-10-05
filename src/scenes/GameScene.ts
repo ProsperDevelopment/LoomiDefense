@@ -611,6 +611,7 @@ export class GameScene extends Phaser.Scene {
         tower.createSprite(this);
         tower.showRange(false);
         this.towers.push(tower);
+        this.tuckTopTilesUnderTower(tower);
         if (this.grid.canPlaceAtBg(s.col, s.row, s.type as TowerType)) {
           this.grid.placeTowerAtBg(s.col, s.row, s.type as TowerType);
         }
@@ -932,17 +933,20 @@ export class GameScene extends Phaser.Scene {
     const outline = roadColorDark ?? this.shadeColor(fill, 0.6);
     const center = this.shadeColor(fill, 1.3);
 
-    // Main road first, then every branch — same widths so forks blend
+    // Three passes over ALL polylines: every outline first, then every
+    // fill, then the center lines. Drawing a branch outline-to-fill in
+    // one go would strip its dark outline across the main road at the
+    // junction; with this order the fills cover all outline interiors
+    // and only the union's outer rim stays outlined.
     for (const smoothPoints of polylines) {
-      // Draw road outline (darker)
       graphics.lineStyle(36, outline, 1);
       this.drawSmoothPath(graphics, smoothPoints);
-
-      // Draw road fill
+    }
+    for (const smoothPoints of polylines) {
       graphics.lineStyle(28, fill, 1);
       this.drawSmoothPath(graphics, smoothPoints);
-
-      // Draw road center line (lighter)
+    }
+    for (const smoothPoints of polylines) {
       graphics.lineStyle(2, center, 0.5);
       this.drawSmoothPath(graphics, smoothPoints);
     }
@@ -1113,6 +1117,7 @@ export class GameScene extends Phaser.Scene {
     // Check if clicking on an enemy
     const clickedEnemy = this.findEnemyAt(pointer.x, pointer.y);
     if (clickedEnemy) {
+      playSfx(this, 'sfx_ui_pling', { volume: 0.4 });
       this.selectEnemy(clickedEnemy);
       return;
     }
@@ -1125,6 +1130,7 @@ export class GameScene extends Phaser.Scene {
 
     // Left-click on existing tower - show tower info popup
     if (existingTower) {
+      playSfx(this, 'sfx_ui_click', { volume: 0.45 });
       this.selectedTower = existingTower;
       existingTower.showRange(true);
       const sellValue = this.economy.getSellValue(existingTower.type, existingTower.level);
@@ -1286,6 +1292,31 @@ export class GameScene extends Phaser.Scene {
     return this.towersBuiltBy(type, ownerId) < this.towerLimitFor(type, ownerId);
   }
 
+  /**
+   * Tuck the painted background tiles covering the TOP half of a placed
+   * tower's footprint below the tower. The tile layer renders at depth
+   * 10 — above ordinary towers (5) — so painted terrain would otherwise
+   * bury the upper half of the sprite.
+   */
+  private tuckTopTilesUnderTower(tower: Tower): void {
+    if (tower.type === 'sniper') return; // renders at 30, already above the tiles
+    const { x, y } = tower.getWorldPosition();
+    const half = 24; // tower sprites are 48px, centred on the placement cell
+    for (const child of this.children.list) {
+      if (!(child instanceof Phaser.GameObjects.Image)) continue;
+      if (child.depth !== 10) continue;
+      if (!child.texture.key.startsWith('bg_')) continue;
+      // Every cell the top half of the footprint touches: centres from
+      // the sprite's top edge down to its centre, across its width
+      if (
+        child.x >= x - half && child.x <= x + half &&
+        child.y >= y - half && child.y <= y
+      ) {
+        child.setDepth(2); // under the tower pad (3) and sprite (5)
+      }
+    }
+  }
+
   private placeTower(col: number, row: number, type: TowerType, ownerId?: string, colorHex?: string): void {
     const data = TOWER_DEFINITIONS[type];
     if (!data) return;
@@ -1323,6 +1354,7 @@ export class GameScene extends Phaser.Scene {
     tower.createSprite(this);
     tower.showRange(false);
     this.towers.push(tower);
+    this.tuckTopTilesUnderTower(tower);
     eventBus.emit('tower-placed', { towerType: type, x: col, y: row });
     if (tower.sprite) {
       this.tweens.add({ targets: tower.sprite, scaleX: 1.2, scaleY: 1.2, duration: 100, yoyo: true });
@@ -1889,7 +1921,9 @@ export class GameScene extends Phaser.Scene {
     // this bloody (the killing blow gets its proper death blood anyway)
     this.createBloodSplatter(nx, ny, target.position, target.data.size, 0);
     this.createBloodSplatter(-nx, -ny, ninja.position, ninja.data.size, 0);
-    playSfx(this, 'sfx_impact', { volume: 0.3 });
+    // Ninja trades: the swing and the squish of the hit (nothing else)
+    playSfx(this, 'sfx_swoosh3', { volume: 0.22, rate: 0.9 + Math.random() * 0.2 });
+    playSfx(this, 'sfx_squish', { volume: 0.4, rate: 0.9 + Math.random() * 0.25 });
 
     const targetKilled = this.healthSystem.applyDamage(
       { id: target.id, position: target.position, health: target.health }, dmg,
@@ -2004,7 +2038,7 @@ export class GameScene extends Phaser.Scene {
         onComplete: () => flash.destroy(),
       });
     }
-    playSfx(this, 'sfx_explosion', { volume: 0.45 });
+    playSfx(this, 'sfx_grenade_boom', { volume: 0.45 });
   }
 
   /**
@@ -2537,6 +2571,7 @@ export class GameScene extends Phaser.Scene {
     // Death splatter volume comes from the body's weight
     const d = dir ?? enemy.currentDirection();
     this.createBloodSplatter(d.x, d.y, enemy.position, enemy.data.size, deathSplatterTier(enemy.weight));
+    playSfx(this, 'sfx_splat', { volume: 0.4, rate: 0.9 + Math.random() * 0.3 });
 
     // Detach from the list immediately (wave completion checks it) —
     // each death variant owns the corpse sprite from here on
@@ -2582,6 +2617,7 @@ export class GameScene extends Phaser.Scene {
     ninja.healthBarBg?.setVisible(false);
     const d = dir ?? ninja.currentDirection();
     this.createBloodSplatter(d.x, d.y, ninja.position, ninja.data.size, deathSplatterTier(ninja.weight));
+    playSfx(this, 'sfx_splat', { volume: 0.4, rate: 0.9 + Math.random() * 0.3 });
     const variant = this.pickDeathVariant(ninja);
     this.playDeathVariant(ninja, variant);
     if (this.netRole === 'host') {

@@ -412,3 +412,24 @@ describe('resolveBaseRoutePixels (ninja summon bases)', () => {
     expect(route[0]).toEqual(grid.gridToWorld(0, 1)); // comes back to the spawn
   });
 });
+
+describe('disconnected second road (alt+click in the editor)', () => {
+  it('routes each spawn along its own road component', () => {
+    const grid = new Grid({
+      ...testMap,
+      // A second, disconnected road along the bottom row
+      branches: [[{ x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 }]],
+      spawnPoints: [{ x: 0, y: 1 }, { x: 0, y: 2 }],
+    });
+
+    // Spawn1 stays on the main road
+    const main = grid.resolveRoutePixels(0);
+    expect(main[main.length - 1]).toEqual(grid.gridToWorld(3, 1));
+
+    // Spawn2 walks its own disconnected road to its own end
+    const road2 = grid.resolveRoutePixels(1);
+    expect(road2[0]).toEqual(grid.gridToWorld(0, 2));
+    expect(road2[road2.length - 1]).toEqual(grid.gridToWorld(2, 2));
+    expect(road2).toHaveLength(3);
+  });
+});
