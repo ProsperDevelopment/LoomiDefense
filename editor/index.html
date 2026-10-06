@@ -311,10 +311,13 @@ let pathPoints = [];
 // path drawn so far). activePathIndex -1 = main path.
 let branches = [];
 let activePathIndex = -1;
-// Shift-clicked road point: next click splits a new path from it
-// (when the selected point ENDS a line, the next click continues that line)
-let contOrigin = null;
-let altNewRoad = false; // one brand-new road per mouse stroke (alt+click)
+// Shift+click splits the road (one fork per mouse stroke);
+// Ctrl+click bridges the active road to a road dot, or starts a brand
+// new road on empty ground (one ctrl action per stroke);
+// plain-clicking a road dot selects it (yellow ring) as active
+let shiftForked = false;
+let ctrlNewRoad = false;
+let activePoint = null; // {x, y} selected road dot awaiting the next draw click
 let spawnPoints = [];
 let basePoints = [];
 let currentTool = 'path';
@@ -415,7 +418,7 @@ function clearGrid() {
   pathPoints = [];
   branches = [];
   activePathIndex = -1;
-  contOrigin = null;
+  activePoint = null;
   spawnPoints = [];
   basePoints = [];
   render();
@@ -468,8 +471,8 @@ function resizeGrid() {
 // Tools
 // ============================================================
 function setTool(tool) {
-  // Tool switches drop any pending split selection
-  contOrigin = null;
+  // Tool switches drop any pending road-dot selection
+  activePoint = null;
   // Picking the path tool starts fresh on the main path
   if (tool === 'path') activePathIndex = -1;
   // Clear selection when switching away from select tool
@@ -851,10 +854,10 @@ function render() {
         ctx.stroke();
       }
     }
-    // Highlighted continuation point
-    if (contOrigin) {
-      const cx = contOrigin.x * tileSize + tileSize / 2;
-      const cy = contOrigin.y * tileSize + tileSize / 2;
+    // Selected road dot: the pending split/continue origin
+    if (activePoint) {
+      const cx = activePoint.x * tileSize + tileSize / 2;
+      const cy = activePoint.y * tileSize + tileSize / 2;
       ctx.beginPath();
       ctx.arc(cx, cy, Math.max(6, tileSize * 0.3), 0, Math.PI * 2);
       ctx.lineWidth = 3;
@@ -957,7 +960,8 @@ function setupInput() {
   
   canvas.addEventListener('mousedown', (e) => {
     isMouseDown = true;
-    altNewRoad = false;
+    shiftForked = false;
+    ctrlNewRoad = false;
     
     // Handle stamp placement
     if (currentTool === 'stamp' && currentStamp) {
@@ -1133,12 +1137,16 @@ function handleCell(e) {
     
     switch(currentTool) {
       case 'path':
-        if (e.altKey && !altNewRoad) {
-          altNewRoad = true;
-          startNewPath(cell.x, cell.y);
+        if (e.ctrlKey && !ctrlNewRoad) {
+          ctrlNewRoad = true;
+          // On a road dot: bridge the active road to it; on empty
+          // ground: begin a brand-new road
+          if (!connectToRoadDot(cell.x, cell.y)) {
+            startNewPath(cell.x, cell.y);
+          }
         } else if (e.shiftKey) {
-          selectRoadPoint(cell.x, cell.y);
-        } else {
+          addPathPoint(cell.x, cell.y, true);
+        } else if (!selectRoadDotAt(cell.x, cell.y)) {
           addPathPoint(cell.x, cell.y);
         }
         break;
@@ -1164,20 +1172,38 @@ function activePathPoints() {
     : pathPoints;
 }
 
-function addPathPoint(x, y) {
-  // A shift-selected point splits a new path from itself
-  if (contOrigin) {
-    const origin = contOrigin;
-    contOrigin = null;
-    const branch = [{ x: origin.x, y: origin.y }];
-    if (origin.x !== x || origin.y !== y) branch.push({ x, y });
+function addPathPoint(x, y, split) {
+  const active = activePathPoints();
+  // Shift: split the road — start a new path from the point BEFORE the
+  // last placed one, then keep drawing along the new branch
+  if (split && !shiftForked && active.length >= 1) {
+    shiftForked = true;
+    activePoint = null;
+    const fork = active.length >= 2 ? active[active.length - 2] : active[active.length - 1];
+    const branch = [{ x: fork.x, y: fork.y }];
     branches.push(branch);
     activePathIndex = branches.length - 1;
+    if (fork.x !== x || fork.y !== y) branch.push({ x, y });
     document.getElementById('status').textContent =
-      `Split at (${origin.x}, ${origin.y}) — drawing branch ${activePathIndex + 1} of ${branches.length}`;
+      `Path split at (${fork.x}, ${fork.y}) — drawing branch ${activePathIndex + 1} of ${branches.length}`;
     return;
   }
-  const active = activePathPoints();
+  // A selected road dot decides what this click means: splitting a new
+  // path from it, or — when it ends the active line — extending that line
+  if (activePoint) {
+    const origin = activePoint;
+    activePoint = null;
+    const endsActive = active.length > 0 &&
+      active[active.length - 1].x === origin.x && active[active.length - 1].y === origin.y;
+    if (!endsActive && !(origin.x === x && origin.y === y)) {
+      const branch = [{ x: origin.x, y: origin.y }, { x, y }];
+      branches.push(branch);
+      activePathIndex = branches.length - 1;
+      document.getElementById('status').textContent =
+        `Path split at (${origin.x}, ${origin.y}) — drawing branch ${activePathIndex + 1} of ${branches.length}`;
+      return;
+    }
+  }
   const last = active[active.length - 1];
   if (!last || last.x !== x || last.y !== y) {
     active.push({ x, y });
@@ -1185,45 +1211,70 @@ function addPathPoint(x, y) {
 }
 
 /**
- * Shift+click a road point to choose where drawing continues:
- * a point that ENDS a line continues that line, any other point arms
- * a new split (the next click branches from it).
+ * Plain-click an existing road dot: select it (yellow ring). A dot that
+ * ENDS a line makes that line the active one to extend; any other dot
+ * arms a split — the next click branches from it.
  */
-function selectRoadPoint(x, y) {
+function selectRoadDotAt(x, y) {
   const at = (p) => p.x === x && p.y === y;
+  const onMain = pathPoints.some(at);
+  const bi = branches.findIndex((br) => br.length > 0 && br.some(at));
+  if (!onMain && bi < 0) return false;
+
+  activePoint = { x, y };
   if (pathPoints.length > 0 && at(pathPoints[pathPoints.length - 1])) {
     activePathIndex = -1;
-    contOrigin = null;
-    document.getElementById('status').textContent = 'Continuing the main path';
-    return;
-  }
-  const bi = branches.findIndex(br => br.length > 0 && at(br[br.length - 1]));
-  if (bi >= 0) {
-    activePathIndex = bi;
-    contOrigin = null;
-    document.getElementById('status').textContent = `Continuing branch ${bi + 1}`;
-    return;
-  }
-  const onMain = pathPoints.some(at);
-  const onAnyBranch = branches.some(br => br.some(at));
-  if (!onMain && !onAnyBranch) {
     document.getElementById('status').textContent =
-      `No road point at (${x}, ${y}) — shift-click an existing point to continue from it`;
-    return;
+      `Continuing the main road (${x}, ${y}) — next click extends it`;
+  } else if (bi >= 0 && at(branches[bi][branches[bi].length - 1])) {
+    activePathIndex = bi;
+    document.getElementById('status').textContent =
+      `Continuing branch ${bi + 1} (${x}, ${y}) — next click extends it`;
+  } else {
+    document.getElementById('status').textContent =
+      `Selected (${x}, ${y}) — next click splits a new path from here`;
   }
-  contOrigin = { x, y };
-  document.getElementById('status').textContent =
-    `Selected (${x}, ${y}) — click to split a new path from here`;
+  return true;
 }
 
 /**
- * Alt+click: begin a brand-new road at this cell — disconnected from
+ * Ctrl+click an existing road dot: connect the ACTIVE road to it —
+ * the active polyline gets the point appended, so the two roads bridge
+ * into one graph (enemies can travel across). Returns false when the
+ * cell holds no road dot, so ctrl can start a new road instead.
+ */
+function connectToRoadDot(x, y) {
+  const at = (p) => p.x === x && p.y === y;
+  const onMain = pathPoints.some(at);
+  const bi = branches.findIndex((br) => br.length > 0 && br.some(at));
+  if (!onMain && bi < 0) return false;
+
+  activePoint = null;
+  const active = activePathPoints();
+  if (active.length === 0) {
+    // Nothing to bridge from — just make that road the active one
+    return selectRoadDotAt(x, y);
+  }
+  const last = active[active.length - 1];
+  if (last.x === x && last.y === y) {
+    document.getElementById('status').textContent =
+      `Already connected at (${x}, ${y})`;
+    return true;
+  }
+  active.push({ x, y });
+  document.getElementById('status').textContent =
+    `Connected road to (${x}, ${y}) — ${active.length} points`;
+  return true;
+}
+
+/**
+ * Ctrl+click: begin a brand-new road at this cell — disconnected from
  * the others, for levels with several spawns on separate roads. The
  * road lives in `branches` (the loader and route graph treat an
  * unreached component as its own road), and later clicks extend it.
  */
 function startNewPath(x, y) {
-  contOrigin = null;
+  activePoint = null;
   branches.push([{ x, y }]);
   activePathIndex = branches.length - 1;
   document.getElementById('status').textContent =
@@ -1231,6 +1282,7 @@ function startNewPath(x, y) {
 }
 
 function removePathPoint(x, y) {
+  if (activePoint && activePoint.x === x && activePoint.y === y) activePoint = null;
   const active = activePathPoints();
   const before = active.length;
   const target = activePathIndex >= 0 ? `branch ${activePathIndex + 1}` : 'path';
