@@ -75,11 +75,10 @@ function applyMusicVolumeNow(): void {
   const target = musicVolumePct / 100;
   if (!musicEl) {
     // Volume raised during a game that never got music (was at zero)
-    if (target > 0 && musicWanted) startFreshTrack();
+    if (target > 0 && musicWanted) connectMusicStream();
     return;
   }
   if (target <= 0) {
-    stopMusicFade();
     musicEl.pause();
     return;
   }
@@ -90,25 +89,22 @@ function applyMusicVolumeNow(): void {
 }
 
 // --- In-game music -------------------------------------------------
-// Two long tracks streamed through HTML5 Audio (an hour of PCM would
-// never fit in a WebAudio buffer). Every game start sounds an alert,
-// then a second later picks a random track at a random position and
-// fades it in; wave changes mix over to the other soundtrack.
-const MUSIC_SRC = [
-  'assets/audio/pow-pow.mp3',
-  'assets/audio/Brainkillers - Weekend Rush 92.3 (July 31, 1994).mp3',
-];
-const MUSIC_FADE_MS = 1500;
+// The music is mixed and streamed by the separate music server
+// (server/music.ts, port4001): random track, random position, fade-ins
+// and wave crossfades all happen server-side — the browser only gets
+// one continuous192kbps MP3 stream instead of the full track files.
+const MUSIC_PORT = 4001;
 let musicEl: HTMLAudioElement | null = null;
+let musicSessionId: string | null = null;
 let musicWanted = false;
-let musicFadeTimer: ReturnType<typeof setInterval> | null = null;
 let alertStartTimer: ReturnType<typeof setTimeout> | null = null;
 
-function stopMusicFade(): void {
-  if (musicFadeTimer !== null) {
-    clearInterval(musicFadeTimer);
-    musicFadeTimer = null;
-  }
+function musicBaseUrl(): string {
+  const host =
+    typeof window !== 'undefined' && window.location.hostname
+      ? window.location.hostname
+      : 'localhost';
+  return `http://${host}:${MUSIC_PORT}`;
 }
 
 function clearAlertStart(): void {
@@ -118,89 +114,41 @@ function clearAlertStart(): void {
   }
 }
 
-/** Ramp the element's volume up to the music setting over MUSIC_FADE_MS. */
-function fadeMusicIn(el: HTMLAudioElement, fromZero: boolean = true): void {
-  stopMusicFade();
-  if (fromZero) el.volume = 0;
-  const steps = Math.max(1, MUSIC_FADE_MS / 50);
-  musicFadeTimer = setInterval(() => {
-    if (musicEl !== el) { stopMusicFade(); return; }
-    const target = musicVolumePct / 100;
-    if (target <= 0) { stopMusicFade(); return; }
-    if (el.volume > target) el.volume = target;
-    else el.volume = Math.min(target, el.volume + target / steps);
-    if (el.volume >= target) stopMusicFade();
-  }, 50);
+/** Fire a command at the music server for the current session. */
+function musicCommand(cmd: 'crossfade' | 'stop'): void {
+  if (!musicSessionId) return;
+  void fetch(`${musicBaseUrl()}/music/${cmd}?id=${encodeURIComponent(musicSessionId)}`).catch(
+    () => {
+      // Music server offline — stay silent
+    },
+  );
 }
 
-/** Start a track (random unless srcOverride) at a random position, faded in. */
-function startFreshTrack(srcOverride?: string): void {
-  stopMusicFade();
+/** Open a fresh stream (its own session) from the music server. */
+function connectMusicStream(): void {
   musicEl?.pause();
-  const el = new Audio();
+  const id = `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  musicSessionId = id;
+  const el = new Audio(`${musicBaseUrl()}/music/stream?id=${encodeURIComponent(id)}`);
+  el.volume = musicVolumePct / 100;
   musicEl = el;
-  el.preload = 'auto';
-  el.volume = 0;
-  el.addEventListener('loadedmetadata', () => {
-    if (musicEl !== el) return;
-    // Random start, staying clear of the final seconds
-    if (Number.isFinite(el.duration) && el.duration > 30) {
-      el.currentTime = Math.random() * (el.duration - 30);
-    }
-    void el.play().then(() => fadeMusicIn(el)).catch(() => {
-      // Autoplay blocked — retry the moment the user interacts
-      const retry = (): void => {
-        window.removeEventListener('pointerdown', retry);
-        if (musicEl !== el) return;
-        void el.play().then(() => fadeMusicIn(el)).catch(() => undefined);
-      };
-      window.addEventListener('pointerdown', retry, { once: true });
-    });
-  }, { once: true });
-  // A track missing at runtime (the109MB recording never deploys)
-  // falls back to the always-present one instead of silencing music
-  el.addEventListener('error', () => {
-    if (musicEl !== el) return;
-    if (!el.src.endsWith('pow-pow.mp3')) el.src = encodeURI(MUSIC_SRC[0]);
+  void el.play().catch(() => {
+    // Autoplay blocked — retry the moment the user interacts
+    const retry = (): void => {
+      window.removeEventListener('pointerdown', retry);
+      if (musicEl !== el) return;
+      void el.play().catch(() => undefined);
+    };
+    window.addEventListener('pointerdown', retry, { once: true });
   });
-  // A finished track hands over to another random pick
-  el.addEventListener('ended', () => {
-    if (musicWanted && musicVolumePct > 0 && musicEl === el) startFreshTrack();
-  });
-  el.src = encodeURI(
-    srcOverride ?? MUSIC_SRC[Math.floor(Math.random() * MUSIC_SRC.length)],
-  );
 }
 
-/** Mix over to the OTHER soundtrack (called when a wave starts). */
-function crossfadeToOtherTrack(): void {
-  if (!musicWanted || musicVolumePct <= 0) return;
-  if (!musicEl) {
-    // Music never got going (alert window) — begin it now
-    startFreshTrack();
-    return;
-  }
-  const old = musicEl;
-  const curName = decodeURIComponent(old.src.split('/').pop() ?? '');
-  const other = MUSIC_SRC.find(
-    (src) => decodeURIComponent(src.split('/').pop() ?? '') !== curName,
-  );
-  if (!other) return;
-  // Fade the current track out on its own timer while the new one fades in
-  const steps = Math.max(1, MUSIC_FADE_MS / 50);
-  const delta = old.volume / steps;
-  let n = 0;
-  const outTimer = setInterval(() => {
-    old.volume = Math.max(0, old.volume - delta);
-    if (++n >= steps || old.volume <= 0) {
-      clearInterval(outTimer);
-      if (old !== musicEl) old.pause();
-    }
-  }, 50);
-  startFreshTrack(other);
+/** Mix over to the other track (server-side crossfade). */
+function crossfadeMusic(): void {
+  if (musicWanted && musicVolumePct > 0) musicCommand('crossfade');
 }
 
-/** Start the in-game music: alert first, then the track a second later. */
+/** Start the in-game music: alert first, then the stream a second later. */
 export function startGameMusic(scene?: Phaser.Scene): void {
   musicWanted = true;
   clearAlertStart();
@@ -215,19 +163,21 @@ export function startGameMusic(scene?: Phaser.Scene): void {
     // …and the soundtrack joins one second later
     alertStartTimer = setTimeout(() => {
       alertStartTimer = null;
-      if (musicWanted && musicVolumePct > 0) startFreshTrack();
+      if (musicWanted && musicVolumePct > 0) connectMusicStream();
     }, 1000);
     return;
   }
-  startFreshTrack();
+  connectMusicStream();
 }
 
-/** Stop the in-game music (scene shutdown). */
+/** Stop the in-game music and release the server session. */
 export function stopGameMusic(): void {
   musicWanted = false;
   clearAlertStart();
-  stopMusicFade();
+  musicCommand('stop');
   musicEl?.pause();
+  musicEl = null;
+  musicSessionId = null;
 }
 
 /** Play a loaded sound key, scaled by the SFX volume setting. */
@@ -287,9 +237,12 @@ export function bindGameAudio(scene: Phaser.Scene): void {
       volume: 0.22,
       rate: 0.95 + Math.random() * 0.1,
     });
-    crossfadeToOtherTrack();
   });
-  eventBus.on('wave-cleared', () => playSfx(scene, 'sfx_coin', { volume: 0.3, rate: 1.2 }));
+  // Wave done -> ask the music server to mix over to the other track
+  eventBus.on('wave-cleared', () => {
+    playSfx(scene, 'sfx_coin', { volume: 0.3, rate: 1.2 });
+    crossfadeMusic();
+  });
 
   // Something got through to the base — a heavy thud
   eventBus.on('enemy-reached-base', () =>

@@ -78,4 +78,5 @@ console.log('Starting game server (:4000) and Vite dev server (:3000)…\n');
 // --watch: reload the backend on code changes (validators/routes go
 // live immediately instead of needing a manual restart)
 run('server', bin('tsx'), ['watch', 'server/index.ts']);
+run('music', bin('tsx'), ['watch', 'server/music.ts']);
 run('vite', bin('vite'), process.argv.slice(2));

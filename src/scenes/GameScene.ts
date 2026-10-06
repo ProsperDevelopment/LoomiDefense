@@ -500,6 +500,7 @@ export class GameScene extends Phaser.Scene {
     this.updateTowerCombat(scaledDelta);
     this.updateProjectiles(scaledDelta);
     this.updateDebrisKicks(scaledDelta);
+    this.updateHealthBarVisibility();
 
     // Host: broadcast snapshots ~10x per second
     if (this.netRole === 'host') {
@@ -560,6 +561,10 @@ export class GameScene extends Phaser.Scene {
       img.x += (tx - img.x) * k;
       img.y += (ty - img.y) * k;
     }
+
+    // Guests only know their own selection — everything else stays hidden
+    const selectedId = this.selectedEnemy?.id;
+    for (const enemy of this.enemies) enemy.showHealthBar(enemy.id === selectedId);
 
     this.updateTargetSight();
 
@@ -1485,6 +1490,24 @@ export class GameScene extends Phaser.Scene {
 
   private findTowerAt(col: number, row: number): Tower | null {
     return this.towers.find(t => t.getGridCol() === col && t.getGridRow() === row) || null;
+  }
+
+  /**
+   * HP bars are shown only for what the player is looking at: the
+   * selected enemy, anything a projectile is flying at, and anything a
+   * ninja has locked in melee.
+   */
+  private updateHealthBarVisibility(): void {
+    const show = new Set<string>();
+    if (this.selectedEnemy) show.add(this.selectedEnemy.id);
+    for (const p of this.projectiles) {
+      const id = p.alive ? p.getTargetId() : '';
+      if (id) show.add(id);
+    }
+    for (const e of this.enemies) {
+      if (e.friendly && e.combatTargetId) show.add(e.combatTargetId);
+    }
+    for (const e of this.enemies) e.showHealthBar(show.has(e.id));
   }
 
   /** Walking enemies knock resting corpse parts (bones and shards) around. */

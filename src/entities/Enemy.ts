@@ -57,6 +57,8 @@ export class Enemy {
   collisionCd: number = 0;
   /** Melee lock: the enemy id this unit is dueling (ninja summons). */
   combatTargetId: string | null = null;
+  /** Current HP-bar visibility (bars default to hidden). */
+  private barVisible = false;
   /** Ninja-tower level that summoned this unit (drives throws and tint). */
   summonLevel: number = 1;
   /** Physics mass: mostly the unit's max hp, some per-spawn randomness. */
@@ -191,6 +193,10 @@ export class Enemy {
     this.healthBar.setOrigin(0, 0.5);
     this.healthBar.setDepth(24);
 
+    // Bars start hidden — they only appear when selected or targeted
+    this.healthBarBg.setVisible(false);
+    this.healthBar.setVisible(false);
+
     // Invisible enemies (Phantoms) pulse from half transparent to fully
     // invisible and back while traveling — the flicker is the only visual
     // giveaway; blood splatter reveals their exact position on hits
@@ -237,6 +243,19 @@ export class Enemy {
       this.physicsBy = null;
       this.physicsEnabled = false;
     }
+  }
+
+  /**
+   * The HP bar only shows while the enemy is selected or targeted
+   * (clicked, under an incoming projectile, or locked by a ninja).
+   * Phantoms stay hidden as before.
+   */
+  showHealthBar(show: boolean): void {
+    if (this.data.invisible) show = false;
+    if (show === this.barVisible) return;
+    this.barVisible = show;
+    this.healthBar?.setVisible(show);
+    this.healthBarBg?.setVisible(show);
   }
 
   /** Stop the phantom visibility pulse (death animations take over). */
@@ -573,6 +592,9 @@ export class Enemy {
     this.throwsLeft = 0;
     this.fighting = false;
     this.meleeFocus = null;
+    this.barVisible = false;
+    this.healthBar?.setVisible(false);
+    this.healthBarBg?.setVisible(false);
     this.pathIndex = 0;
     this.baseSpeed = this.data.speed;
     this.speed = this.data.speed;
