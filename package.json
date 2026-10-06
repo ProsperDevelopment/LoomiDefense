@@ -11,7 +11,7 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "server": "tsx server/index.ts",
-    "music": "tsx server/music.ts",
+    "music": "tsx ../LoomiMusicMixServer/music.ts",
     "start": "tsx server/index.ts"
   },
   "dependencies": {

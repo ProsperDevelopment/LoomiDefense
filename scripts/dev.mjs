@@ -7,6 +7,7 @@
 // ============================================================
 import { spawn } from 'node:child_process';
 import { join, dirname } from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -78,5 +79,11 @@ console.log('Starting game server (:4000) and Vite dev server (:3000)…\n');
 // --watch: reload the backend on code changes (validators/routes go
 // live immediately instead of needing a manual restart)
 run('server', bin('tsx'), ['watch', 'server/index.ts']);
-run('music', bin('tsx'), ['watch', 'server/music.ts']);
+// The music mixer lives in its own project next to this one
+const musicEntry = join(root, '..', 'LoomiMusicMixServer', 'music.ts');
+if (existsSync(musicEntry)) {
+  run('music', bin('tsx'), ['watch', musicEntry]);
+} else {
+  console.log('[music] ../LoomiMusicMixServer not found - music server skipped');
+}
 run('vite', bin('vite'), process.argv.slice(2));
