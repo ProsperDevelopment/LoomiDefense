@@ -229,10 +229,15 @@
       Spawn ms = delay between spawns of an entry; wave ms = delay
       before the entry starts. path = turns at each split (e.g. 0,1,
       empty = random); spawn = spawn point index (empty = random).
+      Use Copy/Paste to move waves or whole sets between tabs — or
+      between levels, straight through the system clipboard.
     </p>
     <div id="wavesList"></div>
     <div class="waves-actions">
       <button class="btn" onclick="addWave()">+ Add Wave</button>
+      <button class="btn secondary" onclick="pasteWave()" title="Append a copied wave to this set">Paste Wave</button>
+      <button class="btn secondary" onclick="copySet()" title="Copy this whole set to the clipboard">Copy Set</button>
+      <button class="btn secondary" onclick="pasteSet()" title="Replace this set with a copied one">Paste Set</button>
       <button class="btn danger" onclick="clearWaves()">Clear All</button>
       <span class="spacer"></span>
       <button class="btn" onclick="saveWaves()">Save</button>
@@ -1650,7 +1655,10 @@ function renderWavesDialog() {
     <div class="wave-card">
       <div class="wave-card-head">
         <strong>Wave ${wi + 1}</strong>
-        <button class="btn danger small" onclick="removeWave(${wi})">Remove Wave</button>
+        <span style="display:flex; gap:6px;">
+          <button class="btn secondary small" onclick="copyWave(${wi})" title="Copy this wave to the clipboard">Copy</button>
+          <button class="btn danger small" onclick="removeWave(${wi})">Remove Wave</button>
+        </span>
       </div>
       ${wave.entries.map((entry, ei) => `
         <div class="wave-entry">
@@ -1714,6 +1722,115 @@ function setWaveEntry(wi, ei, field, value) {
 function clearWaves() {
   waveSets[activeWaveTab] = [];
   renderWavesDialog();
+}
+
+// ------------------------------------------------------------
+// Clipboard: copy/paste single waves and whole wave sets —
+// travels through the system clipboard, so it also works across
+// levels, tabs and separate editor sessions.
+// ------------------------------------------------------------
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Insecure context (plain http) — legacy fallback
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function copyFromClipboard() {
+  try {
+    return await navigator.clipboard.readText();
+  } catch {
+    return window.prompt('Paste the copied wave JSON:') || '';
+  }
+}
+
+/** Understands our tagged payloads plus raw wave JSON someone made. */
+function parseWaveClipboard(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (data && data.kind === 'loomi-wave' && data.wave) {
+    const waves = normalizeWaves([data.wave]);
+    return waves.length ? { kind: 'wave', waves } : null;
+  }
+  if (data && data.kind === 'loomi-wave-set') {
+    const waves = normalizeWaves(data.waves);
+    return waves.length ? { kind: 'set', waves } : null;
+  }
+  if (Array.isArray(data)) {
+    const waves = normalizeWaves(data);
+    return waves.length ? { kind: 'set', waves } : null;
+  }
+  if (data && Array.isArray(data.entries)) {
+    const waves = normalizeWaves([data]);
+    return waves.length ? { kind: 'wave', waves } : null;
+  }
+  return null;
+}
+
+async function copyWave(wi) {
+  const wave = activeWaves()[wi];
+  if (!wave) return;
+  const ok = await copyToClipboard(
+    JSON.stringify({ kind: 'loomi-wave', wave }, null, 2),
+  );
+  document.getElementById('status').textContent = ok
+    ? `Copied wave ${wi + 1}`
+    : 'Copy failed — clipboard not available';
+}
+
+async function pasteWave() {
+  const parsed = parseWaveClipboard(await copyFromClipboard());
+  if (!parsed) {
+    document.getElementById('status').textContent = 'Nothing valid on the clipboard to paste';
+    return;
+  }
+  // A copied whole set pasted as a wave source: append its waves one by one
+  for (const w of parsed.waves) activeWaves().push(w);
+  updateWavesSummary();
+  renderWavesDialog();
+  document.getElementById('status').textContent =
+    `Pasted ${parsed.waves.length} wave${parsed.waves.length > 1 ? 's' : ''} into ${activeWaveTab}`;
+}
+
+async function copySet() {
+  const ok = await copyToClipboard(
+    JSON.stringify({ kind: 'loomi-wave-set', waves: activeWaves() }, null, 2),
+  );
+  document.getElementById('status').textContent = ok
+    ? `Copied the ${activeWaveTab} set (${activeWaves().length} waves)`
+    : 'Copy failed — clipboard not available';
+}
+
+async function pasteSet() {
+  const parsed = parseWaveClipboard(await copyFromClipboard());
+  if (!parsed) {
+    document.getElementById('status').textContent = 'Nothing valid on the clipboard to paste';
+    return;
+  }
+  waveSets[activeWaveTab] = parsed.waves;
+  updateWavesSummary();
+  renderWavesDialog();
+  document.getElementById('status').textContent =
+    `Replaced the ${activeWaveTab} set with ${parsed.waves.length} pasted wave${parsed.waves.length > 1 ? 's' : ''}`;
 }
 
 function saveWaves() {
