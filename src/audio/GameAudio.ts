@@ -98,13 +98,21 @@ let musicEl: HTMLAudioElement | null = null;
 let musicSessionId: string | null = null;
 let musicWanted = false;
 let alertStartTimer: ReturnType<typeof setTimeout> | null = null;
+// '' = same origin (nginx proxies /music on the VPS) until a stream
+// error falls back to the direct music port (local dev / LAN)
+let musicBase = '';
+let musicTriedDirect = false;
 
-function musicBaseUrl(): string {
+function directMusicBaseUrl(): string {
   const host =
     typeof window !== 'undefined' && window.location.hostname
       ? window.location.hostname
       : 'localhost';
   return `http://${host}:${MUSIC_PORT}`;
+}
+
+function musicUrl(path: string): string {
+  return `${musicBase}${path}`;
 }
 
 function clearAlertStart(): void {
@@ -117,11 +125,9 @@ function clearAlertStart(): void {
 /** Fire a command at the music server for the current session. */
 function musicCommand(cmd: 'crossfade' | 'stop'): void {
   if (!musicSessionId) return;
-  void fetch(`${musicBaseUrl()}/music/${cmd}?id=${encodeURIComponent(musicSessionId)}`).catch(
-    () => {
-      // Music server offline — stay silent
-    },
-  );
+  void fetch(musicUrl(`/music/${cmd}?id=${encodeURIComponent(musicSessionId)}`)).catch(() => {
+    // Music server offline — stay silent
+  });
 }
 
 /** Open a fresh stream (its own session) from the music server. */
@@ -129,9 +135,18 @@ function connectMusicStream(): void {
   musicEl?.pause();
   const id = `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   musicSessionId = id;
-  const el = new Audio(`${musicBaseUrl()}/music/stream?id=${encodeURIComponent(id)}`);
+  musicTriedDirect = false;
+  const streamPath = `/music/stream?id=${encodeURIComponent(id)}`;
+  const el = new Audio(musicUrl(streamPath));
   el.volume = musicVolumePct / 100;
   musicEl = el;
+  // Same origin404s (no /music proxy) -> one fallback hop to the port
+  el.addEventListener('error', () => {
+    if (musicEl !== el || musicTriedDirect) return;
+    musicTriedDirect = true;
+    musicBase = directMusicBaseUrl();
+    el.src = musicUrl(streamPath);
+  });
   void el.play().catch(() => {
     // Autoplay blocked — retry the moment the user interacts
     const retry = (): void => {

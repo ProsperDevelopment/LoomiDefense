@@ -7,7 +7,7 @@
 # ============================================================
 
 # Shared dependency layer
-FROM node:22-slim AS deps
+FROM node:22-bullseye-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
