@@ -29,6 +29,13 @@ services:
     # volumes:
     #   - ./music-extra:/app/music
 
+  editor:
+    build:
+      context: ./editor
+    ports:
+      - "127.0.0.1:8084:80"
+    restart: unless-stopped
+
   web:
     build:
       context: .
