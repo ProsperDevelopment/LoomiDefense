@@ -1,0 +1,44 @@
+# ============================================================
+# VPS deployment:
+#   docker-compose up -d --build
+#
+# Open ports on the VPS firewall:
+#   80    web client (nginx: static files + /api + /ws proxies)
+#   4001  music stream (the game reaches it at http://<host>:4001)
+#   4000  game API/WS directly (optional — nginx already proxies it)
+# ============================================================
+services:
+  game-server:
+    build:
+      context: .
+      target: game-server
+    volumes:
+      # users, progress and saved levels live here across restarts
+      - game-data:/app/server/data
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+
+  music:
+    build:
+      context: ../LoomiMusicMixServer
+    ports:
+      - "4001:4001"
+    restart: unless-stopped
+    # Extra tracks can be mounted instead of baked into the image:
+    # volumes:
+    #   - ./music-extra:/app/music
+
+  web:
+    build:
+      context: .
+      target: web
+    ports:
+      # WEB_PORT lets local machines with a busy :80 test the stack
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      - game-server
+    restart: unless-stopped
+
+volumes:
+  game-data:

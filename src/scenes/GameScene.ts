@@ -1301,11 +1301,15 @@ export class GameScene extends Phaser.Scene {
   /** Towers pop up from a speck so a build reads as growth. */
   private growInTower(tower: Tower): void {
     if (!tower.sprite) return;
-    tower.sprite.setScale(0.05);
+    // Tween back to the NATURAL scale — createSprite does setDisplaySize
+    // (the64px tile shown at CELL_SIZE = scale0.75), so growing to
+    // scaleX:1 would leave every tower a third too large
+    const target = tower.sprite.scaleX;
+    tower.sprite.setScale(target * 0.05);
     this.tweens.add({
       targets: tower.sprite,
-      scaleX: 1,
-      scaleY: 1,
+      scaleX: target,
+      scaleY: target,
       duration: 320,
       ease: 'Back.Out',
     });

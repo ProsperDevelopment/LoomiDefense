@@ -1,0 +1,11 @@
+node_modules
+dist
+.vite
+.git
+*.log
+# Local-only bulk: sound pack (432MB), asset pack, editor, level data
+sound assets
+Ninja Adventure - Asset Pack
+editor
+# DB lives in a docker volume (game-data), not in the image
+server/data
