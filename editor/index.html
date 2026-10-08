@@ -1161,12 +1161,18 @@ function handleCell(e) {
         removePathPoint(cell.x, cell.y);
         break;
       case 'spawn':
-        spawnPoints = spawnPoints.filter(s => !(s.x === cell.x && s.y === cell.y));
-        spawnPoints.push({ x: cell.x, y: cell.y });
+        if (spawnPoints.some(s => s.x === cell.x && s.y === cell.y)) {
+          spawnPoints = spawnPoints.filter(s => !(s.x === cell.x && s.y === cell.y));
+        } else {
+          spawnPoints.push({ x: cell.x, y: cell.y });
+        }
         break;
       case 'base':
-        basePoints = basePoints.filter(b => !(b.x === cell.x && b.y === cell.y));
-        basePoints.push({ x: cell.x, y: cell.y });
+        if (basePoints.some(b => b.x === cell.x && b.y === cell.y)) {
+          basePoints = basePoints.filter(b => !(b.x === cell.x && b.y === cell.y));
+        } else {
+          basePoints.push({ x: cell.x, y: cell.y });
+        }
         break;
     }
   }

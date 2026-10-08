@@ -986,17 +986,14 @@ export class GameScene extends Phaser.Scene {
 
     const cs = this.grid.cellSize;
     const ARC   = cs * 0.75;
-    const FWD   = cs * 0.4;
     const PLUNGE = cs * 0.3;
     const MS    = 500;
 
-    const EARLY  = cs * 0.6;
+    // Arc from the character's current position to the hole center
     const startX = sprite.x;
     const startY = sprite.y;
-    const landX  = to.x - Math.sign(dx) * EARLY;
-    const landY  = to.y - Math.sign(dy) * EARLY;
-    const endX   = horizontal ? landX + Math.sign(dx) * FWD : landX;
-    const endY   = landY;
+    const endX   = to.x;
+    const endY   = to.y;
 
     if (fromAbove) sprite.setDepth(8);
 
@@ -1014,7 +1011,7 @@ export class GameScene extends Phaser.Scene {
         if (fromAbove) sprite.setDepth(15);
         this.tweens.add({
           targets: sprite,
-          y: to.y + PLUNGE,
+          y: endY + PLUNGE,
           duration: 200,
           ease: 'Power2.in',
           onComplete: onLanded,
