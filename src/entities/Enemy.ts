@@ -85,6 +85,11 @@ export class Enemy {
   fxRotation: number = 0;
   /** Forced anim during a spin hit reaction (null = normal facing logic). */
   animOverride: string | null = null;
+  /** Whether this unit is playing its sink-into-hole animation. */
+  sinking: boolean = false;
+  /** The tween driving the sink arc — stored so it can be cancelled
+   *  if the enemy is knocked away from the hole. */
+  sinkTween: Phaser.Tweens.Tween | null = null;
   /** Decaying knockback velocity (px/s) layered over path movement. */
   knockVX: number = 0;
   knockVY: number = 0;
@@ -344,6 +349,8 @@ export class Enemy {
     // Update slow effects
     this.health.updateStatusEffects(deltaMs);
     this.speed = this.baseSpeed * this.health.slowFactor;
+    // Ignore freezers while sinking — keep walking speed normal
+    if (this.sinking) this.speed = this.baseSpeed;
     if (this.collisionCd > 0) this.collisionCd -= deltaMs;
     if (this.contactCd > 0) this.contactCd -= deltaMs;
     if (this.physicsMs > 0) this.physicsMs = Math.max(0, this.physicsMs - deltaMs);
@@ -434,8 +441,8 @@ export class Enemy {
       }
     }
 
-    // Update visual
-    this.updateVisuals();
+    // Update visual — skip when sinking (the tween owns sprite position)
+    if (!this.sinking) this.updateVisuals();
 
     // Pulse effect when slowed
     if (this.health.slowFactor < 1.0) {
@@ -557,6 +564,8 @@ export class Enemy {
   destroy(): void {
     // The pulse tween repeats forever — stop it or it outlives the sprite
     this.invisibilityTween?.stop();
+    this.sinkTween?.stop();
+    this.sinkTween = null;
     this.invisibilityTween = null;
     this.staggerMs = 0;
     this.sprite?.destroy();

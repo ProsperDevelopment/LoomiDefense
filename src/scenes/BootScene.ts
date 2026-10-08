@@ -156,6 +156,10 @@ export class BootScene extends Phaser.Scene {
     // Spawn/base holes (drawn over the road at both ends)
     this.load.image('hole_background', 'assets/images/hole-background.png');
     this.load.image('hole_foreground', 'assets/images/hole-forground.png');
+    this.load.image('spawn_hole_bg', 'assets/images/spawn-hole-background.png');
+    this.load.image('spawn_hole_fg', 'assets/images/spawn-hole-foreground.png');
+    this.load.image('base_hole_bg', 'assets/images/base-hole-background.png');
+    this.load.image('base_hole_fg', 'assets/images/base-hole-foreground.png');
 
     // Load projectile sprites
     this.load.image('projectile_fire', 'assets/images/projectiles/fire.png');

@@ -902,7 +902,11 @@ export class GameScene extends Phaser.Scene {
     };
 
     const seen = new Set<string>();
-    const place = (pts: { x: number; y: number }[]): void => {
+    const place = (
+      pts: { x: number; y: number }[],
+      bgKey: string,
+      fgKey: string,
+    ): void => {
       for (const p of pts) {
         const key = `${p.x},${p.y}`;
         if (seen.has(key)) continue;
@@ -911,12 +915,12 @@ export class GameScene extends Phaser.Scene {
         const fromAbove = dirFor(p.x, p.y);
         const bgDepth = fromAbove ? 4 : 9;
         const fgDepth = fromAbove ? 5 : 12;
-        this.add.image(x, y - yOff, 'hole_background').setDisplaySize(w, h).setDepth(bgDepth);
-        this.add.image(x, y - yOff, 'hole_foreground').setDisplaySize(w, h).setDepth(fgDepth);
+        this.add.image(x, y - yOff, bgKey).setDisplaySize(w, h).setDepth(bgDepth);
+        this.add.image(x, y - yOff, fgKey).setDisplaySize(w, h).setDepth(fgDepth);
       }
     };
-    place(spawns);
-    place(bases);
+    place(spawns, 'spawn_hole_bg', 'spawn_hole_fg');
+    place(bases, 'base_hole_bg', 'base_hole_fg');
   }
 
   /**
@@ -958,10 +962,14 @@ export class GameScene extends Phaser.Scene {
 
   /** The unit jumps INTO the pipe at the end of its route. */
   /** The unit hops in a half-circle arc into the pipe. */
-  private sinkIntoHole(enemy: Enemy): void {
+  private sinkIntoHole(
+    enemy: Enemy,
+    endPt: { x: number; y: number },
+    onLanded: () => void,
+  ): void {
     const sprite = enemy.sprite;
     if (!sprite) {
-      enemy.destroy();
+      onLanded();
       return;
     }
     enemy.stopInvisibilityPulse();
@@ -970,19 +978,19 @@ export class GameScene extends Phaser.Scene {
     const path = enemy.getPath();
     const rev = enemy.isReverse();
     const from = rev ? path[1] : path[Math.max(0, path.length - 2)];
-    const to   = rev ? path[0] : path[path.length - 1];
+    const to   = endPt;
     const dx   = to.x - from.x;
     const dy   = to.y - from.y;
     const horizontal = Math.abs(dx) > Math.abs(dy);
     const fromAbove  = !horizontal && dy < 0;
 
     const cs = this.grid.cellSize;
-    const ARC   = cs * 0.75;  // peak height of the half-circle
-    const FWD   = cs * 0.4;   // forward slide during the arc
-    const PLUNGE = cs * 0.3;  // how far past the rim to drop
-    const MS    = 500;        // total arc duration
+    const ARC   = cs * 0.75;
+    const FWD   = cs * 0.4;
+    const PLUNGE = cs * 0.3;
+    const MS    = 500;
 
-    const EARLY  = cs * 0.6;  // land this far before the hole
+    const EARLY  = cs * 0.6;
     const startX = sprite.x;
     const startY = sprite.y;
     const landX  = to.x - Math.sign(dx) * EARLY;
@@ -992,9 +1000,7 @@ export class GameScene extends Phaser.Scene {
 
     if (fromAbove) sprite.setDepth(8);
 
-    // Single tween traces a half-circle: t goes 0 → 1, sin(πt) is the
-    // vertical arc, the horizontal component is a straight line
-    this.tweens.add({
+    const tween = this.tweens.add({
       targets: { t: 0 },
       t: 1,
       duration: MS,
@@ -1006,17 +1012,17 @@ export class GameScene extends Phaser.Scene {
       },
       onComplete: () => {
         if (fromAbove) sprite.setDepth(15);
-        // Drop past the rim and fade out
         this.tweens.add({
           targets: sprite,
           y: to.y + PLUNGE,
           duration: 200,
           ease: 'Power2.in',
-          onComplete: () => enemy.destroy(),
+          onComplete: onLanded,
         });
         this.tweens.add({ targets: sprite, alpha: 0, duration: 90, ease: 'Linear' });
       },
     });
+    enemy.sinkTween = tween;
   }
 
   /**
@@ -1751,8 +1757,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateEnemies(deltaMs: number): void {
-    // Jump distance: start the sink animation when the enemy is this
     const cs = this.grid.cellSize;
+    // Abort the sink animation if knocked this far from the hole
+    const ABORT_DIST = cs * 2.5;
 
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
@@ -1764,11 +1771,28 @@ export class GameScene extends Phaser.Scene {
         this.spawnSplitterMinis(enemy);
       }
 
-      // Trigger the sink animation early: when the enemy is close
-      // enough to the hole (last path point). Horizontal roads need
-      // more lead so the arc looks right; vertical roads less.
       const path = enemy.getPath();
       const endPt = enemy.isReverse() ? path[0] : path[path.length - 1];
+
+      // If already sinking: abort if knocked away from the hole,
+      // otherwise let the tween run and wait for it to complete
+      if (enemy.sinking) {
+        const dist = Math.hypot(enemy.position.x - endPt.x, enemy.position.y - endPt.y);
+        if (dist > ABORT_DIST) {
+          enemy.sinkTween?.stop();
+          enemy.sinkTween = null;
+          enemy.sinking = false;
+          if (enemy.sprite) enemy.sprite.setAlpha(1);
+        }
+        // Skip the sink trigger below — it's already running or was
+        // just aborted; the enemy will walk back to the hole next
+        // frame and retrigger naturally
+        continue;
+      }
+
+      // Reached the end of the path or close enough to the hole to
+      // start the sink animation — keep the enemy alive and in the
+      // game so towers can still hit it during the arc
       const from = enemy.isReverse() ? path[1] : path[Math.max(0, path.length - 2)];
       const adx = Math.abs(endPt.x - from.x);
       const ady = Math.abs(endPt.y - from.y);
@@ -1776,23 +1800,33 @@ export class GameScene extends Phaser.Scene {
       const nearHole = Math.hypot(enemy.position.x - endPt.x, enemy.position.y - endPt.y) <= sinkDist;
 
       if (reachedBase || nearHole) {
-        // Clear selection if this enemy was selected
-        if (this.selectedEnemy === enemy) {
-          this.deselectEnemy();
-        }
-        // Remove BEFORE notifying: wave completion checks the live enemy
-        // list — then the unit climbs down into the hole (host sprite)
-        this.detachEnemy(enemy, i);
-        enemy.alive = false;
-        enemy.healthBar?.setVisible(false);
-        enemy.healthBarBg?.setVisible(false);
-        this.sinkIntoHole(enemy);
-        // Ninjas walking off the far end never hurt the base
-        if (!enemy.friendly) {
-          eventBus.emit('enemy-reached-base', { damage: 1 });
-        }
+        this.startSinkAnimation(enemy, endPt);
       }
     }
+  }
+
+  /** Begin the sink arc — enemy stays alive and in the list. */
+  private startSinkAnimation(enemy: Enemy, endPt: { x: number; y: number }): void {
+    enemy.sinking = true;
+    enemy.healthBar?.setVisible(false);
+    enemy.healthBarBg?.setVisible(false);
+    if (this.selectedEnemy === enemy) this.deselectEnemy();
+
+    const isFriendly = enemy.friendly;
+    this.sinkIntoHole(enemy, endPt, () => {
+      // Called when the arc and drop are done — NOW remove from play
+      enemy.sinking = false;
+      enemy.sinkTween = null;
+      const idx = this.enemies.indexOf(enemy);
+      if (idx >= 0) this.detachEnemy(enemy, idx);
+      enemy.alive = false;
+      enemy.destroy();
+      if (!isFriendly) {
+        eventBus.emit('enemy-reached-base', { damage: 1 });
+      }
+      // Check wave completion after the enemy is actually removed
+      this.checkWaveComplete();
+    });
   }
 
   /** Drop the enemy from the live list without touching its sprite. */
