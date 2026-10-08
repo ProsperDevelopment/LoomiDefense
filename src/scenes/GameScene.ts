@@ -665,6 +665,7 @@ export class GameScene extends Phaser.Scene {
         if (tint !== undefined && enemy.sprite) enemy.sprite.setTint(tint);
         this.enemies.push(enemy);
         enemy.position.set(s.x, s.y);
+        this.startHoleRise(enemy);
       }
       const prevHp = enemy.health.current;
       const prevX = enemy.position.x;
@@ -865,17 +866,157 @@ export class GameScene extends Phaser.Scene {
     // Background tiles on top of the ground — loaded on demand for this level
     this.drawBackgroundTiles(mapData);
 
-    for (const spawn of this.grid.getSpawnPixels()) {
-      this.add.rectangle(spawn.x, spawn.y + GRID_OFFSET_Y, 20, 20, 0xe74c3c, 0.7);
-      this.add.text(spawn.x, spawn.y + GRID_OFFSET_Y, 'S', { fontSize: '14px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
-    }
+    // Holes in the ground at every road start and end, over the asphalt
+    this.drawSpawnBaseHoles();
+  }
 
-    const basePixels = this.grid.getPathPixels();
-    const basePos = basePixels[basePixels.length - 1];
-    if (basePos) {
-      this.add.rectangle(basePos.x, basePos.y + GRID_OFFSET_Y, 24, 24, 0x4CAF50, 0.7);
-      this.add.text(basePos.x, basePos.y + GRID_OFFSET_Y, 'B', { fontSize: '14px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+  /** Layered hole graphics where roads start and end. */
+  private drawSpawnBaseHoles(): void {
+    const w = this.grid.cellSize * 1.15;
+    const yOff = -this.grid.cellSize * 0.2; // negative = down a bit
+    const src = this.textures.get('hole_background').getSourceImage() as { width: number; height: number };
+    const h = src.width > 0 ? (w * src.height) / src.width : (w * 21) / 32;
+
+    // Holes only at spawn points and base points — not at road splits.
+    // Fall back to the main road's start/end when no explicit points exist.
+    const map = this.grid.getMapData();
+    const spawns = map.spawnPoints?.length
+      ? map.spawnPoints
+      : map.basePath.length > 0
+        ? [map.basePath[0]]
+        : [];
+    const bases = this.grid.getBasePoints();
+
+    // Road direction at the point: find the polyline that starts or ends
+    // here and read the segment direction.  A negative vertical component
+    // means the road comes from above.
+    const polylines = this.grid.getRoadPolylines().filter((pl) => pl.length >= 2);
+    const dirFor = (gx: number, gy: number): boolean => {
+      for (const pl of polylines) {
+        const g0 = this.grid.worldToGrid(pl[0].x, pl[0].y);
+        if (g0.col === gx && g0.row === gy) return (pl[0].y - pl[1].y) < 0;
+        const gN = this.grid.worldToGrid(pl[pl.length - 1].x, pl[pl.length - 1].y);
+        if (gN.col === gx && gN.row === gy) return (pl[pl.length - 1].y - pl[pl.length - 2].y) < 0;
+      }
+      return false;
+    };
+
+    const seen = new Set<string>();
+    const place = (pts: { x: number; y: number }[]): void => {
+      for (const p of pts) {
+        const key = `${p.x},${p.y}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const { x, y } = this.grid.gridToWorld(p.x, p.y);
+        const fromAbove = dirFor(p.x, p.y);
+        const bgDepth = fromAbove ? 4 : 9;
+        const fgDepth = fromAbove ? 5 : 12;
+        this.add.image(x, y - yOff, 'hole_background').setDisplaySize(w, h).setDepth(bgDepth);
+        this.add.image(x, y - yOff, 'hole_foreground').setDisplaySize(w, h).setDepth(fgDepth);
+      }
+    };
+    place(spawns);
+    place(bases);
+  }
+
+  /**
+   * Units jump OUT of the pipe when their route starts next to one:
+   * a pop up from inside the tube, then they land and walk on.
+   */
+  private startHoleRise(enemy: Enemy): void {
+    if (!enemy.alive) return;
+    // Only check spawn/base points — not road splits
+    const map = this.grid.getMapData();
+    const spawns = map.spawnPoints?.length
+      ? map.spawnPoints
+      : map.basePath.length > 0
+        ? [map.basePath[0]]
+        : [];
+    const bases = this.grid.getBasePoints();
+    const holePts = [...spawns, ...bases].map((p) => this.grid.gridToWorld(p.x, p.y));
+    const reachDist = this.grid.cellSize * 1.5;
+    const nearHole = holePts.some((e) => Math.hypot(e.x - enemy.position.x, e.y - enemy.position.y) <= reachDist);
+    if (!nearHole) return;
+    // Emerge from the hole: start tucked inside — never deeper than
+    // 20px — fade in, hop high over the rim, then land further along
+    // (the unit keeps walking the road during the whole arc)
+    enemy.fxY = 16;
+    if (!enemy.data.invisible && enemy.sprite) {
+      enemy.sprite.setAlpha(0);
+      this.tweens.add({ targets: enemy.sprite, alpha: 1, duration: 220, ease: 'Power1.in' });
     }
+    this.tweens.add({
+      targets: enemy,
+      fxY: -32,
+      duration: 340,
+      ease: 'Power2.out',
+      onComplete: () => {
+        this.tweens.add({ targets: enemy, fxY: 0, duration: 360, ease: 'Power2.in' });
+      },
+    });
+  }
+
+  /** The unit jumps INTO the pipe at the end of its route. */
+  /** The unit hops in a half-circle arc into the pipe. */
+  private sinkIntoHole(enemy: Enemy): void {
+    const sprite = enemy.sprite;
+    if (!sprite) {
+      enemy.destroy();
+      return;
+    }
+    enemy.stopInvisibilityPulse();
+
+    // Road approach direction
+    const path = enemy.getPath();
+    const rev = enemy.isReverse();
+    const from = rev ? path[1] : path[Math.max(0, path.length - 2)];
+    const to   = rev ? path[0] : path[path.length - 1];
+    const dx   = to.x - from.x;
+    const dy   = to.y - from.y;
+    const horizontal = Math.abs(dx) > Math.abs(dy);
+    const fromAbove  = !horizontal && dy < 0;
+
+    const cs = this.grid.cellSize;
+    const ARC   = cs * 0.75;  // peak height of the half-circle
+    const FWD   = cs * 0.4;   // forward slide during the arc
+    const PLUNGE = cs * 0.3;  // how far past the rim to drop
+    const MS    = 500;        // total arc duration
+
+    const EARLY  = cs * 0.6;  // land this far before the hole
+    const startX = sprite.x;
+    const startY = sprite.y;
+    const landX  = to.x - Math.sign(dx) * EARLY;
+    const landY  = to.y - Math.sign(dy) * EARLY;
+    const endX   = horizontal ? landX + Math.sign(dx) * FWD : landX;
+    const endY   = landY;
+
+    if (fromAbove) sprite.setDepth(8);
+
+    // Single tween traces a half-circle: t goes 0 → 1, sin(πt) is the
+    // vertical arc, the horizontal component is a straight line
+    this.tweens.add({
+      targets: { t: 0 },
+      t: 1,
+      duration: MS,
+      ease: 'Linear',
+      onUpdate: (_tw, target) => {
+        const t = target.t;
+        sprite.x = startX + (endX - startX) * t;
+        sprite.y = startY + (endY - startY) * t - Math.sin(Math.PI * t) * ARC;
+      },
+      onComplete: () => {
+        if (fromAbove) sprite.setDepth(15);
+        // Drop past the rim and fade out
+        this.tweens.add({
+          targets: sprite,
+          y: to.y + PLUNGE,
+          duration: 200,
+          ease: 'Power2.in',
+          onComplete: () => enemy.destroy(),
+        });
+        this.tweens.add({ targets: sprite, alpha: 0, duration: 90, ease: 'Linear' });
+      },
+    });
   }
 
   /**
@@ -939,23 +1080,58 @@ export class GameScene extends Phaser.Scene {
     const outline = roadColorDark ?? this.shadeColor(fill, 0.6);
     const center = this.shadeColor(fill, 1.3);
 
-    // Three passes over ALL polylines: every outline first, then every
-    // fill, then the center lines. Drawing a branch outline-to-fill in
-    // one go would strip its dark outline across the main road at the
-    // junction; with this order the fills cover all outline interiors
-    // and only the union's outer rim stays outlined.
+    // Passes over ALL polylines in order — outlines first, then the
+    // half-circle end caps that join them around every road start and
+    // end, then fills and their caps, then the center lines. Drawing
+    // per-polyline would stripe a branch outline across the junction.
     for (const smoothPoints of polylines) {
       graphics.lineStyle(36, outline, 1);
       this.drawSmoothPath(graphics, smoothPoints);
+    }
+    for (const smoothPoints of polylines) {
+      this.drawSmoothPathCap(graphics, smoothPoints, 18, outline);
     }
     for (const smoothPoints of polylines) {
       graphics.lineStyle(28, fill, 1);
       this.drawSmoothPath(graphics, smoothPoints);
     }
     for (const smoothPoints of polylines) {
+      this.drawSmoothPathCap(graphics, smoothPoints, 14, fill);
+    }
+    for (const smoothPoints of polylines) {
       graphics.lineStyle(2, center, 0.5);
       this.drawSmoothPath(graphics, smoothPoints);
     }
+  }
+
+  /**
+   * Half-circle cap at both ends of a road: the outline wraps around
+   * the open end so roads finish in a rounded semicircle instead of a
+   * flat cut (radius = half the stroke width of the layer).
+   */
+  private drawSmoothPathCap(
+    graphics: Phaser.GameObjects.Graphics,
+    points: { x: number; y: number }[],
+    radius: number,
+    color: number,
+  ): void {
+    if (points.length < 2) return;
+    const capAt = (endIdx: number, towardIdx: number): void => {
+      const e = points[endIdx];
+      const t = points[towardIdx];
+      const dx = t.x - e.x;
+      const dy = t.y - e.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.01) return;
+      const outAngle = Math.atan2(-dy, -dx); // pointing away from the road
+      graphics.fillStyle(color, 1);
+      graphics.beginPath();
+      graphics.arc(e.x, e.y, radius, outAngle - Math.PI / 2, outAngle + Math.PI / 2, false);
+      graphics.closePath();
+      graphics.fillPath();
+    };
+    capAt(points.length - 1, points.length - 2);
+    capAt(0, 1);
   }
 
   /** Multiply RGB channels of a color by a factor (clamped to 0-255). */
@@ -966,6 +1142,11 @@ export class GameScene extends Phaser.Scene {
     return (r << 16) | (g << 8) | b;
   }
 
+  /**
+   * Stroke a catmull-rom curve in short segments so the first and last
+   * two grid squares of every road fade in/out while the middle runs
+   * at full strength.
+   */
   private drawSmoothPath(graphics: Phaser.GameObjects.Graphics, points: { x: number; y: number }[]): void {
     if (points.length < 2) return;
 
@@ -997,7 +1178,6 @@ export class GameScene extends Phaser.Scene {
           (-p0.y + p2.y) * tt +
           2 * p1.y
         );
-
         graphics.lineTo(x, y);
       }
     }
@@ -1571,6 +1751,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateEnemies(deltaMs: number): void {
+    // Jump distance: start the sink animation when the enemy is this
+    const cs = this.grid.cellSize;
+
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
       if (!enemy.alive) continue;
@@ -1580,27 +1763,36 @@ export class GameScene extends Phaser.Scene {
       if (enemy.consumeSplitRequest() && this.netRole !== 'guest') {
         this.spawnSplitterMinis(enemy);
       }
-      if (reachedBase) {
+
+      // Trigger the sink animation early: when the enemy is close
+      // enough to the hole (last path point). Horizontal roads need
+      // more lead so the arc looks right; vertical roads less.
+      const path = enemy.getPath();
+      const endPt = enemy.isReverse() ? path[0] : path[path.length - 1];
+      const from = enemy.isReverse() ? path[1] : path[Math.max(0, path.length - 2)];
+      const adx = Math.abs(endPt.x - from.x);
+      const ady = Math.abs(endPt.y - from.y);
+      const sinkDist = adx > ady ? cs * 1.6 : cs * 0.4;
+      const nearHole = Math.hypot(enemy.position.x - endPt.x, enemy.position.y - endPt.y) <= sinkDist;
+
+      if (reachedBase || nearHole) {
         // Clear selection if this enemy was selected
         if (this.selectedEnemy === enemy) {
           this.deselectEnemy();
         }
-        // Remove BEFORE notifying: wave completion checks the live enemy list
-        this.removeEnemy(enemy, i);
-        // Ninjas walk off the far end of the path — they never hurt the base
+        // Remove BEFORE notifying: wave completion checks the live enemy
+        // list — then the unit climbs down into the hole (host sprite)
+        this.detachEnemy(enemy, i);
+        enemy.alive = false;
+        enemy.healthBar?.setVisible(false);
+        enemy.healthBarBg?.setVisible(false);
+        this.sinkIntoHole(enemy);
+        // Ninjas walking off the far end never hurt the base
         if (!enemy.friendly) {
           eventBus.emit('enemy-reached-base', { damage: 1 });
         }
       }
     }
-  }
-
-  private removeEnemy(enemy: Enemy, index?: number): void {
-    // Mark dead even on a path exit — enemies bound to this body for
-    // their physics toggle must release when it leaves the field
-    enemy.alive = false;
-    enemy.destroy();
-    this.detachEnemy(enemy, index);
   }
 
   /** Drop the enemy from the live list without touching its sprite. */
@@ -1668,6 +1860,7 @@ export class GameScene extends Phaser.Scene {
     const tint = NINJA_LEVEL_TINTS[tower.level];
     if (tint !== undefined && ninja.sprite) ninja.sprite.setTint(tint);
     this.enemies.push(ninja);
+    this.startHoleRise(ninja);
     playSfx(this, 'sfx_magic', { volume: 0.25, rate: 0.9 + Math.random() * 0.2 });
   }
 
@@ -3398,14 +3591,18 @@ export class GameScene extends Phaser.Scene {
     type: EnemyType,
     routing?: { pathTurns?: number[]; spawnPoint?: number },
   ): void {
-    // Spawn point: the entry's pick, or a fresh random one per spawn
+    // Spawn point: the entry's pick, or a fresh random one per spawn.
+    // Out-of-range indices (including missing spawnPoints arrays) are
+    // passed through — resolveRoutePixels handles the fallback to the
+    // main road start gracefully.
     const spawnCount = this.grid.getSpawnPixels().length;
     const spawnIdx =
       routing?.spawnPoint !== undefined &&
       Number.isInteger(routing.spawnPoint) &&
-      routing.spawnPoint >= 0 &&
-      routing.spawnPoint < spawnCount
-        ? routing.spawnPoint
+      routing.spawnPoint >= 0
+        ? spawnCount > 0
+          ? routing.spawnPoint % spawnCount
+          : 0
         : spawnCount > 0
           ? Math.floor(Math.random() * spawnCount)
           : 0;
@@ -3414,6 +3611,7 @@ export class GameScene extends Phaser.Scene {
     const enemy = new Enemy(type, path);
     enemy.createSprite(this);
     this.enemies.push(enemy);
+    this.startHoleRise(enemy);
     this.enemiesSpawnedInWave++;
   }
 

@@ -312,6 +312,9 @@ let currentAreaType = 'tree';
 let difficulty = 'easy';
 let startGold = 500;
 let pathPoints = [];
+// Hole graphic shown at spawn/base points (same art the game uses)
+const holeImg = new Image();
+holeImg.src = 'assets/images/hole-background.png';
 // Branch paths (a path can split: each branch starts at a node of the
 // path drawn so far). activePathIndex -1 = main path.
 let branches = [];
@@ -871,27 +874,26 @@ function render() {
     }
   }
 
-  // Draw spawn points
-  spawnPoints.forEach(sp => {
-    ctx.fillStyle = 'rgba(231, 76, 60, 0.7)';
-    ctx.fillRect(sp.x * tileSize + 2, sp.y * tileSize + 2, tileSize - 4, tileSize - 4);
-    ctx.fillStyle = '#fff';
-    ctx.font = `bold ${tileSize * 0.5}px Arial`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('S', sp.x * tileSize + tileSize/2, sp.y * tileSize + tileSize/2);
-  });
-  
-  // Draw base points
-  basePoints.forEach(bp => {
-    ctx.fillStyle = 'rgba(76, 175, 80, 0.7)';
-    ctx.fillRect(bp.x * tileSize + 2, bp.y * tileSize + 2, tileSize - 4, tileSize - 4);
-    ctx.fillStyle = '#fff';
-    ctx.font = `bold ${tileSize * 0.5}px Arial`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('B', bp.x * tileSize + tileSize/2, bp.y * tileSize + tileSize/2);
-  });
+  // Spawn/base points: the hole graphic (like the game) plus a tiny
+  // colored dot so the point stays easy to spot while editing
+  const drawHole = (p, dotColor) => {
+    const cx = p.x * tileSize + tileSize / 2;
+    const cy = p.y * tileSize + tileSize / 2;
+    if (holeImg.complete && holeImg.naturalWidth > 0) {
+      // Centre on the point at the art's natural ratio (like the game),
+      // sitting a touch below it and a bit smaller
+      const w = tileSize * 1.15;
+      const h = (w * holeImg.naturalHeight) / holeImg.naturalWidth;
+      ctx.drawImage(holeImg, cx - w / 2, cy - h / 2 + tileSize * 0.2, w, h);
+    }
+    ctx.fillStyle = dotColor;
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(3, tileSize * 0.1), 0, Math.PI * 2);
+    ctx.fill();
+  };
+  // Holes only at explicit spawn/base points — not at road splits
+  spawnPoints.forEach(sp => drawHole(sp, 'rgba(231, 76, 60, 0.95)'));
+  basePoints.forEach(bp => drawHole(bp, 'rgba(76, 175, 80, 0.95)'));
   
   // Draw grid
   if (document.getElementById('showGrid').checked) {

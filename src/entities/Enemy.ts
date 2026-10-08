@@ -42,6 +42,10 @@ export class Enemy {
 
   // Path following
   private path: { x: number; y: number }[];
+  /** Read-only view of the pixel-path this unit follows. */
+  getPath(): { x: number; y: number }[] { return this.path; }
+  /** Whether this unit walks its path in reverse (base→spawn). */
+  isReverse(): boolean { return this.reverse; }
   private pathIndex: number = 0;
   private speed: number;
   private baseSpeed: number;
@@ -395,6 +399,7 @@ export class Enemy {
         : this.pathIndex >= this.path.length;
       if (outOfPath) {
         this.reachedBase = true;
+        this.updateVisuals();
         return true;
       }
       const target = this.path[this.pathIndex];

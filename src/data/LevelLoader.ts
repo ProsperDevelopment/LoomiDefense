@@ -147,11 +147,10 @@ export function loadLevelFromJSON(jsonData: any, id: number): MapData {
           (br: any) => Array.isArray(br) && br.some((p: any) => p.x === x && p.y === y),
         );
       
-      if (isSpawn) {
-        row.push('spawn');
-      } else if (isBase) {
-        row.push('base');
-      } else if (isPath) {
+      // Spawn and base points are just where the road starts/ends —
+      // the hole graphics + the points themselves replace the old
+      // colored S/B blocks, so those cells are plain road
+      if (isSpawn || isBase || isPath) {
         row.push('path');
       } else {
         row.push('empty');

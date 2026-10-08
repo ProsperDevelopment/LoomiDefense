@@ -276,3 +276,19 @@ describe('branches and spawn routing', () => {
     expect(plain.spawnPoint).toBeUndefined();
   });
 });
+
+describe('spawn and base cells', () => {
+  it('marks spawn and base points as plain road, never as special blocks', () => {
+    const level = loadLevelFromJSON({
+      ...baseLevel,
+      spawnPoints: [{ x: 0, y: 0 }],
+      basePoints: [{ x: 3, y: 1 }],
+    }, 1);
+
+    expect(level.grid[0][0]).toBe('path'); // spawn point cell
+    expect(level.grid[1][3]).toBe('path'); // base point cell
+    const flat = level.grid.flat();
+    expect(flat).not.toContain('spawn');
+    expect(flat).not.toContain('base');
+  });
+});

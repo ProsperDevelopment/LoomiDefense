@@ -301,7 +301,14 @@ export class Grid {
         );
       }
       if (i < 0) return this.getPathPixels();
-      return this.mapData.basePath.slice(0, i + 1).map((p) => this.gridToWorld(p.x, p.y));
+      let route = this.mapData.basePath.slice(0, i + 1);
+      // End AT the base hole when it sits next to the road
+      const last = route[route.length - 1];
+      if (last && !(base.x === last.x && base.y === last.y) &&
+          Math.abs(base.x - last.x) <= 1 && Math.abs(base.y - last.y) <= 1) {
+        route = [...route, base];
+      }
+      return route.map((p) => this.gridToWorld(p.x, p.y));
     }
 
     const g = (this.routeGraph ??= this.buildRouteGraph());
@@ -314,17 +321,50 @@ export class Grid {
       }
     }
     if (!g.has(Grid.nodeKey(start))) return this.getPathPixels();
-    // Walk base -> dead end, then flip so the route ends at the base
-    return this.walkGraph(start, undefined, false).reverse().map((p) => this.gridToWorld(p.x, p.y));
+    // Walk base -> dead end, flip so the route ends at the base, then
+    // finish AT the base hole itself when it sits next to the road
+    const route = this.walkGraph(start, undefined, false).reverse();
+    const last = route[route.length - 1];
+    if (last && !(base.x === last.x && base.y === last.y) &&
+        Math.abs(base.x - last.x) <= 1 && Math.abs(base.y - last.y) <= 1) {
+      route.push(base);
+    }
+    return route.map((p) => this.gridToWorld(p.x, p.y));
   }
 
   /** All road polylines in world pixels: main path + every branch. */
   getRoadPolylines(): { x: number; y: number }[][] {
-    const polys = [this.getPathPixels()];
-    for (const branch of this.mapData.branches ?? []) {
-      if (branch.length >= 2) polys.push(branch.map((p) => this.gridToWorld(p.x, p.y)));
+    const gridPolys: { x: number; y: number }[][] = [
+      this.mapData.basePath,
+      ...(this.mapData.branches ?? []).filter((b) => b.length >= 2),
+    ];
+    const spawns = this.mapData.spawnPoints?.length
+      ? this.mapData.spawnPoints
+      : this.mapData.basePath.slice(0, 1);
+    const bases = this.getBasePoints();
+    const near = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1;
+    const same = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      a.x === b.x && a.y === b.y;
+
+    const onAnyRoad = (pt: { x: number; y: number }) =>
+      gridPolys.some((gp) => gp.some((p) => same(p, pt)));
+
+    const out: { x: number; y: number }[][] = [];
+    for (const gp of gridPolys) {
+      if (gp.length === 0) continue;
+      let pts = [...gp];
+      // Stretch the road out to its spawn hole (unless that point is
+      // already part of another road — no duplicate segments)...
+      const spawn = spawns.find((sp) => near(sp, pts[0]) && !onAnyRoad(sp));
+      if (spawn && !same(spawn, pts[0])) pts = [spawn, ...pts];
+      // ...and into its base hole
+      const last = pts[pts.length - 1];
+      const base = bases.find((bp) => near(bp, last) && !onAnyRoad(bp));
+      if (base && !same(base, last)) pts = [...pts, base];
+      out.push(pts.map((p) => this.gridToWorld(p.x, p.y)));
     }
-    return polys;
+    return out;
   }
 
   /** Adjacency for route walking: node key -> edges with creation order. */
@@ -363,7 +403,8 @@ export class Grid {
    */
   resolveRoutePixels(spawnIndex: number, turns?: number[]): { x: number; y: number }[] {
     const g = (this.routeGraph ??= this.buildRouteGraph());
-    let start = this.mapData.spawnPoints[spawnIndex];
+    const spawnCell = this.mapData.spawnPoints[spawnIndex];
+    let start = spawnCell;
     if (start && !g.has(Grid.nodeKey(start))) {
       // Spawn cells often sit adjacent to the road — snap onto it
       const offsets = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
@@ -374,6 +415,19 @@ export class Grid {
     }
     if (!start || !g.has(Grid.nodeKey(start))) return this.getPathPixels();
 
+    // Start the unit AT the spawn hole itself — the enemy appears at
+    // the editor-placed spawn cell, then walks toward the road
+    const withHole = (route: { x: number; y: number }[]): { x: number; y: number }[] => {
+      if (
+        spawnCell &&
+        route.length > 0 &&
+        !(spawnCell.x === route[0].x && spawnCell.y === route[0].y)
+      ) {
+        return [spawnCell, ...route];
+      }
+      return route;
+    };
+
     // Single road (no splits): slice the LINEAR path from the resolved
     // spawn — self-crossing legacy levels contain duplicate nodes that
     // only the linear array walks exactly as authored
@@ -381,11 +435,20 @@ export class Grid {
       const idx = this.mapData.basePath.findIndex(
         (p) => p.x === start!.x && p.y === start!.y,
       );
-      if (idx < 0) return this.getPathPixels();
-      return this.mapData.basePath.slice(idx).map((p) => this.gridToWorld(p.x, p.y));
+      if (idx >= 0) return withHole(this.mapData.basePath.slice(idx)).map((p) => this.gridToWorld(p.x, p.y));
+      // Spawn cell not on basePath (e.g. adjacent hole): find the
+      // nearest road node and slice from there
+      let bestIdx = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < this.mapData.basePath.length; i++) {
+        const d = Math.abs(this.mapData.basePath[i].x - start!.x)
+                + Math.abs(this.mapData.basePath[i].y - start!.y);
+        if (d < bestD) { bestD = d; bestIdx = i; }
+      }
+      return withHole(this.mapData.basePath.slice(bestIdx)).map((p) => this.gridToWorld(p.x, p.y));
     }
 
-    return this.walkGraph(start, turns, true).map((p) => this.gridToWorld(p.x, p.y));
+    return withHole(this.walkGraph(start, turns, true)).map((p) => this.gridToWorld(p.x, p.y));
   }
 
   /**

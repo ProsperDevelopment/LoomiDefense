@@ -360,7 +360,9 @@ describe('resolveRoutePixels (path splits)', () => {
 
     const grid2 = new Grid({ ...branchMap, spawnPoints: [{ x: 0, y: 0 }] }); // adjacent to (0,1)
     const route = grid2.resolveRoutePixels(0, [0]);
-    expect(route[0]).toEqual(grid2.gridToWorld(0, 1));
+    // The route now starts AT the spawn hole, then joins the road
+    expect(route[0]).toEqual(grid2.gridToWorld(0, 0));
+    expect(route[1]).toEqual(grid2.gridToWorld(0, 1));
   });
 });
 
@@ -431,5 +433,31 @@ describe('disconnected second road (alt+click in the editor)', () => {
     expect(road2[0]).toEqual(grid.gridToWorld(0, 2));
     expect(road2[road2.length - 1]).toEqual(grid.gridToWorld(2, 2));
     expect(road2).toHaveLength(3);
+  });
+});
+
+describe('spawn and base holes', () => {
+  it('stretches each road out to its spawn hole and into its base hole', () => {
+    const grid = new Grid({
+      ...testMap,
+      spawnPoints: [{ x: 0, y: 0 }], // above the path start (0,1)
+      basePoints: [{ x: 3, y: 0 }],  // above the path end (3,1)
+    });
+    const poly = grid.getRoadPolylines()[0];
+    expect(poly[0]).toEqual(grid.gridToWorld(0, 0));
+    expect(poly[poly.length - 1]).toEqual(grid.gridToWorld(3, 0));
+    // No hole points: the road stays exactly the authored path
+    const plain = new Grid(testMap).getRoadPolylines()[0];
+    expect(plain).toEqual(new Grid(testMap).getPathPixels());
+  });
+
+  it('ends a ninja route at the base hole next to the road', () => {
+    const grid = new Grid({
+      ...testMap,
+      branches: [[{ x: 1, y: 1 }, { x: 1, y: 2 }]],
+      basePoints: [{ x: 0, y: 2 }], // diagonal-adjacent to the branch end (1,2)
+    });
+    const route = grid.resolveBaseRoutePixels(0);
+    expect(route[route.length - 1]).toEqual(grid.gridToWorld(0, 2));
   });
 });

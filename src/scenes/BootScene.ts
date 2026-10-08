@@ -153,6 +153,10 @@ export class BootScene extends Phaser.Scene {
     this.load.audio('sfx_grenade_boom', 'assets/audio/sfx/grenade_boom.opus');
     this.load.audio('sfx_splat', 'assets/audio/sfx/splat.opus');
 
+    // Spawn/base holes (drawn over the road at both ends)
+    this.load.image('hole_background', 'assets/images/hole-background.png');
+    this.load.image('hole_foreground', 'assets/images/hole-forground.png');
+
     // Load projectile sprites
     this.load.image('projectile_fire', 'assets/images/projectiles/fire.png');
 
