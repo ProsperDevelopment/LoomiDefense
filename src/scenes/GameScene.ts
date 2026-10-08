@@ -2713,9 +2713,13 @@ export class GameScene extends Phaser.Scene {
       );
       particle.setDepth(21);
 
-      // Random spread around the projectile's travel direction
+      // Random spread around the projectile's travel direction.
+      // Irregular distance: only on death splatters (bloodSize >= 3),
+      // ~8% chance of a far spray simulating arterial burst
       const angle = hitAngle + (Math.random() - 0.5) * 1.5;
-      const speed = 35 + Math.random() * 55;
+      const baseSpeed = 35 + Math.random() * 55;
+      const farFling = bloodSize >= 3 && Math.random() < 0.08;
+      const speed = baseSpeed * (farFling ? 1.8 + Math.random() * 0.7 : 1);
       const targetX = hitPos.x + Math.cos(angle) * speed;
       const targetY = hitPos.y + Math.sin(angle) * speed;
 
@@ -2738,7 +2742,9 @@ export class GameScene extends Phaser.Scene {
       // Also spawn exit blood (opposite direction, fewer particles)
       if (bloodSize > 0 && i < 2) {
         const exitAngle = angle + Math.PI + (Math.random() - 0.5) * 0.6;
-        const exitSpeed = 18 + Math.random() * 32;
+        const exitBase = 18 + Math.random() * 32;
+        const exitFar = bloodSize >= 3 && Math.random() < 0.06;
+        const exitSpeed = exitBase * (exitFar ? 2.0 + Math.random() * 0.6 : 1);
         const exitTargetX = hitPos.x + Math.cos(exitAngle) * exitSpeed;
         const exitTargetY = hitPos.y + Math.sin(exitAngle) * exitSpeed;
         const exitParticle = this.add.circle(
@@ -3576,17 +3582,26 @@ export class GameScene extends Phaser.Scene {
     // One random bone fragment joins the burst — every death except the
     // bleed-out funnels through here — riding the exact same
     // fall/explode animation as the shards (summoned ninjas leave none)
-    const BONE_KEYS = ['bone_1', 'bone_2', 'bone_3', 'bone_4', 'bone_5'];
-    const skelKey = enemy.type === 'ninja'
+    const BONE_KEYS = ['bone_1', 'bone_2', 'bone_3', 'bone_4'];
+    const SKULL_KEY = 'bone_5';
+    const NO_SKEL = new Set(['ninja', 'phantom', 'bat']);
+    const isHeavy = enemy.weight >= 350;
+    const skelKey = NO_SKEL.has(enemy.type)
       ? null
-      : BONE_KEYS[Math.floor(Math.random() * BONE_KEYS.length)];
+      : isHeavy && this.textures.exists(SKULL_KEY)
+        ? SKULL_KEY
+        : BONE_KEYS[Math.floor(Math.random() * BONE_KEYS.length)];
     if (skelKey && this.textures.exists(skelKey)) {
+      // Scale skeleton by weight — heavy enemies (brute) get the full
+      // 0.9×, lightweight enemies get 0.65× minimum
+      const maxWeight = 2000; // brute = heaviest
+      const scale = 0.65 + 0.25 * Math.min(1, enemy.weight / maxWeight);
       const skel = this.add.image(
         sprite.x + (Math.random() - 0.5) * sprite.displayWidth * 0.5,
         sprite.y + (Math.random() - 0.5) * sprite.displayHeight * 0.5,
         skelKey,
       );
-      skel.setDisplaySize(sprite.displayWidth * 0.9, sprite.displayHeight * 0.9);
+      skel.setDisplaySize(sprite.displayWidth * scale, sprite.displayHeight * scale);
       skel.setDepth(10); // below the blood (11) so splatter covers it
       skel.setAlpha(alpha);
       fling(skel, true); // bones rest on the ground for 30s first

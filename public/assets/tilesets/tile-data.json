@@ -17382,5 +17382,67 @@
         "category": "abandoned"
       }
     ]
+  },
+  "TilesetLoomi": {
+    "name": "TilesetLoomi",
+    "tileSize": 16,
+    "columns": 3,
+    "tileCount": 9,
+    "tiles": [
+      {
+        "id": 0,
+        "file": "tile_000.png",
+        "name": "TilesetLoomi_0",
+        "category": "house"
+      },
+      {
+        "id": 1,
+        "file": "tile_001.png",
+        "name": "TilesetLoomi_1",
+        "category": "house"
+      },
+      {
+        "id": 2,
+        "file": "tile_002.png",
+        "name": "TilesetLoomi_2",
+        "category": "house"
+      },
+      {
+        "id": 3,
+        "file": "tile_003.png",
+        "name": "TilesetLoomi_3",
+        "category": "house"
+      },
+      {
+        "id": 4,
+        "file": "tile_004.png",
+        "name": "TilesetLoomi_4",
+        "category": "house"
+      },
+      {
+        "id": 5,
+        "file": "tile_005.png",
+        "name": "TilesetLoomi_5",
+        "category": "house"
+      },
+      {
+        "id": 6,
+        "file": "tile_006.png",
+        "name": "TilesetLoomi_6",
+        "category": "house"
+      },
+      {
+        "id": 7,
+        "file": "tile_007.png",
+        "name": "TilesetLoomi_7",
+        "category": "house"
+      },
+      {
+        "id": 8,
+        "file": "tile_008.png",
+        "name": "TilesetLoomi_8",
+        "category": "house"
+      }
+    ]
   }
 }
