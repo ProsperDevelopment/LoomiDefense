@@ -28,49 +28,14 @@ import { isWaveResolved } from '../utils/waveCompletion';
 import { cachedServerLevel } from '../data/serverLevels';
 import { selectWaves } from '../data/LevelLoader';
 import { canDamageEnemy, canNinjaThrowHit } from '../utils/damageRules';
+import { DeathEffects, deathSplatterTier } from '../systems/DeathEffects';
+import { NinjaCombat, NINJA_SUMMON_CAP, NINJA_THROW_AMMO, NINJA_LEVEL_TINTS, NINJA_LEASH, NINJA_THROW_RANGE, NINJA_THROW_COOLDOWN_MS, NINJA_HIT_COOLDOWN_MS, NINJA_MELEE_HURT, CONTACT_CD_MS, MELEE_IMPULSE } from '../systems/NinjaCombat';
+import { NetSyncManager } from '../systems/NetSyncManager';
+import { MapRenderer } from '../systems/MapRenderer';
+import { TowerManager } from '../systems/TowerManager';
 
-/** Bodies that share the blood landing pipeline (blood arcs, death debris images). */
-type SplatterBody = Phaser.GameObjects.Arc | Phaser.GameObjects.Image;
 
-/** Max ninjas alive at once across all ninja towers. */
-const NINJA_SUMMON_CAP = 5;
-/** Pause between one ninja's melee trades (ms) so fights tick, not instakill. */
-const NINJA_HIT_COOLDOWN_MS = 600;
-/** How far a ninja keeps chasing its duel target before giving up (px). */
-const NINJA_LEASH = 150;
-/** L3+ ninjas stop at this range and throw (px). */
-const NINJA_THROW_RANGE = 80;
-/** Pause between a ranged ninja's throws (ms). */
-const NINJA_THROW_COOLDOWN_MS = 900;
-/** Throws a ranged ninja carries before it runs dry and fights in melee. */
-const NINJA_THROW_AMMO = 10;
-/** How hard each melee trade hits the NINJA back (health drains fast). */
-const NINJA_MELEE_HURT = 2;
-/** Body-contact physics: impulse cooldown between two bodies (ms). */
-const CONTACT_CD_MS = 160;
-/** Impulse a ninja's melee trade transfers to the bodies involved. */
-const MELEE_IMPULSE = 150;
 
-/**
- * Blood volume on death — heavier bodies splatter more. Weight is
- * roughly max hp with per-spawn randomness, so the bands below land
- * small fry on1-2 and bosses on the biggest bursts.
- */
-function deathSplatterTier(weight: number): number {
-  if (weight < 50) return 1;
-  if (weight < 120) return 2;
-  if (weight < 350) return 3;
-  if (weight < 900) return 4;
-  return 5;
-}
-
-/** Ninja tint per summoning tower level (L1 keeps its natural green). */
-const NINJA_LEVEL_TINTS: Record<number, number> = {
-  2: 0xb0ffb0, // pale green
-  3: 0x60d0ff, // ice blue
-  4: 0xd090ff, // violet
-  5: 0xffd040, // gold
-};
 
 export class GameScene extends Phaser.Scene {
   private grid!: Grid;
@@ -120,6 +85,11 @@ export class GameScene extends Phaser.Scene {
   private guestWaveNumber: number = 0;
   /** Recent splatter timestamps — thins the fine spray in busy fights. */
   private recentSplats: number[] = [];
+  private deathFx!: DeathEffects;
+  private ninjaCombat!: NinjaCombat;
+  private netSync!: NetSyncManager;
+  private mapRenderer!: MapRenderer;
+  private towerMgr!: TowerManager;
   /** Corpse debris on the ground; living enemies kick it as they walk past. */
   private restingDebris: { img: Phaser.GameObjects.Image; cooldown: number }[] = [];
   /** Per-level background tile loading (see drawBackgroundTiles). */
@@ -140,9 +110,7 @@ export class GameScene extends Phaser.Scene {
     this.resetState();
 
     // Per-level background tile loading state
-    this.bgTileEpoch++;
-    this.bgTileLoadActive = false;
-    this.bgTilesAttempted.clear();
+    this.mapRenderer.reset();
 
     // Stop the menu scenes so their (invisible, behind-us) buttons can
     // never receive clicks meant for the game — a stray PLAY click used
@@ -254,37 +222,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupNetHandlers(): void {
-    if (!this.netRole) return;
-
-    this.lobbyUnsubs.push(
-      lobby.onNet((from, data) => {
-        if (this.isGameOver) return;
-        if (this.netRole === 'host' && data.kind === 'cmd') {
-          this.applyNetCommand(from, data.cmd);
-        } else if (this.netRole === 'guest' && data.kind === 'snap') {
-          this.pendingSnaps.push(data);
-        } else if (this.netRole === 'guest' && data.kind === 'died') {
-          this.playGuestDeath(data.id, data.variant);
-        }
-      }),
-      lobby.onClose(() => {
-        if (this.netRole !== 'guest' || this.isGameOver) return;
-        // The host leaves right after sending won/lost — drain any final
-        // snapshot first so the victory/defeat screen still shows
-        while (this.pendingSnaps.length > 0) {
-          this.applySnapshot(this.pendingSnaps.shift()!);
-        }
-        if (this.isGameOver) return; // end screen is up
-        // Connection lost mid-game: return to menu
-        this.scene.start('MenuScene');
-      }),
-    );
+    this.netSync.setupNetHandlers();
   }
 
   private hideGuestOverlays(): void {
-    for (const { img } of this.guestProjectiles.values()) img.destroy();
-    this.guestProjectiles.clear();
-    this.guestEnemyTargets.clear();
+    this.netSync.hideGuestOverlays();
   }
 
   private resetState(): void {
@@ -292,6 +234,7 @@ export class GameScene extends Phaser.Scene {
     this.enemies = [];
     this.projectiles = [];
     this.restingDebris = [];
+    this.recentSplats = [];
     this.lives = STARTING_LIVES;
     this.score = 0;
     this.selectedTowerType = null;
@@ -299,6 +242,11 @@ export class GameScene extends Phaser.Scene {
     this.isGameOver = false;
     this.enemiesSpawnedInWave = 0;
     this.playerEcon = null; // rebuilt in create() once the net role is known
+    this.deathFx = new DeathEffects(this as any);
+    this.ninjaCombat = new NinjaCombat(this as any, this.deathFx);
+    this.netSync = new NetSyncManager(this as any);
+    this.mapRenderer = new MapRenderer(this as any);
+    this.towerMgr = new TowerManager(this as any);
   }
 
   // ------------------------------------------------------------
@@ -540,195 +488,25 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------
 
   private updateGuest(delta: number): void {
-    // Apply the newest snapshot (drop stale queued ones)
-    while (this.pendingSnaps.length > 1) this.pendingSnaps.shift();
-    const snap = this.pendingSnaps.shift();
-    if (snap) this.applySnapshot(snap);
-
-    // Interpolate enemies toward their network targets
-    for (const enemy of this.enemies) {
-      const t = this.guestEnemyTargets.get(enemy.id);
-      if (!t) continue;
-      const k = Math.min(1, delta / 90);
-      enemy.position.x += (t.x - enemy.position.x) * k;
-      enemy.position.y += (t.y - enemy.position.y) * k;
-      enemy.refresh();
-    }
-
-    // Interpolate projectile visuals
-    for (const { img, tx, ty } of this.guestProjectiles.values()) {
-      const k = Math.min(1, delta / 90);
-      img.x += (tx - img.x) * k;
-      img.y += (ty - img.y) * k;
-    }
-
-    // Guests only know their own selection — everything else stays hidden
-    const selectedId = this.selectedEnemy?.id;
-    for (const enemy of this.enemies) enemy.showHealthBar(enemy.id === selectedId);
-
-    this.updateTargetSight();
-
-    // Guests can always ask the host to start the next wave
-    this.waveIndicator.showCountdown(false);
-    this.waveIndicator.setBonusText('');
-    this.waveIndicator.showStartButton(true);
+    this.netSync.updateGuest(delta);
   }
 
   private applySnapshot(snap: NetSnapshot): void {
-    // Economy/HUD mirrors (only touch when changed to avoid text spam).
-    // Guests see THEIR OWN gold, not the host's (economies are per-player).
-    const myId = this.myPlayerId();
-    const myGold = snap.golds && myId in snap.golds ? snap.golds[myId] : snap.gold;
-    if (this.economy.getGold() !== myGold) {
-      this.economy.reset(myGold);
-      this.hud.setGold(myGold);
-    }
-    if (this.lives !== snap.lives) {
-      this.lives = snap.lives;
-      this.hud.setLives(snap.lives);
-    }
-    if (this.score !== snap.score) {
-      this.score = snap.score;
-      this.hud.setScore(snap.score);
-    }
-    this.hud.setWave(snap.wave, snap.waveTotal);
-    this.waveIndicator.setWave(snap.wave, snap.waveTotal);
-    this.guestWaveNumber = snap.wave;
-
-    this.syncGuestTowers(snap.towers);
-    this.syncGuestEnemies(snap.enemies);
-    this.syncGuestProjectiles(snap.projectiles ?? []);
-
-    if (snap.status === 'won') this.gameOver(true);
-    else if (snap.status === 'lost') this.gameOver(false);
+    this.netSync.applySnapshot(snap);
   }
 
   private syncGuestTowers(snaps: Array<{ id: string; type: string; col: number; row: number; level: number; color: string; ownerId?: string; targetMode?: string; ninjaBase?: number }>): void {
-    const seen = new Set<string>();
-    for (const s of snaps) {
-      seen.add(s.id);
-      let tower = this.towers.find((t) => t.id === s.id);
-      if (!tower) {
-        if (!(s.type in TOWER_DEFINITIONS)) continue;
-        tower = new Tower(s.type as TowerType, s.col, s.row, s.id);
-        tower.ownerId = s.ownerId ?? null;
-        if (s.color) tower.setPlayerColor(s.color);
-        tower.createSprite(this);
-        tower.showRange(false);
-        this.towers.push(tower);
-        this.growInTower(tower);
-        this.tuckTopTilesUnderTower(tower);
-        if (this.grid.canPlaceAtBg(s.col, s.row, s.type as TowerType)) {
-          this.grid.placeTowerAtBg(s.col, s.row, s.type as TowerType);
-        }
-        while (tower.level < s.level) tower.upgrade();
-      } else {
-        tower.ownerId = s.ownerId ?? tower.ownerId;
-        // Apply upgrades accepted by the host (level only ever goes up;
-        // selling removes the tower entirely instead)
-        if (tower.level < s.level) {
-          while (tower.level < s.level) tower.upgrade();
-          // Any open info popup now shows stale stats
-          if (this.selectedTower === tower) this.towerPanel.hide();
-        }
-      }
-      // Host's targeting mode for this tower
-      if (s.targetMode && TARGET_MODES.includes(s.targetMode as TargetMode)) {
-        tower.targetMode = s.targetMode as TargetMode;
-      }
-      // Ninja towers: which base the host spawns summons from
-      if (s.ninjaBase !== undefined) tower.ninjaBase = s.ninjaBase;
-    }
-    for (let i = this.towers.length - 1; i >= 0; i--) {
-      const tower = this.towers[i];
-      if (!seen.has(tower.id)) {
-        if (this.selectedTower === tower) this.deselectTower();
-        this.grid.removeTowerAtBg(tower.getGridCol(), tower.getGridRow());
-        tower.destroy();
-        this.towers.splice(i, 1);
-      }
-    }
+    this.netSync.syncGuestTowers(snaps);
   }
 
   private syncGuestEnemies(snaps: Array<{ id: string; type: string; x: number; y: number; hp: number; hpMax: number; mini?: boolean; sl?: number; fight?: boolean }>): void {
-    const seen = new Set<string>();
-    for (const s of snaps) {
-      seen.add(s.id);
-      let enemy = this.enemies.find((e) => e.id === s.id);
-      if (!enemy) {
-        const path = this.grid.getPathPixels();
-        enemy = new Enemy(s.type as EnemyType, path, s.id, { mini: s.mini });
-        if (s.sl) enemy.summonLevel = s.sl;
-        enemy.createSprite(this);
-        // Match the host's level tint on summoned ninjas
-        const tint = s.sl ? NINJA_LEVEL_TINTS[s.sl] : undefined;
-        if (tint !== undefined && enemy.sprite) enemy.sprite.setTint(tint);
-        this.enemies.push(enemy);
-        enemy.position.set(s.x, s.y);
-        this.startHoleRise(enemy);
-      }
-      const prevHp = enemy.health.current;
-      const prevX = enemy.position.x;
-      const prevY = enemy.position.y;
-      enemy.health.current = Math.max(1, Math.min(s.hp, enemy.health.max));
-      // Host-side hit: mirror the blood at the host's position, sized
-      // by the chunk of health the hit took
-      if (s.hp < prevHp) {
-        const dx = s.x - prevX;
-        const dy = s.y - prevY;
-        const len = Math.hypot(dx, dy);
-        const dir = len > 1 ? { x: dx / len, y: dy / len } : { x: 0, y: 1 };
-        const frac = (prevHp - s.hp) / Math.max(1, s.hpMax);
-        const bloodSize = frac >= 0.5 ? 2 : frac >= 0.25 ? 1 : 0;
-        this.createBloodSplatter(dir.x, dir.y, new Position(s.x, s.y), enemy.data.size, bloodSize);
-      }
-      enemy.fighting = s.fight === true;
-      this.guestEnemyTargets.set(s.id, { x: s.x, y: s.y });
-    }
-    for (let i = this.enemies.length - 1; i >= 0; i--) {
-      const enemy = this.enemies[i];
-      if (!seen.has(enemy.id)) {
-        // Dropped from the snapshot = the killing blow on the host —
-        // mirror the burst of blood where it died
-        this.createBloodSplatter(0, 1, enemy.position, enemy.data.size, deathSplatterTier(enemy.health.max));
-        if (this.selectedEnemy === enemy) this.deselectEnemy();
-        this.guestEnemyTargets.delete(enemy.id);
-        enemy.destroy();
-        this.enemies.splice(i, 1);
-      }
-    }
+    this.netSync.syncGuestEnemies(snaps);
   }
 
   private syncGuestProjectiles(
     snaps: Array<{ id: string; type: string; x: number; y: number; shrapnel?: boolean }>,
   ): void {
-    const seen = new Set<string>();
-    for (const s of snaps) {
-      seen.add(s.id);
-      let entry = this.guestProjectiles.get(s.id);
-      if (!entry) {
-        const key = `projectile_${s.type}`;
-        if (!this.textures.exists(key)) continue;
-        const img = this.add.image(s.x, s.y, key);
-        img.setDisplaySize(12, 12);
-        img.setDepth(26);
-        entry = { img, tx: s.x, ty: s.y, type: s.type, shrapnel: s.shrapnel ?? false };
-        this.guestProjectiles.set(s.id, entry);
-      }
-      entry.tx = s.x;
-      entry.ty = s.y;
-    }
-    for (const [id, entry] of this.guestProjectiles) {
-      if (!seen.has(id)) {
-        // A grenade that vanished detonated on the host — mirror the
-        // blast here (shrapnel never explodes itself)
-        if (entry.type === 'grenade' && !entry.shrapnel) {
-          this.grenadeDetonationFx(entry.tx, entry.ty);
-        }
-        entry.img.destroy();
-        this.guestProjectiles.delete(id);
-      }
-    }
+    this.netSync.syncGuestProjectiles(snaps);
   }
 
   // ------------------------------------------------------------
@@ -736,98 +514,11 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------
 
   private sendSnapshot(status: NetStatus): void {
-    if (this.netRole !== 'host') return;
-    // Per-player gold: each player has their own pot
-    const golds = this.playerEcon?.toRecord() ?? { [this.myPlayerId()]: this.economy.getGold() };
-    lobby.sendSnapshot({
-      kind: 'snap',
-      status,
-      gold: this.economy.getGold(),
-      golds,
-      lives: this.lives,
-      wave: this.waveManager.getWaveNumber(),
-      waveTotal: this.waveManager.getTotalWaves(),
-      score: this.score,
-      enemies: this.enemies
-        .filter((e) => e.alive && !e.isDead())
-        .map((e) => ({
-          id: e.id,
-          type: e.type,
-          x: Math.round(e.position.x),
-          y: Math.round(e.position.y),
-          hp: e.health.current,
-          hpMax: e.health.max,
-          mini: e.isMini,
-          sl: e.friendly && e.summonLevel > 1 ? e.summonLevel : undefined,
-          fight: e.fighting || undefined,
-        })),
-      towers: this.towers.map((t) => ({
-        id: t.id,
-        type: t.type,
-        col: t.getGridCol(),
-        row: t.getGridRow(),
-        level: t.level,
-        color: t.tintColorHex ?? userProfile.towerColor,
-        ownerId: t.ownerId ?? undefined,
-        targetMode: t.targetMode,
-        ninjaBase: t.ninjaBase,
-      })),
-      projectiles: this.projectiles
-        .filter((p) => p.alive)
-        .map((p) => ({
-          id: p.id,
-          type: p.getTowerType(),
-          x: Math.round(p.position.x),
-          y: Math.round(p.position.y),
-          shrapnel: p.isShrapnel(),
-        })),
-    });
+    this.netSync.sendSnapshot(status);
   }
 
   private applyNetCommand(from: string, cmd: NetCommand): void {
-    // Color of the player who issued the command
-    const senderColor =
-      lobby.room?.players.find((p) => p.id === from)?.color ?? userProfile.towerColor;
-
-    switch (cmd.k) {
-      case 'place':
-        this.placeTower(cmd.col, cmd.row, cmd.type as TowerType, from, senderColor);
-        break;
-      case 'upgrade': {
-        const tower = this.towers.find((t) => t.id === cmd.id);
-        if (tower) this.upgradeTower(tower, from);
-        break;
-      }
-      case 'sell': {
-        const tower = this.towers.find((t) => t.id === cmd.id);
-        if (tower) this.sellTower(tower, from);
-        break;
-      }
-      case 'aim': {
-        const tower = this.towers.find((t) => t.id === cmd.id);
-        if (tower && tower.ownerId === from && TARGET_MODES.includes(cmd.mode as TargetMode)) {
-          tower.targetMode = cmd.mode as TargetMode;
-        }
-        break;
-      }
-      case 'base': {
-        const tower = this.towers.find((t) => t.id === cmd.id);
-        if (tower && tower.type === 'ninja' && tower.ownerId === from) {
-          const count = this.grid.getBasePoints().length;
-          tower.ninjaBase = Math.max(
-            0,
-            Math.min(Math.floor(cmd.base) || 0, Math.max(0, count - 1)),
-          );
-        }
-        break;
-      }
-      case 'wave':
-        this.startNextWave();
-        break;
-      case 'early':
-        this.startWaveEarly(from);
-        break;
-    }
+    this.netSync.applyNetCommand(from, cmd);
   }
 
   private updateTargetSight(): void {
@@ -841,86 +532,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawGrid(): void {
-    const mapData = this.grid.getMapData();
-
-    // Chessboard ground: exact colors from the level JSON (levels that
-    // don't specify them fall back to the classic green pair). Solid
-    // fills — a tinted grass texture would tint every color green.
-    const groundLight = mapData.groundColor ?? 0x8a8c4e;
-    const groundDark = mapData.groundColorDark ?? 0x9a9c5e;
-    for (let row = 0; row < this.grid.rows; row++) {
-      for (let col = 0; col < this.grid.cols; col++) {
-        const x = col * CELL_SIZE;
-        const y = row * CELL_SIZE + GRID_OFFSET_Y;
-        const isDark = (row + col) % 2 === 0;
-        this.add.rectangle(
-          x + CELL_SIZE / 2, y + CELL_SIZE / 2, CELL_SIZE, CELL_SIZE,
-          isDark ? groundDark : groundLight,
-        );
-      }
-    }
-
-    // Draw smooth road
-    this.drawSmoothRoad(mapData.roadColor, mapData.roadColorDark);
-
-    // Background tiles on top of the ground — loaded on demand for this level
-    this.drawBackgroundTiles(mapData);
-
-    // Holes in the ground at every road start and end, over the asphalt
-    this.drawSpawnBaseHoles();
+    this.mapRenderer.drawGrid();
   }
 
   /** Layered hole graphics where roads start and end. */
   private drawSpawnBaseHoles(): void {
-    const w = this.grid.cellSize * 1.15;
-    const yOff = -this.grid.cellSize * 0.2; // negative = down a bit
-    const src = this.textures.get('hole_background').getSourceImage() as { width: number; height: number };
-    const h = src.width > 0 ? (w * src.height) / src.width : (w * 21) / 32;
-
-    // Holes only at spawn points and base points — not at road splits.
-    // Fall back to the main road's start/end when no explicit points exist.
-    const map = this.grid.getMapData();
-    const spawns = map.spawnPoints?.length
-      ? map.spawnPoints
-      : map.basePath.length > 0
-        ? [map.basePath[0]]
-        : [];
-    const bases = this.grid.getBasePoints();
-
-    // Road direction at the point: find the polyline that starts or ends
-    // here and read the segment direction.  A negative vertical component
-    // means the road comes from above.
-    const polylines = this.grid.getRoadPolylines().filter((pl) => pl.length >= 2);
-    const dirFor = (gx: number, gy: number): boolean => {
-      for (const pl of polylines) {
-        const g0 = this.grid.worldToGrid(pl[0].x, pl[0].y);
-        if (g0.col === gx && g0.row === gy) return (pl[0].y - pl[1].y) < 0;
-        const gN = this.grid.worldToGrid(pl[pl.length - 1].x, pl[pl.length - 1].y);
-        if (gN.col === gx && gN.row === gy) return (pl[pl.length - 1].y - pl[pl.length - 2].y) < 0;
-      }
-      return false;
-    };
-
-    const seen = new Set<string>();
-    const place = (
-      pts: { x: number; y: number }[],
-      bgKey: string,
-      fgKey: string,
-    ): void => {
-      for (const p of pts) {
-        const key = `${p.x},${p.y}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const { x, y } = this.grid.gridToWorld(p.x, p.y);
-        const fromAbove = dirFor(p.x, p.y);
-        const bgDepth = fromAbove ? 4 : 9;
-        const fgDepth = fromAbove ? 5 : 12;
-        this.add.image(x, y - yOff, bgKey).setDisplaySize(w, h).setDepth(bgDepth);
-        this.add.image(x, y - yOff, fgKey).setDisplaySize(w, h).setDepth(fgDepth);
-      }
-    };
-    place(spawns, 'spawn_hole_bg', 'spawn_hole_fg');
-    place(bases, 'base_hole_bg', 'base_hole_fg');
+    this.mapRenderer.drawSpawnBaseHoles();
   }
 
   /**
@@ -1027,84 +644,11 @@ export class GameScene extends Phaser.Scene {
    * textures first (tiles are fetched per level — not at game boot).
    */
   private drawBackgroundTiles(mapData: MapData): void {
-    if (!mapData.bgTiles || mapData.bgTiles.length === 0) return;
-
-    const loads = collectBgTileLoads(mapData.bgTiles);
-    // Tiles we still need to fetch (skip ones already attempted this visit —
-    // a failed download must not cause an endless retry loop)
-    const pending = loads.filter(
-      (l) => !this.textures.exists(l.key) && !this.bgTilesAttempted.has(l.key),
-    );
-
-    if (pending.length > 0) {
-      if (this.bgTileLoadActive) return; // load in flight — the 'complete' callback redraws
-      this.bgTileLoadActive = true;
-      const epoch = this.bgTileEpoch;
-      this.load.once('complete', () => {
-        if (epoch !== this.bgTileEpoch) return; // scene restarted meanwhile
-        this.bgTileLoadActive = false;
-        this.drawBackgroundTiles(mapData);
-      });
-      for (const { key, url } of pending) {
-        this.bgTilesAttempted.add(key);
-        this.load.image(key, url);
-      }
-      this.load.start();
-      return;
-    }
-
-    // Everything available — draw the layer (missing/failed tiles are skipped)
-    const bgCellSize = CELL_SIZE / 2;
-    for (let row = 0; row < mapData.bgTiles.length; row++) {
-      for (let col = 0; col < mapData.bgTiles[row].length; col++) {
-        const tileIdx = mapData.bgTiles[row][col];
-        if (tileIdx < 0) continue;
-        const tileKey = bgTileKey(tileIdx);
-        if (tileKey && this.textures.exists(tileKey)) {
-          // Foreground-marked tiles draw above gameplay (20);
-          // regular background tiles sit below health bars etc. (10).
-          const isFg = mapData.fgAreas?.[row]?.[col] === 'fg';
-          this.add.image(col * bgCellSize + bgCellSize / 2, row * bgCellSize + GRID_OFFSET_Y + bgCellSize / 2, tileKey)
-            .setDisplaySize(bgCellSize, bgCellSize)
-            .setDepth(isFg ? 20 : 10);
-        }
-      }
-    }
+    this.mapRenderer.drawBackgroundTiles(mapData);
   }
 
   private drawSmoothRoad(roadColor?: number, roadColorDark?: number): void {
-    const polylines = this.grid.getRoadPolylines().filter((p) => p.length >= 2);
-    if (polylines.length === 0) return;
-
-    const graphics = this.add.graphics();
-    // graphics.setDepth(1);
-
-    const fill = roadColor ?? 0x7a7a7a;
-    const outline = roadColorDark ?? this.shadeColor(fill, 0.6);
-    const center = this.shadeColor(fill, 1.3);
-
-    // Passes over ALL polylines in order — outlines first, then the
-    // half-circle end caps that join them around every road start and
-    // end, then fills and their caps, then the center lines. Drawing
-    // per-polyline would stripe a branch outline across the junction.
-    for (const smoothPoints of polylines) {
-      graphics.lineStyle(36, outline, 1);
-      this.drawSmoothPath(graphics, smoothPoints);
-    }
-    for (const smoothPoints of polylines) {
-      this.drawSmoothPathCap(graphics, smoothPoints, 18, outline);
-    }
-    for (const smoothPoints of polylines) {
-      graphics.lineStyle(28, fill, 1);
-      this.drawSmoothPath(graphics, smoothPoints);
-    }
-    for (const smoothPoints of polylines) {
-      this.drawSmoothPathCap(graphics, smoothPoints, 14, fill);
-    }
-    for (const smoothPoints of polylines) {
-      graphics.lineStyle(2, center, 0.5);
-      this.drawSmoothPath(graphics, smoothPoints);
-    }
+    this.mapRenderer.drawSmoothRoad(roadColor, roadColorDark);
   }
 
   /**
@@ -1118,31 +662,12 @@ export class GameScene extends Phaser.Scene {
     radius: number,
     color: number,
   ): void {
-    if (points.length < 2) return;
-    const capAt = (endIdx: number, towardIdx: number): void => {
-      const e = points[endIdx];
-      const t = points[towardIdx];
-      const dx = t.x - e.x;
-      const dy = t.y - e.y;
-      const len = Math.hypot(dx, dy);
-      if (len < 0.01) return;
-      const outAngle = Math.atan2(-dy, -dx); // pointing away from the road
-      graphics.fillStyle(color, 1);
-      graphics.beginPath();
-      graphics.arc(e.x, e.y, radius, outAngle - Math.PI / 2, outAngle + Math.PI / 2, false);
-      graphics.closePath();
-      graphics.fillPath();
-    };
-    capAt(points.length - 1, points.length - 2);
-    capAt(0, 1);
+    MapRenderer.drawSmoothPathCap(graphics, points, radius, color);
   }
 
   /** Multiply RGB channels of a color by a factor (clamped to 0-255). */
   private shadeColor(color: number, factor: number): number {
-    const r = Math.min(255, Math.round(((color >> 16) & 0xFF) * factor));
-    const g = Math.min(255, Math.round(((color >> 8) & 0xFF) * factor));
-    const b = Math.min(255, Math.round((color & 0xFF) * factor));
-    return (r << 16) | (g << 8) | b;
+    return MapRenderer.shadeColor(color, factor);
   }
 
   /**
@@ -1151,92 +676,15 @@ export class GameScene extends Phaser.Scene {
    * at full strength.
    */
   private drawSmoothPath(graphics: Phaser.GameObjects.Graphics, points: { x: number; y: number }[]): void {
-    if (points.length < 2) return;
-
-    graphics.beginPath();
-    graphics.moveTo(points[0].x, points[0].y);
-
-    // Use catmull-rom style smoothing
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[Math.max(0, i - 1)];
-      const p1 = points[i];
-      const p2 = points[Math.min(points.length - 1, i + 1)];
-      const p3 = points[Math.min(points.length - 1, i + 2)];
-
-      const segments = 8;
-      for (let t = 1; t <= segments; t++) {
-        const tt = t / segments;
-        const tt2 = tt * tt;
-        const tt3 = tt2 * tt;
-
-        const x = 0.5 * (
-          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * tt3 +
-          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * tt2 +
-          (-p0.x + p2.x) * tt +
-          2 * p1.x
-        );
-        const y = 0.5 * (
-          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * tt3 +
-          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * tt2 +
-          (-p0.y + p2.y) * tt +
-          2 * p1.y
-        );
-        graphics.lineTo(x, y);
-      }
-    }
-
-    graphics.strokePath();
+    MapRenderer.drawSmoothPath(graphics, points);
   }
 
   private blockSmoothRoadCells(): void {
-    // Every road polyline (main + branches) blocks the cells it covers
-    for (const pathPixels of this.grid.getRoadPolylines()) {
-      this.blockPolylineCells(pathPixels);
-    }
+    this.mapRenderer.blockSmoothRoadCells();
   }
 
   private blockPolylineCells(pathPixels: { x: number; y: number }[]): void {
-    if (pathPixels.length < 2) return;
-
-    // Sample points along the smooth curve and block only directly overlapping cells
-    const cellSize = this.grid.cellSize;
-    const roadWidth = cellSize * 0.4;
-
-    for (let i = 0; i < pathPixels.length - 1; i++) {
-      const p0 = pathPixels[Math.max(0, i - 1)];
-      const p1 = pathPixels[i];
-      const p2 = pathPixels[Math.min(pathPixels.length - 1, i + 1)];
-      const p3 = pathPixels[Math.min(pathPixels.length - 1, i + 2)];
-
-      const segments = 4;
-      for (let t = 0; t <= segments; t++) {
-        const tt = t / segments;
-        const tt2 = tt * tt;
-        const tt3 = tt2 * tt;
-
-        const x = 0.5 * (
-          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * tt3 +
-          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * tt2 +
-          (-p0.x + p2.x) * tt +
-          2 * p1.x
-        );
-        const y = 0.5 * (
-          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * tt3 +
-          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * tt2 +
-          (-p0.y + p2.y) * tt +
-          2 * p1.y
-        );
-
-        // Block only the cell the road actually passes through
-        const { col, row } = this.grid.worldToGrid(x, y);
-        if (col >= 0 && col < this.grid.cols && row >= 0 && row < this.grid.rows) {
-          const cellType = this.grid.getCell(col, row);
-          if (cellType === 'empty') {
-            this.grid.setCell(col, row, 'path');
-          }
-        }
-      }
-    }
+    this.mapRenderer.blockPolylineCells(pathPixels);
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
@@ -1437,8 +885,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Configured cap for one tower type: level override or the default. */
   private rawTowerLimit(type: TowerType): number {
-    const override = this.grid.getMapData().towerLimits?.[type];
-    return override ?? DEFAULT_TOWER_LIMITS[type];
+    return this.towerMgr.rawTowerLimit(type);
   }
 
   /**
@@ -1449,53 +896,26 @@ export class GameScene extends Phaser.Scene {
    * everything (rounded up) as before.
    */
   private towerLimitFor(type: TowerType, ownerId: string): number {
-    let limit = this.rawTowerLimit(type);
-    if (BASIC_TOWERS.includes(type)) {
-      const loadout = this.loadoutOf(ownerId);
-      const mine = BASIC_TOWERS.filter((t) => loadout.includes(t));
-      if (mine.length > 0 && mine.length < BASIC_TOWERS.length && mine.includes(type)) {
-        const total = BASIC_TOWERS.reduce((n, t) => n + this.rawTowerLimit(t), 0);
-        limit = Math.ceil(total / mine.length);
-      }
-    }
-    // Multiplayer: each player gets half the cap (rounded up), so two
-    // players together never build more than a solo run would allow
-    return this.netRole !== null ? Math.ceil(limit / 2) : limit;
+    return this.towerMgr.towerLimitFor(type, ownerId);
   }
 
   /** The loadout a player builds from (own list locally, synced lists on the host). */
   private loadoutOf(ownerId: string): string[] {
-    return ownerId === this.myPlayerId() ? this.loadoutTypes : this.remoteLoadouts.get(ownerId) ?? [];
+    return this.towerMgr.loadoutOf(ownerId);
   }
 
   /** How many of this type this player has already built. */
   private towersBuiltBy(type: TowerType, ownerId: string): number {
-    let n = 0;
-    for (const t of this.towers) {
-      if (t.type === type && t.ownerId === ownerId) n++;
-    }
-    return n;
+    return this.towerMgr.towersBuiltBy(type, ownerId);
   }
 
   private canBuildMore(type: TowerType, ownerId: string): boolean {
-    return this.towersBuiltBy(type, ownerId) < this.towerLimitFor(type, ownerId);
+    return this.towerMgr.canBuildMore(type, ownerId);
   }
 
   /** Towers pop up from a speck so a build reads as growth. */
   private growInTower(tower: Tower): void {
-    if (!tower.sprite) return;
-    // Tween back to the NATURAL scale — createSprite does setDisplaySize
-    // (the64px tile shown at CELL_SIZE = scale0.75), so growing to
-    // scaleX:1 would leave every tower a third too large
-    const target = tower.sprite.scaleX;
-    tower.sprite.setScale(target * 0.05);
-    this.tweens.add({
-      targets: tower.sprite,
-      scaleX: target,
-      scaleY: target,
-      duration: 320,
-      ease: 'Back.Out',
-    });
+    this.towerMgr.growInTower(tower);
   }
 
   /**
@@ -1505,66 +925,11 @@ export class GameScene extends Phaser.Scene {
    * bury the upper half of the sprite.
    */
   private tuckTopTilesUnderTower(tower: Tower): void {
-    if (tower.type === 'sniper') return; // renders at 30, already above the tiles
-    const { x, y } = tower.getWorldPosition();
-    const half = 24; // tower sprites are 48px, centred on the placement cell
-    for (const child of this.children.list) {
-      if (!(child instanceof Phaser.GameObjects.Image)) continue;
-      if (child.depth !== 10) continue;
-      if (!child.texture.key.startsWith('bg_')) continue;
-      // Every cell the top half of the footprint touches: centres from
-      // the sprite's top edge down to its centre, across its width
-      if (
-        child.x >= x - half && child.x <= x + half &&
-        child.y >= y - half && child.y <= y
-      ) {
-        child.setDepth(2); // under the tower pad (3) and sprite (5)
-      }
-    }
+    this.mapRenderer.tuckTopTilesUnderTower(tower);
   }
 
   private placeTower(col: number, row: number, type: TowerType, ownerId?: string, colorHex?: string): void {
-    const data = TOWER_DEFINITIONS[type];
-    if (!data) return;
-    // Local builds use this player's own loadout; the host validates a remote
-    // player's build against THEIR loadout (shared by the lobby). Unknown or
-    // empty remote loadouts are trusted — the sender already checked locally.
-    const isRemote = ownerId !== undefined && ownerId !== this.myPlayerId();
-    // Dev mode unlocks every tower for everyone, so remote builds are
-    // validated against the full roster; otherwise against the sender's
-    // saved loadout (which guests' menus also use outside dev mode)
-    const loadout = isRemote && !DEV_MODE ? this.remoteLoadouts.get(ownerId) : this.loadoutTypes;
-    if (loadout && loadout.length > 0 && !loadout.includes(type)) return;
-    if (!this.grid.canPlaceAtBg(col, row, type)) return;
-
-    // Who is paying? Solo/host = self; remote command = its sender.
-    const owner = ownerId ?? this.myPlayerId();
-
-    // Per-player build cap for this type (level override or default)
-    if (!this.canBuildMore(type, owner)) return;
-
-    // Guest: relay the action to the host (authoritative)
-    if (this.netRole === 'guest') {
-      if (!this.economy.canAfford(data.cost)) return;
-      lobby.sendCommand({ k: 'place', col, row, type });
-      this.hoverRangeCircle?.setVisible(false);
-      return;
-    }
-
-    // Spend from the ACTING player's own pot — never shared
-    if (!this.spendGold(owner, data.cost)) return;
-    this.grid.placeTowerAtBg(col, row, type);
-    const tower = new Tower(type, col, row);
-    tower.ownerId = owner;
-    tower.setPlayerColor(colorHex ?? userProfile.towerColor);
-    tower.createSprite(this);
-    tower.showRange(false);
-    this.towers.push(tower);
-    this.tuckTopTilesUnderTower(tower);
-    eventBus.emit('tower-placed', { towerType: type, x: col, y: row });
-    this.growInTower(tower);
-    this.hoverRangeCircle?.setVisible(false);
-    this.refreshOwnGoldHud();
+    this.towerMgr.placeTower(col, row, type, ownerId, colorHex);
   }
 
   private selectExistingTower(tower: Tower): void {
@@ -1583,96 +948,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onSellTower(): void {
-    if (!this.selectedTower) return;
-    const tower = this.selectedTower;
-
-    // Only the owner may sell (each player funds their own towers)
-    if (tower.ownerId && tower.ownerId !== this.myPlayerId()) {
-      this.towerPanel.hide();
-      return;
-    }
-
-    // Guest: relay to the host
-    if (this.netRole === 'guest') {
-      lobby.sendCommand({ k: 'sell', id: tower.id });
-      this.towerPanel.hide();
-      return;
-    }
-    this.sellTower(tower);
+    this.towerMgr.onSellTower();
   }
 
   private sellTower(tower: Tower, actorId: string = this.myPlayerId()): void {
-    if (tower.ownerId && tower.ownerId !== actorId) return; // not yours to sell
-    const refund = this.economy.getSellValue(tower.type, tower.level);
-    this.addGold(actorId, refund);
-    this.grid.removeTowerAtBg(tower.getGridCol(), tower.getGridRow());
-    tower.destroy();
-    this.towers = this.towers.filter((t) => t !== tower);
-    eventBus.emit('tower-sold', { towerType: tower.type, refund });
-    this.deselectTower();
-    this.refreshOwnGoldHud();
+    this.towerMgr.sellTower(tower, actorId);
   }
 
   private onUpgradeTower(): void {
-    if (!this.selectedTower || this.selectedTower.level >= MAX_TOWER_LEVEL) return;
-    const tower = this.selectedTower;
-
-    // Only the owner may upgrade (each player funds their own towers)
-    if (tower.ownerId && tower.ownerId !== this.myPlayerId()) {
-      this.towerPanel.hide();
-      return;
-    }
-
-    // Guest: relay to the host
-    if (this.netRole === 'guest') {
-      lobby.sendCommand({ k: 'upgrade', id: tower.id });
-      this.towerPanel.hide();
-      return;
-    }
-    this.upgradeTower(tower);
+    this.towerMgr.onUpgradeTower();
   }
 
   private upgradeTower(tower: Tower, actorId: string = this.myPlayerId()): void {
-    if (tower.ownerId && tower.ownerId !== actorId) return; // not yours to upgrade
-    if (tower.level >= MAX_TOWER_LEVEL) return;
-    const cost = this.economy.getUpgradeCost(tower.type, tower.level);
-    if (!this.spendGold(actorId, cost)) return;
-
-    const oldRange = tower.range;
-    const worldPos = tower.getWorldPosition();
-    tower.upgrade();
-    const newRange = tower.range;
-
-    // Hide tower's own range circle immediately
-    tower.showRange(false);
-
-    eventBus.emit('tower-upgraded', { towerType: tower.type, newLevel: tower.level });
-    this.towerPanel.hide();
-    this.refreshOwnGoldHud();
-
-    // Animate range growth
-    this.animateRangeGrowth(worldPos, oldRange, newRange);
+    this.towerMgr.upgradeTower(tower, actorId);
   }
 
   private animateRangeGrowth(worldPos: { x: number; y: number }, fromRadius: number, toRadius: number): void {
-    const rangeCircle = this.add.circle(worldPos.x, worldPos.y, fromRadius, 0x4CAF50, 0);
-    rangeCircle.setStrokeStyle(2, 0x4CAF50, 0.6);
-    rangeCircle.setDepth(48);
-
-    // Animate radius growth
-    this.tweens.add({
-      targets: rangeCircle,
-      scaleX: toRadius / fromRadius,
-      scaleY: toRadius / fromRadius,
-      duration: 500,
-      ease: 'Power2',
-      onComplete: () => {
-        // Wait 2 seconds then destroy
-        this.time.delayedCall(2000, () => {
-          rangeCircle.destroy();
-        });
-      },
-    });
+    this.towerMgr.animateRangeGrowth(worldPos, fromRadius, toRadius);
   }
 
   private findTowerAt(col: number, row: number): Tower | null {
@@ -1699,58 +991,12 @@ export class GameScene extends Phaser.Scene {
 
   /** Walking enemies knock resting corpse parts (bones and shards) around. */
   private updateDebrisKicks(deltaMs: number): void {
-    if (this.restingDebris.length === 0) return;
-    for (const b of this.restingDebris) {
-      if (!b.img.active) continue;
-      if (b.cooldown > 0) {
-        b.cooldown -= deltaMs;
-        continue;
-      }
-      const enemy = this.enemies.find(
-        (e) =>
-          e.alive &&
-          !e.isDead() &&
-          Math.hypot(e.position.x - b.img.x, e.position.y - b.img.y) <= e.data.size * 0.7 + 6,
-      );
-      if (enemy) {
-        b.cooldown = 700; // one kick per pass
-        // Bumping corpse debris switches collision physics on briefly
-        enemy.physicsMs = 500;
-        this.kickDebris(b.img, enemy.position.x, enemy.position.y);
-      }
-    }
-    // Drop pieces that finished fading
-    if (this.restingDebris.some((b) => !b.img.active)) {
-      this.restingDebris = this.restingDebris.filter((b) => b.img.active);
-    }
+    this.deathFx.updateDebrisKicks(deltaMs);
   }
 
   /** A walking enemy shoves a resting corpse part: it hops away and tumbles. */
   private kickDebris(bone: Phaser.GameObjects.Image, fromX: number, fromY: number): void {
-    const dx = bone.x - fromX;
-    const dy = bone.y - fromY;
-    const len = Math.hypot(dx, dy) || 1;
-    const push = 6 + Math.random() * 5;
-    const nx = (dx / len) * push;
-    const ny = (dy / len) * push;
-    const spin = (Math.random() - 0.5) * 80;
-    this.tweens.add({
-      targets: bone,
-      x: bone.x + nx,
-      y: bone.y + ny - 4,
-      angle: bone.angle + spin,
-      duration: 120,
-      ease: 'Power1.out',
-      onComplete: () => {
-        if (!bone.active) return;
-        this.tweens.add({
-          targets: bone,
-          y: bone.y + 4,
-          duration: 140,
-          ease: 'Power1.in',
-        });
-      },
-    });
+    this.deathFx.kickDebris(bone, fromX, fromY);
   }
 
   private updateEnemies(deltaMs: number): void {
@@ -1838,61 +1084,16 @@ export class GameScene extends Phaser.Scene {
 
   /** Fire-rate aura: every beacon covering this tower speeds it up. */
   private fireRateMultiplier(tower: Tower): number {
-    let mult = 1;
-    for (const b of this.towers) {
-      if (b.type !== 'beacon') continue;
-      if (tower.position.distanceTo(b.position) > b.range) continue;
-      // The buff grows with the beacon's own upgrade level
-      mult += beaconFireRateBuff(b.level);
-    }
-    return mult;
+    return this.towerMgr.fireRateMultiplier(tower);
   }
 
   private updateTowerCombat(deltaMs: number): void {
-    for (const tower of this.towers) {
-      tower.update(deltaMs, this.fireRateMultiplier(tower));
-      if (tower.type === 'ninja') {
-        // Summon only during a wave, and never beyond the alive cap
-        if (tower.canFire() && this.waveManager.isWaveActive()) {
-          const alive = this.enemies.reduce(
-            (n, e) => n + (e.friendly && e.alive && !e.isDead() ? 1 : 0), 0,
-          );
-          if (alive < NINJA_SUMMON_CAP) {
-            tower.fire();
-            this.spawnNinja(tower);
-          }
-        }
-        continue;
-      }
-      if (!tower.canFire()) continue;
-      const target = this.findTarget(tower);
-      if (!target) continue;
-      tower.fire();
-      this.fireProjectile(tower, target);
-    }
+    this.towerMgr.updateTowerCombat(deltaMs);
   }
 
   /** A ninja tower summons a unit at its chosen base, walking back up. */
   private spawnNinja(tower: Tower): void {
-    const path = this.grid.resolveBaseRoutePixels(tower.ninjaBase);
-    const ninja = new Enemy('ninja', path, undefined, {
-      reverse: true,
-      friendly: true,
-      ownerId: tower.ownerId,
-    });
-    // Behavior and color follow the tower's level AT summon time
-    ninja.summonLevel = tower.level;
-    // Ranged summons carry a quiver: after 10 throws they go melee
-    if (ninjaThrowProfile(tower.level)) ninja.throwsLeft = NINJA_THROW_AMMO;
-    // Jitter so back-to-back summons don't stack on one pixel
-    ninja.position.x += (Math.random() - 0.5) * 12;
-    ninja.position.y += (Math.random() - 0.5) * 12;
-    ninja.createSprite(this);
-    const tint = NINJA_LEVEL_TINTS[tower.level];
-    if (tint !== undefined && ninja.sprite) ninja.sprite.setTint(tint);
-    this.enemies.push(ninja);
-    this.startHoleRise(ninja);
-    playSfx(this, 'sfx_magic', { volume: 0.25, rate: 0.9 + Math.random() * 0.2 });
+    this.ninjaCombat.spawnNinja(tower);
   }
 
   /**
@@ -1903,127 +1104,12 @@ export class GameScene extends Phaser.Scene {
    * target outruns the leash). No lock and no contact: back to the path.
    */
   private resolveNinjaCollisions(): void {
-    // Snapshot copy: a kill splices this.enemies mid-iteration
-    for (const ninja of [...this.enemies]) {
-      if (!ninja.alive || !ninja.friendly) continue;
-
-      // Ranged ninjas (L3+) throw while their quiver has arrows left;
-      // once dry (or melee-only L1-2) they fight in contact
-      const profile = ninja.summonLevel >= 3 && ninja.throwsLeft > 0
-        ? ninjaThrowProfile(ninja.summonLevel)
-        : null;
-      // Only engage enemies the current weapon can actually hurt: arrows
-      // keep their tower privileges (bats and phantoms included), while
-      // cannon/grenade throws skip what they cannot hit
-      const canHurt = (e: Enemy): boolean =>
-        canNinjaThrowHit(profile, ninja.summonLevel, e.data);
-
-      // Keep dueling the locked target while it lives and stays near
-      let target = ninja.combatTargetId
-        ? this.enemies.find((e) => e.id === ninja.combatTargetId && e.alive && !e.isDead())
-        : undefined;
-      if (target && ninja.position.distanceTo(target.position) > NINJA_LEASH) {
-        target = undefined;
-      }
-      // Otherwise lock onto whoever we've spotted — ranged ninjas see at
-      // throw range and stop there; melee needs contact first
-      if (!target) {
-        let bestDist = Infinity;
-        for (const e of this.enemies) {
-          if (!e.alive || e.isDead() || e.friendly) continue;
-          if (!canHurt(e)) continue;
-          const d = ninja.position.distanceTo(e.position);
-          const limit = profile
-            ? NINJA_THROW_RANGE
-            : ninja.data.size + e.data.size + 4;
-          if (d <= limit && d < bestDist) {
-            bestDist = d;
-            target = e;
-          }
-        }
-      }
-      if (!target) {
-        ninja.combatTargetId = null;
-        ninja.meleeFocus = null;
-        ninja.fighting = false;
-        continue;
-      }
-      ninja.combatTargetId = target.id;
-
-      const dx = ninja.position.x - target.position.x;
-      const dy = ninja.position.y - target.position.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      const reach = ninja.data.size + target.data.size;
-
-      // Still at range: hold the stop and throw on the attack timer
-      if (profile && dist > reach) {
-        ninja.fighting = false;
-        if (ninja.collisionCd <= 0 && dist <= NINJA_THROW_RANGE) {
-          this.ninjaThrow(ninja, target, profile);
-        }
-        const dirX = dx / dist;
-        const dirY = dy / dist;
-        if (dist <= NINJA_THROW_RANGE) {
-          ninja.meleeFocus = { x: ninja.position.x, y: ninja.position.y };
-        } else {
-          // Spotted but drifted out of range — close back to it
-          ninja.meleeFocus = {
-            x: target.position.x + dirX * (NINJA_THROW_RANGE - 4),
-            y: target.position.y + dirY * (NINJA_THROW_RANGE - 4),
-          };
-        }
-        continue;
-      }
-
-      // Close combat: press a standoff point on our side of the target —
-      // this closes knocked-back gaps and holds the line so nobody walks
-      // through, and trades blows when the swing is ready
-      ninja.fighting = true;
-      ninja.meleeFocus = {
-        x: target.position.x + (dx / dist) * (reach - 4),
-        y: target.position.y + (dy / dist) * (reach - 4),
-      };
-      if (ninja.collisionCd > 0) continue;
-      let strike: Enemy | undefined;
-      let strikeDist = Infinity;
-      for (const e of this.enemies) {
-        if (!e.alive || e.isDead() || e.friendly) continue;
-        if (!canHurt(e)) continue;
-        const d = ninja.position.distanceTo(e.position);
-        if (d <= ninja.data.size + e.data.size && d < strikeDist) {
-          strikeDist = d;
-          strike = e;
-        }
-      }
-      if (!strike) continue;
-      this.ninjaCollide(ninja, strike);
-      if (!target.alive || target.isDead()) ninja.combatTargetId = null;
-    }
+    this.ninjaCombat.resolveNinjaCollisions();
   }
 
   /** A level 3+ ninja throws an arrow, cannonball or grenade at its target. */
   private ninjaThrow(ninja: Enemy, target: Enemy, profile: NinjaThrow): void {
-    ninja.throwsLeft = Math.max(0, ninja.throwsLeft - 1);
-    ninja.collisionCd = NINJA_THROW_COOLDOWN_MS;
-    const proj = new Projectile(
-      profile.towerType,
-      ninja.position.x,
-      ninja.position.y - 8,
-      {
-        baseDamage: profile.damage,
-        splashRadius: profile.splash,
-        slowFactor: 1.0,
-        slowDuration: 0,
-      } as any,
-      target.id,
-      Phaser.Display.Color.HexStringToColor(TOWER_DEFINITIONS[profile.towerType].color).color,
-      180, // hand-thrown, slower than tower shots
-    );
-    proj.ownerId = ninja.ownerId;
-    proj.towerLevel = ninja.summonLevel;
-    proj.markAsNinjaThrow();
-    proj.createSprite(this);
-    this.projectiles.push(proj);
+    this.ninjaCombat.ninjaThrow(ninja, target, profile);
   }
 
   /**
@@ -2032,72 +1118,12 @@ export class GameScene extends Phaser.Scene {
    * spin briefly from the hit. Phantoms and bats sit this out entirely.
    */
   private resolveEnemyPhysics(): void {
-    const bodies = this.enemies;
-    // Physics drops off exactly when the ninja that granted it dies
-    for (const e of bodies) e.refreshPhysics();
-    for (let i = 0; i < bodies.length; i++) {
-      const a = bodies[i];
-      if (!a.alive || !a.collidable || a.contactCd > 0) continue;
-      for (let j = i + 1; j < bodies.length; j++) {
-        const b = bodies[j];
-        if (!b.alive || b.isDead() || !b.collidable || b.contactCd > 0) continue;
-        const dx = b.position.x - a.position.x;
-        const dy = b.position.y - a.position.y;
-        const reach = a.data.size + b.data.size;
-        const dist = Math.hypot(dx, dy);
-        if (dist >= reach) continue;
-        // Exactly stacked bodies get an arbitrary normal so they still separate
-        const nx = dist < 0.001 ? 1 : dx / dist;
-        const ny = dist < 0.001 ? 0 : dy / dist;
-
-        // Touching a ninja turns collision physics on for that enemy;
-        // ninjas themselves are always physical
-        if (a.friendly && !b.friendly) b.awakenPhysics(a);
-        else if (b.friendly && !a.friendly) a.awakenPhysics(b);
-        const activeA = a.friendly || a.hasPhysics();
-        const activeB = b.friendly || b.hasPhysics();
-        if (!activeA || !activeB) continue;
-
-        // Closing speed along the contact normal (positive = approaching)
-        const da = a.currentDirection();
-        const db = b.currentDirection();
-        const closing =
-          (da.x * a.data.speed - db.x * b.data.speed) * nx +
-          (da.y * a.data.speed - db.y * b.data.speed) * ny;
-        const strength = closing > 5 ? Math.min(320, closing * 0.7 + 40) : 60;
-
-        this.applyCollisionImpulse(a, b, nx, ny, strength);
-        a.contactCd = CONTACT_CD_MS;
-        b.contactCd = CONTACT_CD_MS;
-
-        // Unwedge instantly: share the overlap by inverse weight
-        const total = a.weight + b.weight;
-        const overlap = (reach - dist) * 0.8;
-        a.position.x -= nx * overlap * (b.weight / total);
-        a.position.y -= ny * overlap * (b.weight / total);
-        b.position.x += nx * overlap * (a.weight / total);
-        b.position.y += ny * overlap * (a.weight / total);
-      }
-    }
+    this.ninjaCombat.resolveEnemyPhysics();
   }
 
   /** Kick both bodies apart: lighter ones fly farther, glancing hits spin more. */
   private applyCollisionImpulse(a: Enemy, b: Enemy, nx: number, ny: number, strength: number): void {
-    const total = a.weight + b.weight;
-    const dvA = strength * (b.weight / total);
-    const dvB = strength * (a.weight / total);
-    a.knockVX -= nx * dvA;
-    a.knockVY -= ny * dvA;
-    b.knockVX += nx * dvB;
-    b.knockVY += ny * dvB;
-    // Spin from the tangential part of each body's own motion: head-on
-    // hits barely rotate, glancing blows roll
-    const da = a.currentDirection();
-    const db = b.currentDirection();
-    const wobble = (vx: number, vy: number, dv: number): number =>
-      Math.max(-8, Math.min(8, (vx * ny - vy * nx) * dv * 0.06));
-    a.spin += wobble(da.x, da.y, dvA);
-    b.spin += wobble(db.x, db.y, dvB);
+    this.ninjaCombat.applyCollisionImpulse(a, b, nx, ny, strength);
   }
 
   /**
@@ -2105,135 +1131,20 @@ export class GameScene extends Phaser.Scene {
    * spin around through the sheet's directions, or tip over.
    */
   private ninjaHitFx(body: Enemy): void {
-    if (!body.alive || !body.sprite || !body.sprite.active) return;
-    this.tweens.killTweensOf(body); // only our fx tweens target the body
-    body.fxX = 0;
-    body.fxY = 0;
-    body.fxRotation = 0;
-    body.animOverride = null;
-
-    const roll = Math.random();
-    // The heavier the body, the less it rotates: light units flip
-    // fully, tanks and bosses barely tilt (120/weight, capped at 1)
-    const tilt = Math.min(1, 120 / body.weight);
-    if (roll < 1 / 3) {
-      // Fly up with a random turn of 90-360 degrees — the rotation
-      // spans the whole flight, so the body lands exactly upright
-      const turn =
-        (Math.random() < 0.5 ? -1 : 1) *
-        (Math.PI / 2 + Math.random() * Math.PI * 1.5) * tilt;
-      this.tweens.add({
-        targets: body, fxY: -24, duration: 230,
-        ease: 'Power2.out', yoyo: true, repeat: 1,
-      });
-      this.tweens.add({
-        targets: body, fxRotation: turn, duration: 460, ease: 'Linear',
-        onComplete: () => { body.fxRotation = 0; },
-      });
-    } else if (roll < 2 / 3) {
-      // Spin around: cycle the sheet left -> front -> right while turning
-      this.tweens.add({
-        targets: body, fxRotation: Math.PI * 2, duration: 360, ease: 'Linear',
-        onComplete: () => { body.fxRotation = 0; },
-      });
-      const base = body.sprite!.texture.key.replace('enemy_', '');
-      const keys = [`${base}_left`, `${base}_walk`, `${base}_right`];
-      body.animOverride = keys[0];
-      keys.forEach((k, i) => {
-        if (i === 0) return;
-        this.time.delayedCall(130 * i, () => { body.animOverride = k; });
-      });
-      this.time.delayedCall(130 * keys.length, () => { body.animOverride = null; });
-    } else {
-      // Tip over: fall sideways, then catch itself and stand back up
-      const dir = Math.random() < 0.5 ? -1 : 1;
-      this.tweens.add({
-        targets: body, fxRotation: dir * 1.4 * tilt, duration: 160,
-        ease: 'Power2.out', yoyo: true, repeat: 1,
-        onComplete: () => { body.fxRotation = 0; },
-      });
-    }
+    this.ninjaCombat.ninjaHitFx(body);
   }
 
   /** One melee trade: the ninja bounces off; the enemy reacts by weight. */
   private ninjaCollide(ninja: Enemy, target: Enemy): void {
-    const dmg = ninja.data.contactDamage ?? 8;
-    ninja.collisionCd = NINJA_HIT_COOLDOWN_MS;
-
-    const dx = target.position.x - ninja.position.x;
-    const dy = target.position.y - ninja.position.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const nx = dx / len;
-    const ny = dy / len;
-    // Bodies react by weight: the light ninja rebounds, the target
-    // budges only as much as its mass allows. Phantoms and bats don't
-    // collide at all — the swing connects, nothing physical happens.
-    if (target.collidable) {
-      // The first strike switches this enemy's collision physics on —
-      // it stays on until this ninja dies
-      target.awakenPhysics(ninja);
-      this.applyCollisionImpulse(target, ninja, -nx, -ny, MELEE_IMPULSE);
-      ninja.contactCd = CONTACT_CD_MS;
-      target.contactCd = CONTACT_CD_MS;
-      ninja.spin += (Math.random() < 0.5 ? -1 : 1) * 3;
-      target.spin += (Math.random() < 0.5 ? -1 : 1) * 2;
-    }
-    ninja.applyImpact();
-
-    // Small marks only — a melee duel ticks over too long for splatters
-    // this bloody (the killing blow gets its proper death blood anyway)
-    this.createBloodSplatter(nx, ny, target.position, target.data.size, 0);
-    this.createBloodSplatter(-nx, -ny, ninja.position, ninja.data.size, 0);
-    // Ninja trades: the swing and the squish of the hit (nothing else)
-    playSfx(this, 'sfx_swoosh3', { volume: 0.22, rate: 0.9 + Math.random() * 0.2 });
-    playSfx(this, 'sfx_squish', { volume: 0.4, rate: 0.9 + Math.random() * 0.25 });
-
-    const targetKilled = this.healthSystem.applyDamage(
-      { id: target.id, position: target.position, health: target.health }, dmg,
-    );
-    // The ninja bleeds faster than it cuts: trades cost it double
-    const ninjaKilled = this.healthSystem.applyDamage(
-      { id: ninja.id, position: ninja.position, health: ninja.health }, dmg * NINJA_MELEE_HURT,
-    );
-
-    // Random hit reactions for whoever survives the trade
-    if (!targetKilled && target.alive && target.collidable) this.ninjaHitFx(target);
-    if (!ninjaKilled && ninja.alive) this.ninjaHitFx(ninja);
-
-    // The kill reward goes to the tower owner who sent this ninja
-    if (targetKilled) this.onEnemyKilled(target, ninja.ownerId, { x: nx, y: ny });
-    if (ninjaKilled) this.onNinjaKilled(ninja, { x: -nx, y: -ny });
+    this.ninjaCombat.ninjaCollide(ninja, target);
   }
 
   private findTarget(tower: Tower): TargetableEntity | null {
-    // Prioritize selected enemy if in range, alive AND damageable
-    // (phantoms ignore everything but upgraded snipers/archers)
-    if (
-      this.selectedEnemy && this.selectedEnemy.alive && !this.selectedEnemy.isDead() &&
-      !this.selectedEnemy.friendly &&
-      canDamageEnemy(tower.type, tower.level, this.selectedEnemy.data)
-    ) {
-      const dist = tower.position.distanceTo(this.selectedEnemy.position);
-      if (dist <= tower.range) {
-        return { id: this.selectedEnemy.id, position: this.selectedEnemy.position, health: this.selectedEnemy.health, pathRemaining: this.selectedEnemy.pathRemaining() };
-      }
-    }
-
-    const enemies = this.enemies
-      .filter(e => e.alive && !e.isDead() && !e.friendly && canDamageEnemy(tower.type, tower.level, e.data))
-      .map(e => ({ id: e.id, position: e.position, health: e.health, pathRemaining: e.pathRemaining() }));
-    return TargetingSystem.findTarget(tower.position, tower.range, enemies, tower.targetMode);
+    return this.towerMgr.findTarget(tower);
   }
 
   private fireProjectile(tower: Tower, target: TargetableEntity): void {
-    const towerPos = tower.getWorldPosition();
-    const damage = { baseDamage: tower.damage, splashRadius: tower.splashRadius, slowFactor: tower.slowFactor, slowDuration: tower.slowDuration };
-    const proj = new Projectile(tower.type, towerPos.x, towerPos.y, damage as any, target.id, Phaser.Display.Color.HexStringToColor(tower.data.color).color);
-    proj.ownerId = tower.ownerId;
-    proj.towerLevel = tower.level;
-    proj.createSprite(this);
-    this.projectiles.push(proj);
-    eventBus.emit('projectile-fired', { towerType: tower.type, x: towerPos.x, y: towerPos.y });
+    this.towerMgr.fireProjectile(tower, target);
   }
 
   private updateProjectiles(deltaMs: number): void {
@@ -2412,24 +1323,15 @@ export class GameScene extends Phaser.Scene {
    * Shared by blood splatter and death debris.
    */
   private dripEndY(x: number, y: number): number | null {
-    return this.grid.areaBottomY(x, y) ?? this.grid.towerBottomY(x, y);
+    return this.deathFx.dripEndY(x, y);
   }
 
   /**
    * The vertical drip — shared by blood and debris: hang straight down,
    * stretch, accelerate toward the foot, then continue.
    */
-  private dripDown(target: SplatterBody, targetY: number, distance: number, then: () => void): void {
-    this.tweens.add({
-      targets: target,
-      y: targetY,
-      rotation: 0,
-      scaleX: 0.75,
-      scaleY: 1.6,
-      duration: Math.min(3500, 400 + distance * 6),
-      ease: 'Power1.in',
-      onComplete: then,
-    });
+  private dripDown(target: Phaser.GameObjects.Arc | Phaser.GameObjects.Image, targetY: number, distance: number, then: () => void): void {
+    this.deathFx.dripDown(target, targetY, distance, then);
   }
 
   /**
@@ -2446,425 +1348,24 @@ export class GameScene extends Phaser.Scene {
     bounceCount: number,
     persist: boolean = false,
   ): void {
-    const fade = () => {
-      if (!piece.active) return;
-      const start = () => {
-        this.tweens.add({
-          targets: piece,
-          alpha: 0,
-          duration: 5000,
-          onComplete: () => {
-            if (piece.active) piece.destroy();
-          },
-        });
-      };
-      // Register with the kick system: living enemies shove corpse
-      // parts (bones and shards alike) around while they're visible
-      this.restingDebris.push({ img: piece, cooldown: 0 });
-      if (persist) {
-        // Bones lie on the ground for 30 seconds before fading away
-        this.time.delayedCall(30000, start);
-      } else {
-        start();
-      }
-    };
-
-    // Bounce and roll in the direction the piece was already travelling —
-    // it keeps moving the way it came in. Far-flung pieces skitter with
-    // extra, decaying bounces before settling and fading
-    const bounceOnGround = (): void => {
-      const roll = 5 + Math.random() * 8;
-      const rollPerBounce = roll / bounceCount;
-      let hop = 3 + Math.random() * 4;
-      let bounced = 0;
-
-      const afterLanding = (): void => {
-        if (bounced < bounceCount) {
-          hop *= 0.55; // each extra bounce decays
-          doBounce();
-        } else {
-          fade();
-        }
-      };
-
-      const doBounce = () => {
-        if (!piece.active) return;
-        bounced++;
-        this.tweens.add({
-          targets: piece,
-          x: piece.x + dirX * rollPerBounce * 0.5,
-          y: piece.y + dirY * rollPerBounce * 0.5 - hop,
-          angle: piece.angle + (Math.random() - 0.5) * 45,
-          duration: 150,
-          ease: 'Power1.out',
-          onComplete: () => {
-            if (!piece.active) return;
-            this.tweens.add({
-              targets: piece,
-              x: piece.x + dirX * rollPerBounce * 0.5,
-              y: piece.y + dirY * rollPerBounce * 0.5 + hop,
-              angle: piece.angle + (Math.random() - 0.5) * 30,
-              duration: 190,
-              ease: 'Power1.in',
-              onComplete: () => {
-                if (!piece.active) return;
-                // Bounced onto a tower — glide down to the ground under it
-                const landed = this.grid.towerNear(piece.x, piece.y, CELL_SIZE / 2);
-                if (landed) {
-                  this.glideOffTower(piece, landed, afterLanding);
-                } else {
-                  afterLanding();
-                }
-              },
-            });
-          },
-        });
-      };
-      doBounce();
-    };
-
-    // Towers: glide straight down to the ground under the tower,
-    // then land like it dropped off the structure
-    const tower = this.grid.towerNear(piece.x, piece.y, CELL_SIZE / 2);
-    if (tower) {
-      this.glideOffTower(piece, tower, bounceOnGround);
-      return;
-    }
-
-    // Walls and trees: glide down the face to the base
-    const endY = this.grid.areaBottomY(x, y);
-    if (endY !== null) {
-      const distance = endY - y;
-      if (distance >= 4) {
-        this.dripDown(piece, endY, distance, fade);
-      } else {
-        fade();
-      }
-      return;
-    }
-
-    // Open ground
-    bounceOnGround();
+    this.deathFx.landDebris(piece, x, y, dirX, dirY, bounceCount, persist);
   }
 
   private createBloodSplatter(dirX: number, dirY: number, hitPos: Position, enemySize: number, bloodSize: number): void {
-    // Base angle of the projectile's travel direction
-    const hitAngle = Math.atan2(dirY, dirX);
-
-    // Lots of blood already on screen? Then no fine spray this time
-    const now = this.time.now;
-    this.recentSplats = this.recentSplats.filter((t) => now - t < 900);
-    const heavySplatter = this.recentSplats.length >= 4;
-    this.recentSplats.push(now);
-
-    // Number of particles
-    const particleCount = 3 + bloodSize * 3;
-
-    /**
-     * Landing sequence: on an object, run down to its base → spread into
-     * a pool there → dry dark and fade out (slowly, so splatters linger).
-     * On open ground, dry in place.
-     */
-    const settle = (particle: Phaser.GameObjects.Arc, x: number, y: number, fadeMs: number): void => {
-      const dry = () => {
-        if (!particle.active) return;
-        particle.setFillStyle(0x4a0000, 0.8);
-        this.tweens.add({
-          targets: particle,
-          alpha: 0,
-          duration: fadeMs,
-          onComplete: () => {
-            if (particle.active) particle.destroy();
-          },
-        });
-      };
-
-      // Every landing ends in an oval pool, slightly different per splat.
-      // The vertical-drip → pool change is instant (no morph); a few
-      // pixel-sized drips scatter in an oval around it, then all dry.
-      const formPool = (poolX: number, poolY: number) => {
-        if (!particle.active) return;
-
-        // Instant: snap straight out of the drip into the pool, on the
-        // blood layer (depth 21 — above foreground tiles)
-        const poolSX = 1.35 + Math.random() * 0.45;
-        const poolSY = 0.55 + Math.random() * 0.15;
-        particle.setDepth(21);
-        particle.setPosition(poolX, poolY);
-        particle.rotation = 0;
-        particle.setScale(poolSX, poolSY);
-
-        // Ejecta: irregular angles and staggered distances so the spray
-        // reads as an explosion flung out of the pool — each drop streaked
-        // along its flight path and popping outward. Sized to never render
-        // under 2x2 (radius 1.5+ x scaleY 0.7+ = 2.1px minimum).
-        const rx = particle.radius * poolSX * 2.2;
-        const ry = particle.radius * poolSY * 1.4;
-        const dropCount = 2 + Math.floor(Math.random() * 3);
-        const drops: Phaser.GameObjects.Arc[] = [];
-        for (let d = 0; d < dropCount; d++) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = 0.9 + Math.random() * 1.1; // 0.9-2.0x: close and flung
-          const startX = poolX + Math.cos(angle) * rx * 0.4;
-          const startY = poolY + Math.sin(angle) * ry * 0.4;
-          const endX = poolX + Math.cos(angle) * rx * dist;
-          const endY = poolY + Math.sin(angle) * ry * dist;
-          const drop = this.add.circle(
-            startX, startY,
-            1.5 + Math.random() * 0.7,
-            0xcc0000,
-            particle.alpha,
-          );
-          drop.setDepth(21);
-          drop.rotation = Math.atan2(endY - startY, endX - startX);
-          drop.setScale(1.5 + Math.random() * 0.6, 0.7 + Math.random() * 0.15);
-          this.tweens.add({
-            targets: drop,
-            x: endX,
-            y: endY,
-            duration: 160 + Math.random() * 100,
-            ease: 'Power3.out',
-          });
-          drops.push(drop);
-        }
-
-        // Let the fresh pool read for a beat, then dry together
-        this.time.delayedCall(300, () => {
-          dry();
-          for (const drop of drops) {
-            if (!drop.active) continue;
-            drop.setFillStyle(0x4a0000, 0.8);
-            this.tweens.add({
-              targets: drop,
-              alpha: 0,
-              duration: fadeMs * (0.6 + Math.random() * 0.4),
-              onComplete: () => {
-                if (drop.active) drop.destroy();
-              },
-            });
-          }
-        });
-      };
-
-      const endY = this.dripEndY(x, y);
-      if (endY === null) {
-        // Open ground: drip vertical for a moment just before landing,
-        // then end in a pool where it stops
-        const run = 10 + Math.random() * 26;
-        this.dripDown(particle, y + run, run, () => {
-          if (particle.active) formPool(x, y + run);
-        });
-        return;
-      }
-
-      // Small particles hitting an object skip the drip/pool entirely —
-      // they leave a scatter of speckles on its face that dry in place
-      if (particle.radius < 3) {
-        const dots: Phaser.GameObjects.Arc[] = [];
-        const speckCount = 2 + Math.floor(Math.random() * 2);
-        for (let i = 0; i < speckCount; i++) {
-          const dot = this.add.circle(
-            x + (Math.random() - 0.5) * 10,
-            y + (Math.random() - 0.5) * 10,
-            1 + Math.random() * 0.6,
-            0xcc0000,
-            particle.alpha,
-          );
-          dot.setDepth(21); // on the object's face
-          dots.push(dot);
-        }
-        this.time.delayedCall(300, () => {
-          dry();
-          for (const dot of dots) {
-            if (!dot.active) continue;
-            dot.setFillStyle(0x4a0000, 0.8);
-            this.tweens.add({
-              targets: dot,
-              alpha: 0,
-              duration: fadeMs * (0.6 + Math.random() * 0.4),
-              onComplete: () => {
-                if (dot.active) dot.destroy();
-              },
-            });
-          }
-        });
-        return;
-      }
-
-      const distance = endY - y;
-      if (distance < 4) {
-        // Already at the object's base — pool at its foot
-        formPool(x, endY + 2);
-        return;
-      }
-
-      // Run down the whole object, then pool at the foot
-      this.dripDown(particle, endY, distance, () => formPool(x, endY + 2));
-    };
-
-    for (let i = 0; i < particleCount; i++) {
-      const size = (2 + bloodSize) + Math.random() * 2;
-      const particle = this.add.circle(
-        hitPos.x,
-        hitPos.y,
-        size,
-        0xcc0000,
-        1,
-      );
-      particle.setDepth(21);
-
-      // Random spread around the projectile's travel direction.
-      // Irregular distance: only on death splatters (bloodSize >= 3),
-      // ~8% chance of a far spray simulating arterial burst
-      const angle = hitAngle + (Math.random() - 0.5) * 1.5;
-      const baseSpeed = 35 + Math.random() * 55;
-      const farFling = bloodSize >= 3 && Math.random() < 0.08;
-      const speed = baseSpeed * (farFling ? 1.8 + Math.random() * 0.7 : 1);
-      const targetX = hitPos.x + Math.cos(angle) * speed;
-      const targetY = hitPos.y + Math.sin(angle) * speed;
-
-      // Born circular, stretched into an oval along the flight direction
-      particle.rotation = angle;
-      this.tweens.add({
-        targets: particle,
-        x: targetX,
-        y: targetY,
-        alpha: 0.6,
-        scaleX: 1.9 + Math.random() * 0.7,
-        scaleY: 0.55 + Math.random() * 0.25,
-        duration: 300 + Math.random() * 200,
-        ease: 'Power2',
-        onComplete: () => {
-          if (particle.active) settle(particle, targetX, targetY, 5000);
-        },
-      });
-
-      // Also spawn exit blood (opposite direction, fewer particles)
-      if (bloodSize > 0 && i < 2) {
-        const exitAngle = angle + Math.PI + (Math.random() - 0.5) * 0.6;
-        const exitBase = 18 + Math.random() * 32;
-        const exitFar = bloodSize >= 3 && Math.random() < 0.06;
-        const exitSpeed = exitBase * (exitFar ? 2.0 + Math.random() * 0.6 : 1);
-        const exitTargetX = hitPos.x + Math.cos(exitAngle) * exitSpeed;
-        const exitTargetY = hitPos.y + Math.sin(exitAngle) * exitSpeed;
-        const exitParticle = this.add.circle(
-          hitPos.x,
-          hitPos.y,
-          (1 + bloodSize) + Math.random() * (2 + bloodSize),
-          0xcc0000,
-          1,
-        );
-        exitParticle.setDepth(21);
-
-        exitParticle.rotation = exitAngle;
-        this.tweens.add({
-          targets: exitParticle,
-          x: exitTargetX,
-          y: exitTargetY,
-          alpha: 0.4,
-          scaleX: 1.7 + Math.random() * 0.6,
-          scaleY: 0.55 + Math.random() * 0.2,
-          duration: 250,
-          ease: 'Power2',
-          onComplete: () => {
-            if (exitParticle.active) settle(exitParticle, exitTargetX, exitTargetY, 4000);
-          },
-        });
-      }
-    }
-
-    // Fine spray: pixel-sized particles from the very start of the
-    // lifecycle — born at the hit, they fly, drip and pool like the
-    // rest, but only when the screen isn't already full of blood
-    const speckCount = heavySplatter ? 0 : 2 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < speckCount; i++) {
-      const angle = hitAngle + (Math.random() - 0.5) * 2.4; // wider spread
-      const speed = 25 + Math.random() * 60;
-      const targetX = hitPos.x + Math.cos(angle) * speed;
-      const targetY = hitPos.y + Math.sin(angle) * speed;
-      const speck = this.add.circle(hitPos.x, hitPos.y, 1.85 + Math.random() * 0.5, 0xcc0000, 1);
-      speck.setDepth(21);
-      speck.rotation = angle;
-      this.tweens.add({
-        targets: speck,
-        x: targetX,
-        y: targetY,
-        alpha: 0.6,
-        scaleX: 1.6 + Math.random() * 0.8,
-        scaleY: 0.6 + Math.random() * 0.3,
-        duration: 260 + Math.random() * 240,
-        ease: 'Power2',
-        onComplete: () => {
-          if (speck.active) settle(speck, targetX, targetY, 3500);
-        },
-      });
-    }
+    this.deathFx.createBloodSplatter(dirX, dirY, hitPos, enemySize, bloodSize);
   }
 
   private createImmuneIndicator(x: number, y: number): void {
-    const text = this.add.text(x, y - 20, 'IMMUNE', {
-      fontSize: '10px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(20);
-
-    this.tweens.add({
-      targets: text,
-      y: y - 40,
-      alpha: 0,
-      duration: 800,
-      onComplete: () => text.destroy(),
-    });
+    this.deathFx.createImmuneIndicator(x, y);
   }
 
   private onEnemyKilled(enemy: Enemy, ownerId?: string | null, dir?: { x: number; y: number }): void {
-    // Guard: a kill must only be processed once (damage systems can
-    // report the same enemy through multiple paths in one frame).
-    if (!enemy.alive) return;
-    enemy.alive = false;
-    // Cancel any in-flight hit reaction so the corpse starts on the path
-    this.tweens.killTweensOf(enemy);
-    enemy.fxX = 0;
-    enemy.fxY = 0;
-    enemy.fxRotation = 0;
-    enemy.animOverride = null;
-    enemy.sprite?.setPosition(enemy.position.x, enemy.position.y);
-
-    // Clear selection if this enemy was selected
-    if (this.selectedEnemy === enemy) {
-      this.deselectEnemy();
-    }
-    const reward = enemy.data.reward;
-    const { x, y } = enemy.position;
-    this.createDeathEffect(x, y, enemy.data.color);
-    // Death splatter volume comes from the body's weight
-    const d = dir ?? enemy.currentDirection();
-    this.createBloodSplatter(d.x, d.y, enemy.position, enemy.data.size, deathSplatterTier(enemy.weight));
-    playSfx(this, 'sfx_splat', { volume: 0.4, rate: 0.9 + Math.random() * 0.3 });
-
-    // Detach from the list immediately (wave completion checks it) —
-    // each death variant owns the corpse sprite from here on
-    this.detachEnemy(enemy);
-    enemy.healthBar?.setVisible(false);
-    enemy.healthBarBg?.setVisible(false);
-
-    // Three death animations, picked once so every peer plays the same
-    // one: bleed out, tip over and explode, or the plain sprite burst.
-    const variant = this.pickDeathVariant(enemy);
-    this.playDeathVariant(enemy, variant);
-    // Tell the guests so their copy of this enemy plays the same one
-    if (this.netRole === 'host') {
-      lobby.sendNet({ kind: 'died', id: enemy.id, variant });
-    }
-
-    eventBus.emit('enemy-killed', { enemyType: enemy.type, reward, x, y, ownerId: ownerId ?? undefined });
+    this.deathFx.onEnemyKilled(enemy, ownerId, dir);
   }
 
   /** Which death animation to play (phantoms never bleed out). */
   private pickDeathVariant(enemy: Enemy): DeathVariant {
-    if (enemy.data.invisible) return Math.random() < 0.5 ? 'tip' : 'burst';
-    const roll = Math.random();
-    return roll < 1 / 3 ? 'bleed' : roll < 2 / 3 ? 'tip' : 'burst';
+    return this.deathFx.pickDeathVariant(enemy);
   }
 
   /**
@@ -2872,58 +1373,21 @@ export class GameScene extends Phaser.Scene {
    * hear about it, but no kill reward and no wave-completion events.
    */
   private onNinjaKilled(ninja: Enemy, dir?: { x: number; y: number }): void {
-    if (!ninja.alive) return;
-    ninja.alive = false;
-    this.tweens.killTweensOf(ninja);
-    ninja.fxX = 0;
-    ninja.fxY = 0;
-    ninja.fxRotation = 0;
-    ninja.animOverride = null;
-    ninja.sprite?.setPosition(ninja.position.x, ninja.position.y);
-    if (this.selectedEnemy === ninja) this.deselectEnemy();
-    this.detachEnemy(ninja);
-    ninja.healthBar?.setVisible(false);
-    ninja.healthBarBg?.setVisible(false);
-    const d = dir ?? ninja.currentDirection();
-    this.createBloodSplatter(d.x, d.y, ninja.position, ninja.data.size, deathSplatterTier(ninja.weight));
-    playSfx(this, 'sfx_splat', { volume: 0.4, rate: 0.9 + Math.random() * 0.3 });
-    const variant = this.pickDeathVariant(ninja);
-    this.playDeathVariant(ninja, variant);
-    if (this.netRole === 'host') {
-      lobby.sendNet({ kind: 'died', id: ninja.id, variant });
-    }
+    this.deathFx.onNinjaKilled(ninja, dir);
   }
 
   /** Play one of the three death animations; the variant owns the corpse sprite. */
   private playDeathVariant(enemy: Enemy, variant: DeathVariant): void {
-    switch (variant) {
-      case 'bleed':
-        this.deathBleedOut(enemy);
-        break;
-      case 'tip':
-        this.deathTipOver(enemy);
-        break;
-      default:
-        this.explodeEnemySprite(enemy);
-        enemy.destroy();
-    }
+    this.deathFx.playDeathVariant(enemy, variant);
   }
 
   /** The host said this enemy died — play the same animation here. */
   private playGuestDeath(id: string, variant: DeathVariant): void {
-    const enemy = this.enemies.find((e) => e.id === id && e.alive);
-    if (!enemy) return;
-    enemy.alive = false;
-    if (this.selectedEnemy === enemy) this.deselectEnemy();
-    this.guestEnemyTargets.delete(id);
-    // Detach now — the animation owns the corpse, exactly like the host
-    this.detachEnemy(enemy);
-    this.playDeathVariant(enemy, variant);
+    this.deathFx.playGuestDeath(id, variant);
   }
 
   private onEnemyKilledById(id: string, ownerId?: string | null, dir?: { x: number; y: number }): void {
-    const enemy = this.enemies.find(e => e.id === id && e.alive);
-    if (enemy) this.onEnemyKilled(enemy, ownerId, dir);
+    this.deathFx.onEnemyKilledById(id, ownerId, dir);
   }
 
   /**
@@ -2937,24 +1401,7 @@ export class GameScene extends Phaser.Scene {
    * obstacle center to bounce off, or null when the way is clear.
    */
   private glideObstacleAt(x: number, y: number, selfSize: number): { cx: number; cy: number } | null {
-    const { col, row } = this.grid.worldToBgGrid(x, y);
-    const area = this.grid.getArea(col, row);
-    if (area === 'tree' || area === 'wall') {
-      const cell = this.grid.bgToWorld(col, row);
-      return { cx: cell.x, cy: cell.y };
-    }
-    for (const t of this.towers) {
-      if (Math.hypot(t.position.x - x, t.position.y - y) < CELL_SIZE * 0.5 + selfSize * 0.4) {
-        return { cx: t.position.x, cy: t.position.y };
-      }
-    }
-    for (const e of this.enemies) {
-      if (!e.alive || e.isDead()) continue;
-      if (Math.hypot(e.position.x - x, e.position.y - y) < e.data.size + selfSize * 0.5) {
-        return { cx: e.position.x, cy: e.position.y };
-      }
-    }
-    return null;
+    return this.deathFx.glideObstacleAt(x, y, selfSize);
   }
 
   /**
@@ -2963,95 +1410,7 @@ export class GameScene extends Phaser.Scene {
    * ground, and friction brings it to a stop. Stops when the fade begins.
    */
   private enableCorpsePush(enemy: Enemy, sprite: Phaser.GameObjects.Image, onMove?: () => void): void {
-    const size = enemy.data.size;
-    const vel = { x: 0, y: 0 };
-    let stopping = false;
-    let gliding = false;
-
-    const event = this.time.addEvent({
-      delay: 16,
-      loop: true,
-      callback: () => {
-        if (stopping || !sprite.active) {
-          event.remove();
-          return;
-        }
-        if (gliding) return; // tower glide in progress
-        let moved = false;
-
-        // Running enemies shove the corpse out of their way
-        for (const e of this.enemies) {
-          if (!e.alive || e.isDead()) continue;
-          const dx = sprite.x - e.position.x;
-          const dy = sprite.y - e.position.y;
-          const dist = Math.hypot(dx, dy);
-          const reach = e.data.size + size * 0.5;
-          if (dist < reach && dist > 0.01) {
-            const nx = dx / dist;
-            const ny = dy / dist;
-            const depth = Math.min(reach - dist, 3);
-            sprite.x += nx * depth;
-            sprite.y += ny * depth;
-            moved = true;
-            vel.x += nx * depth * 0.7;
-            vel.y += ny * depth * 0.7;
-            // Shoving a corpse switches collision physics on briefly
-            e.physicsMs = 500;
-          }
-        }
-
-        // Shoved onto a tower? Glide down to the ground under it —
-        // physics pauses until the glide lands
-        const tower = this.grid.towerNear(sprite.x, sprite.y, CELL_SIZE * 0.4);
-        if (tower) {
-          gliding = true;
-          vel.x = 0;
-          vel.y = 0;
-          this.glideOffTower(sprite, tower, () => {
-            gliding = false;
-            onMove?.();
-          });
-          if (moved) onMove?.();
-          return;
-        }
-
-        // Cap the skid speed, then move — bouncing off non-ground objects
-        const speed = Math.hypot(vel.x, vel.y);
-        if (speed > 4) {
-          vel.x = (vel.x / speed) * 4;
-          vel.y = (vel.y / speed) * 4;
-        }
-        if (Math.hypot(vel.x, vel.y) > 0.02) {
-          const nx = sprite.x + vel.x;
-          const ny = sprite.y + vel.y;
-          const obstacle = this.glideObstacleAt(nx, ny, size);
-          if (obstacle) {
-            // Reflect off the surface with a little damping
-            const ox = nx - obstacle.cx;
-            const oy = ny - obstacle.cy;
-            const ol = Math.hypot(ox, oy) || 1;
-            const nX = ox / ol;
-            const nY = oy / ol;
-            const dot = vel.x * nX + vel.y * nY;
-            vel.x = (vel.x - 2 * dot * nX) * 0.7;
-            vel.y = (vel.y - 2 * dot * nY) * 0.7;
-          } else {
-            sprite.x = nx;
-            sprite.y = ny;
-            moved = true;
-          }
-          // Friction — the skid dies out on its own
-          vel.x *= 0.9;
-          vel.y *= 0.9;
-        }
-        if (moved) onMove?.();
-      },
-    });
-
-    // Rigs stop the moment the corpse starts fading (pool spread = 1400ms)
-    this.time.delayedCall(1450, () => {
-      stopping = true;
-    });
+    this.deathFx.enableCorpsePush(enemy, sprite, onMove);
   }
 
   /**
@@ -3065,82 +1424,7 @@ export class GameScene extends Phaser.Scene {
     distance: number,
     selfSize: number,
   ): { x: number; y: number }[] {
-    const pts = [{ x: startX, y: startY }];
-    let px = startX;
-    let py = startY;
-    let dx = dir.x;
-    let dy = dir.y;
-    let remaining = distance;
-    const step = 3;
-    let bounces = 0;
-
-    while (remaining > 0 && bounces <= 3) {
-      let traveled = 0;
-      let obstacle: { cx: number; cy: number } | null = null;
-      while (traveled < remaining) {
-        const nx = px + dx * step;
-        const ny = py + dy * step;
-        obstacle = this.glideObstacleAt(nx, ny, selfSize);
-        if (obstacle) break;
-        px = nx;
-        py = ny;
-        traveled += step;
-      }
-      remaining -= traveled;
-      if (obstacle && remaining > 6) {
-        pts.push({ x: px, y: py });
-        // Reflect off the surface that points back at us
-        const hit = obstacle;
-        const nx = px - hit.cx;
-        const ny = py - hit.cy;
-        const nl = Math.hypot(nx, ny) || 1;
-        const nX = nx / nl;
-        const nY = ny / nl;
-        const dirAngle = Math.atan2(dy, dx);
-        const dot = dx * nX + dy * nY;
-        dx = dx - 2 * dot * nX;
-        dy = dy - 2 * dot * nY;
-        // Glancing hits barely turn — kick the bounce so it actually
-        // reads as a bounce instead of skimming through
-        let turn = Math.atan2(dy, dx) - dirAngle;
-        while (turn > Math.PI) turn -= Math.PI * 2;
-        while (turn < -Math.PI) turn += Math.PI * 2;
-        if (Math.abs(turn) < 0.45) {
-          const kick = (turn === 0 ? 1 : Math.sign(turn)) * (0.45 - Math.abs(turn));
-          const ca = Math.cos(kick);
-          const sa = Math.sin(kick);
-          const rx = dx * ca - dy * sa;
-          const ry = dx * sa + dy * ca;
-          dx = rx;
-          dy = ry;
-        }
-        // Slide out of this obstacle's body along the new direction so
-        // the same tower can't eat every bounce (one bounce per hit)
-        const sameObstacle = (hx: number, hy: number): boolean => {
-          const h = this.glideObstacleAt(hx, hy, selfSize);
-          return !!h && Math.abs(h.cx - hit.cx) < 1 && Math.abs(h.cy - hit.cy) < 1;
-        };
-        let qx = px + dx * 2;
-        let qy = py + dy * 2;
-        let guard = 0;
-        while (guard++ < 24 && remaining > 0 && sameObstacle(qx, qy)) {
-          qx += dx * 2;
-          qy += dy * 2;
-          remaining -= 2;
-        }
-        px = qx;
-        py = qy;
-        bounces++;
-      } else {
-        px += dx * remaining;
-        py += dy * remaining;
-        remaining = 0;
-      }
-    }
-    const end = { x: px, y: py };
-    const last = pts[pts.length - 1];
-    if (Math.hypot(end.x - last.x, end.y - last.y) > 1) pts.push(end);
-    return pts;
+    return this.deathFx.buildGlidePath(startX, startY, dir, distance, selfSize);
   }
 
   /**
@@ -3152,274 +1436,22 @@ export class GameScene extends Phaser.Scene {
     tower: { cx: number; cy: number },
     then: () => void,
   ): void {
-    const groundY = tower.cy + CELL_SIZE / 2;
-    const distance = groundY - piece.y;
-    if (distance < 4) {
-      then();
-      return;
-    }
-    const sx = piece.scaleX;
-    const sy = piece.scaleY;
-    this.dripDown(piece, groundY, distance, () => {
-      if (!piece.active) return;
-      piece.setScale(sx, sy); // dripDown stretches — restore the piece
-      then();
-    });
+    this.deathFx.glideOffTower(piece, tower, then);
   }
 
   private deathBleedOut(enemy: Enemy): void {
-    const sprite = enemy.sprite;
-    if (!sprite || !sprite.active) {
-      enemy.destroy();
-      return;
-    }
-    enemy.stopInvisibilityPulse();
-    // Above the blood (21) for the whole death, so the corpse always
-    // lies on top of its own bleed pool
-    sprite.setDepth(22);
-
-    // Glide on in the direction it was travelling when shot — bouncing
-    // off trees, walls and other enemies — tumbling a full 360° as it goes
-    const startDir = enemy.currentDirection();
-    const jitter = (Math.random() - 0.5) * 0.3;
-    const cosJ = Math.cos(jitter);
-    const sinJ = Math.sin(jitter);
-    const dir = {
-      x: startDir.x * cosJ - startDir.y * sinJ,
-      y: startDir.x * sinJ + startDir.y * cosJ,
-    };
-    const slide = 40 + Math.random() * 30;
-    const tumble = (Math.random() < 0.5 ? -1 : 1) * 360; // one full roll, either way
-    const slideMs = 700;
-    const pts = this.buildGlidePath(sprite.x, sprite.y, dir, slide, enemy.data.size);
-
-    // Arc-length position along the (possibly bouncing) path at t (0..1)
-    const segLens: number[] = [];
-    let totalLen = 0;
-    for (let i = 1; i < pts.length; i++) {
-      const l = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-      segLens.push(l);
-      totalLen += l;
-    }
-    const glidePath = (t: number): { x: number; y: number } => {
-      let dist = t * totalLen;
-      for (let i = 0; i < segLens.length; i++) {
-        if (dist <= segLens[i] || i === segLens.length - 1) {
-          const u = segLens[i] > 0 ? Math.min(dist / segLens[i], 1) : 0;
-          return {
-            x: pts[i].x + (pts[i + 1].x - pts[i].x) * u,
-            y: pts[i].y + (pts[i + 1].y - pts[i].y) * u,
-          };
-        }
-        dist -= segLens[i];
-      }
-      return pts[pts.length - 1];
-    };
-
-    // Bleed from the very start: the full pattern flies out of the
-    // corpse while it is still gliding (frames slow as it goes)
-    this.createBloodSplatter(dir.x, dir.y, new Position(sprite.x, sprite.y), enemy.data.size, 1);
-
-    // Small splatter spurts out of the sprite the whole time it dies
-    const spurtCount = 5 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < spurtCount; i++) {
-      this.time.delayedCall(i * 120 + Math.random() * 60, () => {
-        if (sprite.active) this.bloodSpurt(sprite.x, sprite.y);
-      });
-    }
-
-    // Blood dots mark the drag along the glide path — scheduled at the
-    // wall-clock time the eased glide actually reaches each point
-    const timeAt = (t: number): number => slideMs * (1 - Math.pow(1 - t, 1 / 5)); // inverse of Power4.out
-    const traceCount = 3 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < traceCount; i++) {
-      const t = (i + 1) / (traceCount + 1);
-      this.time.delayedCall(timeAt(t), () => {
-        const pt = glidePath(t);
-        const dot = this.add.circle(
-          pt.x + (Math.random() - 0.5) * 4,
-          pt.y + (Math.random() - 0.5) * 4,
-          1.5 + Math.random() * 1.5,
-          0xcc0000,
-          0.85,
-        );
-        dot.setDepth(21);
-        // Dry like the rest of the blood
-        this.time.delayedCall(400, () => {
-          if (!dot.active) return;
-          dot.setDepth(21);
-          dot.setFillStyle(0x4a0000, 0.8);
-          this.tweens.add({
-            targets: dot,
-            alpha: 0,
-            duration: 5000,
-            onComplete: () => {
-              if (dot.active) dot.destroy();
-            },
-          });
-        });
-      });
-    }
-
-    // One continuous glide that slows down more and more as it goes:
-    // eased progress mapped along the two-leg (veering) path
-    const prog = { t: 0 };
-
-    // The walk-cycle tiles slow down in step with the glide...
-    if (sprite.anims.isPlaying) {
-      this.tweens.add({
-        targets: sprite.anims,
-        timeScale: 0,
-        duration: slideMs,
-        ease: 'Power4.out',
-      });
-    }
-
-    this.tweens.add({
-      targets: prog,
-      t: 1,
-      duration: slideMs,
-      ease: 'Power4.out', // slows down fast — visibly at rest well before the fade
-      onUpdate: () => {
-        if (!sprite.active) return;
-        const pt = glidePath(prog.t);
-        sprite.setPosition(pt.x, pt.y);
-        sprite.angle = tumble * prog.t; // eases with the glide, lands upright
-      },
-      onComplete: () => {
-        if (!sprite.active) {
-          enemy.destroy();
-          return;
-        }
-        // The animation has stopped: after lying still for a second it
-        // bleeds into a blood pool — no splatter, just drips and a pool
-        sprite.anims.stop();
-        const comeToRest = (): void => {
-          let bloodPool: Phaser.GameObjects.Arc | null = null;
-          this.time.delayedCall(1000, () => {
-            if (sprite.active) {
-              bloodPool = this.bleedOutPool(sprite.x, sprite.y, enemy.data.size);
-            }
-          });
-          // From here running enemies can shove the corpse around — and
-          // the pool keeps sliding under it while it's pushed
-          this.enableCorpsePush(enemy, sprite, () => {
-            if (bloodPool?.active) {
-              bloodPool.x = sprite.x;
-              bloodPool.y = sprite.y + enemy.data.size * 0.5;
-            }
-          });
-          // The corpse fades out alongside the blood — the same
-          // 5s fade, starting as the pool begins to dry
-          this.tweens.add({
-            targets: sprite,
-            alpha: 0,
-            duration: 5000,
-            delay: 2400, // still second (1000) + pool spread (1400)
-            onComplete: () => enemy.destroy(),
-          });
-        };
-        // If the glide ended on a tower, glide down to the ground first
-        const tower = this.grid.towerNear(sprite.x, sprite.y, CELL_SIZE / 2);
-        if (tower) {
-          this.glideOffTower(sprite, tower, comeToRest);
-        } else {
-          comeToRest();
-        }
-      },
-    });
+    this.deathFx.deathBleedOut(enemy);
   }
 
   /** Small spurt of blood spraying out from the dying sprite. */
   private bloodSpurt(x: number, y: number): void {
-    const count = 2 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < count; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 6 + Math.random() * 14;
-      const dot = this.add.circle(x, y, 1.2 + Math.random() * 1.2, 0xcc0000, 0.95);
-      dot.setDepth(21);
-      dot.rotation = angle;
-      this.tweens.add({
-        targets: dot,
-        x: x + Math.cos(angle) * dist,
-        y: y + Math.sin(angle) * dist,
-        scaleX: 1.8,
-        scaleY: 0.65,
-        alpha: 0.5,
-        duration: 180 + Math.random() * 140,
-        ease: 'Power2.out',
-        onComplete: () => {
-          if (!dot.active) return;
-          dot.setDepth(21);
-          dot.setFillStyle(0x4a0000, 0.8);
-          this.tweens.add({
-            targets: dot,
-            alpha: 0,
-            duration: 4000,
-            onComplete: () => {
-              if (dot.active) dot.destroy();
-            },
-          });
-        },
-      });
-    }
+    this.deathFx.bloodSpurt(x, y);
   }
 
 
   /** Blood drips out from under the corpse into a spreading pool that dries. */
   private bleedOutPool(x: number, y: number, corpseSize: number): Phaser.GameObjects.Arc {
-    const poolY = y + corpseSize * 0.5;
-    const pool = this.add.circle(x, poolY, 10 + Math.random() * 6, 0x8a0000, 1); // deep red from the start
-    pool.setDepth(21);
-    pool.setScale(0.1);
-
-    // Drips fall from the corpse's center into the pool
-    const dripCount = 3 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < dripCount; i++) {
-      this.time.delayedCall(i * 130 + Math.random() * 90, () => {
-        if (!pool.active) return;
-        const drip = this.add.circle(
-          x + (Math.random() - 0.5) * 8,
-          y,
-          1.5 + Math.random() * 0.8,
-          0xcc0000,
-          0.9,
-        );
-        drip.setDepth(21);
-        this.tweens.add({
-          targets: drip,
-          y: poolY,
-          duration: 160 + Math.random() * 140,
-          ease: 'Power1.in',
-          onComplete: () => {
-            if (drip.active) drip.destroy();
-          },
-        });
-      });
-    }
-
-    // The pool spreads into the familiar oval, then dries like blood
-    this.tweens.add({
-      targets: pool,
-      scaleX: 1.4 + Math.random() * 0.4,
-      scaleY: 0.55 + Math.random() * 0.15,
-      duration: 1400,
-      ease: 'Power2.out',
-      onComplete: () => {
-        if (!pool.active) return;
-        pool.setDepth(21);
-        pool.setFillStyle(0x4a0000, 0.8);
-        this.tweens.add({
-          targets: pool,
-          alpha: 0,
-          duration: 5000,
-          onComplete: () => {
-            if (pool.active) pool.destroy();
-          },
-        });
-      },
-    });
-    return pool;
+    return this.deathFx.bleedOutPool(x, y, corpseSize);
   }
 
   /**
@@ -3427,50 +1459,7 @@ export class GameScene extends Phaser.Scene {
    * degrees, then explodes and splatters like the usual death.
    */
   private deathTipOver(enemy: Enemy): void {
-    const sprite = enemy.sprite;
-    if (!sprite || !sprite.active) {
-      enemy.destroy();
-      return;
-    }
-    enemy.stopInvisibilityPulse();
-
-    const dir = Math.random() * Math.PI * 2;
-    const slide = 8 + Math.random() * 10;
-    const fall = (Math.random() < 0.5 ? -1 : 1) * (75 + Math.random() * 70); // random way and angle
-
-    // 1. slide a bit off the road
-    this.tweens.add({
-      targets: sprite,
-      x: sprite.x + Math.cos(dir) * slide,
-      y: sprite.y + Math.sin(dir) * slide,
-      duration: 280,
-      ease: 'Power1.out',
-      onComplete: () => {
-        if (!sprite.active) {
-          enemy.destroy();
-          return;
-        }
-        // 2. tip over
-        this.tweens.add({
-          targets: sprite,
-          angle: fall,
-          duration: 180,
-          ease: 'Power1.in',
-          onComplete: () => {
-            if (!sprite.active) {
-              enemy.destroy();
-              return;
-            }
-            // 3. explode and splatter like the usual death
-            this.createBloodSplatter(
-              0, 1, new Position(sprite.x, sprite.y), enemy.data.size, 3,
-            );
-            this.explodeEnemySprite(enemy);
-            enemy.destroy();
-          },
-        });
-      },
-    });
+    this.deathFx.deathTipOver(enemy);
   }
 
   /**
@@ -3479,141 +1468,11 @@ export class GameScene extends Phaser.Scene {
    * outward with spin — the sprite bursts apart where it stood.
    */
   private explodeEnemySprite(enemy: Enemy): void {
-    const sprite = enemy.sprite;
-    if (!sprite || !sprite.active) return;
-    const tex = this.textures.get(sprite.texture.key);
-    if (!tex) return;
-
-    const src = sprite.frame;
-    // Random split: a different number of pieces every death, cut into
-    // random-sized chunks rather than an even grid
-    const COLS = 2 + Math.floor(Math.random() * 3); // 2-4 -> 4..16 pieces
-    const ROWS = 2 + Math.floor(Math.random() * 3);
-    const splitAxis = (total: number, count: number): number[] => {
-      const weights: number[] = [];
-      for (let i = 0; i < count; i++) weights.push(0.5 + Math.random());
-      const sum = weights.reduce((a, b) => a + b, 0);
-      const bounds = [0];
-      let acc = 0;
-      for (let i = 0; i < count - 1; i++) {
-        acc += (weights[i] / sum) * total;
-        bounds.push(Math.max(bounds[i] + 2, Math.round(acc)));
-      }
-      bounds.push(total);
-      return bounds;
-    };
-    const xb = splitAxis(src.width, COLS);
-    const yb = splitAxis(src.height, ROWS);
-    // Some deaths burst violently, others just crumble apart
-    const fallsApart = Math.random() < 0.4;
-    const explosive = fallsApart
-      ? 0.25 + Math.random() * 0.35 // crumble: weak push
-      : 0.8 + Math.random() * 0.7; // burst: hard
-    const dispScaleX = sprite.displayWidth / src.width;
-    const dispScaleY = sprite.displayHeight / src.height;
-    const rot = sprite.rotation; // tipped-over corpses burst from their pose
-    const cosR = Math.cos(rot);
-    const sinR = Math.sin(rot);
-    const alpha = Math.max(sprite.alpha, 0.5); // phantoms still show their burst
-
-    // The flight every piece takes: burst or crumble, then land through
-    // the shared debris pipeline
-    const fling = (piece: Phaser.GameObjects.Image, persist = false): void => {
-      const longShot = Math.random() < 0.01; // ~1 in 100
-      const rx = piece.x - sprite.x;
-      const ry = piece.y - sprite.y;
-      const ang = Math.atan2(ry, rx) + (Math.random() - 0.5) * 0.7;
-      const dirX = Math.cos(ang);
-      const dirY = Math.sin(ang);
-      const dist = longShot
-        ? 90 + Math.random() * 80          // 90-170px: the occasional far fling
-        : (10 + Math.random() * Math.random() * 70) * explosive;
-      const duration = longShot
-        ? 900 + Math.random() * 600        // readable flight for the far ones
-        : (400 + Math.random() * 800) / (0.7 + explosive * 0.55);
-      const bounces = longShot ? 2 + Math.floor(Math.random() * 2) : 1;
-      this.tweens.add({
-        targets: piece,
-        x: piece.x + dirX * dist,
-        y: piece.y + dirY * dist + 8 + Math.random() * 14 + (fallsApart ? 12 : 0),
-        angle: piece.angle + (Math.random() - 0.5) * 720 * explosive,
-        duration,
-        ease: fallsApart ? 'Power1.in' : 'Power2.out',
-        onComplete: () => {
-          if (!piece.active) return;
-          // Lands through the shared pipeline: glide/drip down walls,
-          // trees and towers like blood; on ground, bounce and roll
-          // along the direction it was flying in
-          this.landDebris(piece, piece.x, piece.y, dirX, dirY, bounces, persist);
-        },
-      });
-    };
-
-    for (let gy = 0; gy < ROWS; gy++) {
-      for (let gx = 0; gx < COLS; gx++) {
-        const px0 = xb[gx];
-        const py0 = yb[gy];
-        const w = xb[gx + 1] - px0;
-        const h = yb[gy + 1] - py0;
-        if (w < 2 || h < 2) continue;
-        const sx = src.cutX + px0;
-        const sy = src.cutY + py0;
-        const shardName = `shard_${sx}_${sy}_${w}_${h}`;
-        if (!tex.has(shardName)) {
-          tex.add(shardName, src.sourceIndex, sx, sy, w, h);
-        }
-
-        const ox = (px0 + w / 2) * dispScaleX - sprite.displayWidth / 2;
-        const oy = (py0 + h / 2) * dispScaleY - sprite.displayHeight / 2;
-        const piece = this.add.image(
-          sprite.x + ox * cosR - oy * sinR,
-          sprite.y + ox * sinR + oy * cosR,
-          sprite.texture.key,
-          shardName,
-        );
-        piece.rotation = rot;
-        piece.setDepth(16); // above blood (11) and projectiles (15)
-        piece.setAlpha(alpha);
-
-        fling(piece);
-      }
-    }
-
-    // One random bone fragment joins the burst — every death except the
-    // bleed-out funnels through here — riding the exact same
-    // fall/explode animation as the shards (summoned ninjas leave none)
-    const BONE_KEYS = ['bone_1', 'bone_2', 'bone_3', 'bone_4'];
-    const SKULL_KEY = 'bone_5';
-    const NO_SKEL = new Set(['ninja', 'phantom', 'bat']);
-    const isHeavy = enemy.weight >= 350;
-    const skelKey = NO_SKEL.has(enemy.type)
-      ? null
-      : isHeavy && this.textures.exists(SKULL_KEY)
-        ? SKULL_KEY
-        : BONE_KEYS[Math.floor(Math.random() * BONE_KEYS.length)];
-    if (skelKey && this.textures.exists(skelKey)) {
-      // Scale skeleton by weight — heavy enemies (brute) get the full
-      // 0.9×, lightweight enemies get 0.65× minimum
-      const maxWeight = 2000; // brute = heaviest
-      const scale = 0.65 + 0.25 * Math.min(1, enemy.weight / maxWeight);
-      const skel = this.add.image(
-        sprite.x + (Math.random() - 0.5) * sprite.displayWidth * 0.5,
-        sprite.y + (Math.random() - 0.5) * sprite.displayHeight * 0.5,
-        skelKey,
-      );
-      skel.setDisplaySize(sprite.displayWidth * scale, sprite.displayHeight * scale);
-      skel.setDepth(10); // below the blood (11) so splatter covers it
-      skel.setAlpha(alpha);
-      fling(skel, true); // bones rest on the ground for 30s first
-    }
+    this.deathFx.explodeEnemySprite(enemy);
   }
 
   private createDeathEffect(x: number, y: number, color: string): void {
-    const particles = this.add.circle(x, y, 4, Phaser.Display.Color.HexStringToColor(color).color);
-    this.tweens.add({
-      targets: particles, alpha: 0, scaleX: 2, scaleY: 2, duration: 300,
-      onComplete: () => particles.destroy(),
-    });
+    this.deathFx.createDeathEffect(x, y, color);
   }
 
   /** A splitter bursts into four smaller copies of itself. */
