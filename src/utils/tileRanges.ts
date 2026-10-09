@@ -28,6 +28,7 @@ export const TILESET_RANGES: TilesetRange[] = [
   { folder: 'TilesetWater', base: 1413, count: 476 },
   { folder: 'TilesetHouse', base: 1889, count: 759 },
   { folder: 'TilesetAbandoned', base: 2648, count: 240 },
+  { folder: 'TilesetLoomi', base: 2888, count: 9 },
 ];
 
 export const TOTAL_TILE_COUNT = TILESET_RANGES.reduce((n, r) => n + r.count, 0);

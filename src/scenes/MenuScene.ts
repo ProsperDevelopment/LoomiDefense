@@ -30,14 +30,9 @@ export class MenuScene extends Phaser.Scene {
     });
     subtitle.setOrigin(0.5);
 
-    // Play button
+    // Play button — combined loadout + level select + multiplayer
     this.createButton(width / 2, height / 2 + 40, 'PLAY', () => {
-      this.scene.start('GameScene', { levelId: 1 });
-    });
-
-    // Level Select button
-    this.createButton(width / 2, height / 2 + 100, 'SELECT LEVEL', () => {
-      this.scene.start('LevelSelectScene');
+      this.scene.start('PlayScene');
     });
 
     // Instructions
@@ -100,7 +95,7 @@ export class MenuScene extends Phaser.Scene {
     if (
       this.scene.isActive('GameScene') ||
       this.scene.isActive('GameOverScene') ||
-      this.scene.isActive('LevelSelectScene')
+      this.scene.isActive('PlayScene')
     ) {
       return false;
     }

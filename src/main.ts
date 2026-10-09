@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
 import { MenuScene } from './scenes/MenuScene';
 import { LevelSelectScene } from './scenes/LevelSelectScene';
+import { PlayScene } from './scenes/PlayScene';
 import { GameScene } from './scenes/GameScene';
 import { GameOverScene } from './scenes/GameOverScene';
 import { GAME_WIDTH, GAME_HEIGHT, BACKGROUND_COLOR } from './config/constants';
@@ -26,7 +27,7 @@ const config: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
-  scene: [BootScene, MenuScene, LevelSelectScene, GameScene, GameOverScene],
+  scene: [BootScene, MenuScene, LevelSelectScene, PlayScene, GameScene, GameOverScene],
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -47,6 +48,11 @@ void userProfile.init().finally(() => {
 // Each player uses their own loadout — no loadout is passed here.
 onLobbyStart((_loadout, levelId) => {
   const isHost = !!userProfile.user && lobby.room?.hostId === userProfile.user.id;
+  // Stop PlayScene if it's active (we're launching from the lobby)
+  const playScene = game.scene.getScene('PlayScene');
+  if (playScene && playScene.scene.isActive()) {
+    playScene.scene.stop();
+  }
   game.scene.start('GameScene', {
     levelId,
     netRole: isHost ? 'host' : 'guest',
